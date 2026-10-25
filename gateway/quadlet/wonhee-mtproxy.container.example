@@ -1,0 +1,20 @@
+# Reference only. Copy to /etc/containers/systemd/wonhee-mtproxy.container
+# ONLY after planning the replacement of the currently running Podman container.
+# Never enable simultaneously with an existing container owning TCP/8443.
+[Unit]
+Description=Wonhee MTProxy (rootful Podman Quadlet)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=wonhee-mtproxy
+Image=docker.io/telegrammessenger/proxy:latest
+PublishPort=8443:443/tcp
+Volume=wonhee-mtproxy-data:/data
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
