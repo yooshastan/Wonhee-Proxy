@@ -30,7 +30,9 @@ public final class MainActivity extends Activity {
     private static final int FOREGROUND = Color.rgb(248, 241, 249);
     private static final int PINK = Color.rgb(251, 173, 216);
     private static final String[] ULT_PACKAGES = {
-            "com.yooshastan.ultmessenger", "com.yooshastan.ultmessenger.beta"
+            "com.yooshastan.ultmessenger.foss",
+            "com.yooshastan.ultmessenger",
+            "com.yooshastan.ultmessenger.beta"
     };
 
     private Spinner type;
