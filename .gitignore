@@ -1,0 +1,19 @@
+# Android/Gradle build products and user-machine configuration
+.gradle/
+build/
+**/build/
+.idea/
+local.properties
+*.iml
+*.apk
+*.aab
+
+# Never commit signing material or runtime proxy secrets
+*.keystore
+*.jks
+*.p12
+*.pem
+.env
+.env.*
+*.key
+secrets/

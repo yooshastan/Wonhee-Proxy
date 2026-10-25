@@ -1,0 +1,13 @@
+# Self-hosted MTProto relay for a remote Linux VPS with public TCP/443.
+# The official zero-config image generates its own secret in /data.
+services:
+  mtproxy:
+    image: telegrammessenger/proxy:latest
+    restart: unless-stopped
+    ports:
+      - "443:443/tcp"
+    volumes:
+      - wonhee-mtproxy-data:/data
+
+volumes:
+  wonhee-mtproxy-data:
