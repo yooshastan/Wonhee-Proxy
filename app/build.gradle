@@ -1,0 +1,19 @@
+plugins {
+    id 'com.android.application'
+}
+android {
+    namespace 'com.yooshastan.wonheeproxy'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.yooshastan.wonheeproxy'
+        minSdk 26
+        targetSdk 35
+        versionCode 2
+        versionName '0.1.1-alpha01'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
