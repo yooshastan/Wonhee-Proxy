@@ -1,5 +1,18 @@
 # Wonhee Proxy: privacy, ad filtering and remote-access roadmap
 
+## Implemented status (through Alpha 0.3)
+
+- Alpha 0.1: Android companion, direct TCP probe, Ultgram handoff.
+- Alpha 0.2: explicitly saved AES-GCM/Android-Keystore profiles and user-visible
+  public/LAN endpoint selection.
+- Alpha 0.3: opt-in foreground TCP sampling, endpoint-free in-memory counts,
+  redacted report and optional Quadlet starter. No true protocol handshake.
+
+The milestone paragraphs below record the longer-term design; items such as
+protocol-authenticated probes, device-wide filtering and a Navidrome tunnel
+remain future work.
+
+
 ## Alpha 0.1 — device-testable proxy companion
 
 - Native Java Android app, no Google services dependency.

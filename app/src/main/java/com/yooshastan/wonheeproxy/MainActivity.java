@@ -2,6 +2,9 @@ package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
@@ -12,6 +15,11 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PersistableBundle;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.view.View;
 import android.widget.AdapterView;
@@ -26,6 +34,7 @@ import android.widget.TextView;
 import com.yooshastan.wonheeproxy.core.EndpointSelector;
 import com.yooshastan.wonheeproxy.core.ProxyEndpoint;
 import com.yooshastan.wonheeproxy.core.ProxyProbe;
+import com.yooshastan.wonheeproxy.core.ProbeHistory;
 import com.yooshastan.wonheeproxy.core.UltgramPackages;
 
 import java.net.Inet4Address;
@@ -49,6 +58,19 @@ public final class MainActivity extends Activity {
     private SecureProfileStore store;
     private final List<SecureProfileStore.Profile> saved = new ArrayList<>();
     private boolean rebuildingPicker;
+
+    private static final long MONITOR_INTERVAL_MS = 15000L;
+    private final Handler monitorHandler = new Handler(Looper.getMainLooper());
+    private ProbeHistory monitorHistory = new ProbeHistory();
+    private boolean monitorRunning;
+    private boolean probeInFlight;
+    private int monitorGeneration;
+    private long monitorStartedMs;
+    private long monitorFinishedMs;
+    private Resolved monitoredEndpoint;
+    private TextView monitorStatus;
+    private Button startMonitorButton, stopMonitorButton;
+    private final Runnable scheduledProbe = this::runNextMonitorProbe;
 
     private static final class Resolved {
         final ProxyEndpoint endpoint;
@@ -75,7 +97,7 @@ public final class MainActivity extends Activity {
         setContentView(scroll);
 
         root.addView(text("WONHEE PROXY", 28, PINK));
-        root.addView(text("Privacy gateway companion · Alpha 0.2", 15, FOREGROUND));
+        root.addView(text("Privacy gateway companion · Alpha 0.3", 15, FOREGROUND));
         root.addView(space(16));
         root.addView(text("Save encrypted proxy profiles, choose a home LAN or public endpoint, "
                 + "and send a proxy link to Ultgram when you tap Import. "
@@ -146,6 +168,22 @@ public final class MainActivity extends Activity {
         testButton.setOnClickListener(v -> confirmTcpTest());
         Button importButton = button(root, "Open in Ultgram");
         importButton.setOnClickListener(v -> openInUltgram());
+
+        root.addView(space(16));
+        root.addView(text("Opt-in TCP monitor", 16, PINK));
+        root.addView(text("Checks the selected endpoint about every 15 seconds while "
+                + "this screen stays visible. Stops when you leave Wonhee. "
+                + "These checks measure TCP reachability, not Telegram routing or server uptime.",
+                13, FOREGROUND));
+        startMonitorButton = button(root, "Start foreground TCP monitor");
+        startMonitorButton.setOnClickListener(v -> confirmStartMonitor());
+        stopMonitorButton = button(root, "Stop monitor");
+        stopMonitorButton.setOnClickListener(v -> stopMonitor("Monitor stopped."));
+        stopMonitorButton.setEnabled(false);
+        Button copyReportButton = button(root, "Copy redacted TCP diagnostic report");
+        copyReportButton.setOnClickListener(v -> copyRedactedDiagnostics());
+        monitorStatus = text("Monitor is off. No checks have been run.", 13, FOREGROUND);
+        root.addView(monitorStatus);
 
         status = text("Ready. TCP checks never authenticate an MTProto or SOCKS5 connection.",
                 14, FOREGROUND);
@@ -406,6 +444,112 @@ public final class MainActivity extends Activity {
         }
         status.setText("No compatible Ultgram build accepted the proxy link. "
                 + "Check the installed Ultgram APK/package.");
+    }
+
+    @Override
+    protected void onStop() {
+        stopMonitor("Monitor stopped as Wonhee left the foreground.");
+        super.onStop();
+    }
+
+    private void confirmStartMonitor() {
+        if (monitorRunning) return;
+        final Resolved chosen;
+        try {
+            chosen = resolveCurrent();
+        } catch (IllegalArgumentException invalid) {
+            status.setText(invalid.getMessage());
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Start foreground TCP monitoring?")
+                .setMessage("Every ~15 seconds while Wonhee is visible, connect to "
+                        + chosen.endpoint.host + ":" + chosen.endpoint.port + " ("
+                        + chosen.selection.reason + "). Your server can see "
+                        + "your IP and repeated connection attempts. This is a TCP-only "
+                        + "monitor; it does not authenticate MTProto, measure Telegram "
+                        + "traffic, prove privacy, or run in the background.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Start", (dialog, which) -> {
+                    monitorHistory = new ProbeHistory();
+                    monitoredEndpoint = chosen;
+                    monitorStartedMs = SystemClock.elapsedRealtime();
+                    monitorFinishedMs = 0;
+                    monitorRunning = true;
+                    probeInFlight = false;
+                    monitorGeneration++;
+                    startMonitorButton.setEnabled(false);
+                    stopMonitorButton.setEnabled(true);
+                    monitorStatus.setText("Starting TCP checks for "
+                            + chosen.endpoint.safeDescription() + ". "
+                            + "The endpoint is pinned until the monitor stops.");
+                    monitorHandler.post(scheduledProbe);
+                }).show();
+    }
+
+    private void runNextMonitorProbe() {
+        if (!monitorRunning || probeInFlight || monitoredEndpoint == null) return;
+        probeInFlight = true;
+        final int generation = monitorGeneration;
+        final ProxyEndpoint endpoint = monitoredEndpoint.endpoint;
+        new Thread(() -> {
+            ProxyProbe.Result result = ProxyProbe.check(endpoint, 4000);
+            runOnUiThread(() -> {
+                if (generation != monitorGeneration || !monitorRunning
+                        || isFinishing() || isDestroyed()) return;
+                probeInFlight = false;
+                monitorHistory.record(result.status, result.elapsedMillis);
+                monitorStatus.setText(monitorHistory.shortSummary()
+                        + "\nObservation time: " + (monitorDurationMs() / 1000)
+                        + " s. TCP only; no proxy handshake verified.");
+                monitorHandler.postDelayed(scheduledProbe, MONITOR_INTERVAL_MS);
+            });
+        }, "WonheeForegroundTcpMonitor").start();
+    }
+
+    private long monitorDurationMs() {
+        if (monitorStartedMs == 0) return 0;
+        long end = monitorRunning ? SystemClock.elapsedRealtime() : monitorFinishedMs;
+        return Math.max(0L, end - monitorStartedMs);
+    }
+
+    private void stopMonitor(String message) {
+        if (!monitorRunning) return;
+        monitorFinishedMs = SystemClock.elapsedRealtime();
+        monitorRunning = false;
+        monitorGeneration++;
+        probeInFlight = false;
+        monitoredEndpoint = null;
+        monitorHandler.removeCallbacks(scheduledProbe);
+        if (startMonitorButton != null) startMonitorButton.setEnabled(true);
+        if (stopMonitorButton != null) stopMonitorButton.setEnabled(false);
+        if (monitorStatus != null) {
+            monitorStatus.setText(message + " " + monitorHistory.shortSummary()
+                    + "\nObservation time: " + (monitorDurationMs() / 1000) + " s.");
+        }
+    }
+
+    private void copyRedactedDiagnostics() {
+        // ProbeHistory records only status and elapsed milliseconds: never
+        // the server hostname, IP address, secret or SOCKS5 credentials.
+        String report = monitorHistory.redactedSnapshot(monitorRunning,
+                monitorDurationMs());
+        ClipboardManager manager =
+                (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (manager == null) {
+            status.setText("Clipboard is unavailable.");
+            return;
+        }
+        ClipData clip = ClipData.newPlainText("Wonhee redacted TCP diagnostics", report);
+        if (Build.VERSION.SDK_INT >= 33) {
+            PersistableBundle extras = new PersistableBundle();
+            extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+            clip.getDescription().setExtras(extras);
+        }
+        manager.setPrimaryClip(clip);
+        status.setText("Redacted TCP stats copied. No hostname, IP or proxy "
+                + "credential was included. Clipboard contents can still be read "
+                + "by other apps with clipboard access.");
     }
 
     private TextView text(String value, int sp, int color) {
