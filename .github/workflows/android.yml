@@ -1,4 +1,4 @@
-name: Wonhee Proxy Android Alpha 0.3
+name: Wonhee Proxy Android Alpha 0.4
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
         run: gradle :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha03-debug-apk
+          name: wonhee-proxy-alpha04-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

@@ -43,7 +43,7 @@ import java.util.List;
 
 /**
  * Standalone, user-controlled Ultgram proxy companion.
- * Not a VPN, tunnel or Telegram protocol tester. Only an explicit tap sends
+ * MTProto controls are separate from the opt-in experimental VPN. Only an explicit tap sends
  * the user's proxy URL to an allowlisted Ultgram package.
  */
 public final class MainActivity extends Activity {
@@ -97,11 +97,11 @@ public final class MainActivity extends Activity {
         setContentView(scroll);
 
         root.addView(text("WONHEE PROXY", 28, PINK));
-        root.addView(text("Privacy gateway companion · Alpha 0.3", 15, FOREGROUND));
+        root.addView(text("Privacy gateway companion · Alpha 0.4", 15, FOREGROUND));
         root.addView(space(16));
         root.addView(text("Save encrypted proxy profiles, choose a home LAN or public endpoint, "
                 + "and send a proxy link to Ultgram when you tap Import. "
-                + "Wonhee does not run a VPN or change Ultgram's connection in the background.",
+                + "Wonhee changes Ultgram only when you tap Import. VPN mode is a separate, explicit action.",
                 15, FOREGROUND));
         root.addView(space(16));
 
@@ -168,6 +168,15 @@ public final class MainActivity extends Activity {
         testButton.setOnClickListener(v -> confirmTcpTest());
         Button importButton = button(root, "Open in Ultgram");
         importButton.setOnClickListener(v -> openInUltgram());
+
+        root.addView(space(16));
+        root.addView(text("Experimental VPN · Alpha 0.4", 16, PINK));
+        root.addView(text("Import a private WireGuard configuration and explicitly request "
+                + "Android VPN permission. This can replace Tailscale; no DNS filtering, "
+                + "kill switch or leak protection is present yet.", 13, FOREGROUND));
+        Button vpnButton = button(root, "Open WireGuard VPN (experimental)");
+        vpnButton.setOnClickListener(v -> startActivity(
+                new Intent(this, VpnActivity.class)));
 
         root.addView(space(16));
         root.addView(text("Opt-in TCP monitor", 16, PINK));

@@ -14,6 +14,16 @@
         android:icon="@drawable/ic_wonhee_proxy"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
+        <activity android:name=".VpnActivity" android:exported="false" />
+        <!-- The WireGuard library merges its VpnService declaration. Disable
+             Always-on in the ephemeral-config Alpha 0.4 prototype. -->
+        <service
+            android:name="com.wireguard.android.backend.GoBackend$VpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="false" />
+        </service>
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
