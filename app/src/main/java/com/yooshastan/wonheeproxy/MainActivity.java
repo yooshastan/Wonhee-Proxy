@@ -97,7 +97,7 @@ public final class MainActivity extends Activity {
         setContentView(scroll);
 
         root.addView(text("WONHEE PROXY", 28, PINK));
-        root.addView(text("Privacy gateway companion · Alpha 0.4", 15, FOREGROUND));
+        root.addView(text("Telegram proxy companion · Alpha 0.5", 15, FOREGROUND));
         root.addView(space(16));
         root.addView(text("Save encrypted proxy profiles, choose a home LAN or public endpoint, "
                 + "and send a proxy link to Ultgram when you tap Import. "
@@ -170,13 +170,16 @@ public final class MainActivity extends Activity {
         importButton.setOnClickListener(v -> openInUltgram());
 
         root.addView(space(16));
-        root.addView(text("Experimental VPN · Alpha 0.4", 16, PINK));
-        root.addView(text("Import a private WireGuard configuration and explicitly request "
-                + "Android VPN permission. This can replace Tailscale; no DNS filtering, "
-                + "kill switch or leak protection is present yet.", 13, FOREGROUND));
-        Button vpnButton = button(root, "Open WireGuard VPN (experimental)");
-        vpnButton.setOnClickListener(v -> startActivity(
-                new Intent(this, VpnActivity.class)));
+        root.addView(text("WireGuard VPN dashboard · Alpha 0.5", 16, PINK));
+        root.addView(text("The VPN dashboard is now the main screen. Saved encrypted tunnel "
+                + "profiles and WireGuard handshake statistics live there. "
+                + "DNS filtering and leak protection are still experimental.", 13, FOREGROUND));
+        Button vpnButton = button(root, "Return to VPN dashboard");
+        vpnButton.setOnClickListener(v -> {
+            Intent vpn = new Intent(this, VpnActivity.class);
+            vpn.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(vpn);
+        });
 
         root.addView(space(16));
         root.addView(text("Opt-in TCP monitor", 16, PINK));

@@ -1,0 +1,177 @@
+package com.yooshastan.wonheeproxy;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.util.Base64;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+
+/**
+ * VPN profiles are saved ONLY on an explicit tap of Save. Each WireGuard
+ * configuration includes private key material, so the entire list is sealed
+ * using AES-256-GCM and a non-exportable Android Keystore key. No plaintext
+ * fallback, backup, profile telemetry or automatic reconnection.
+ */
+final class SecureTunnelProfileStore {
+    static final int MAX_PROFILES = 8;
+    static final int MAX_CONFIG_BYTES = 65536;
+    private static final String FILE = "wonhee_vpn_profiles_v1";
+    private static final String FIELD = "sealed_vpn_profiles";
+    private static final String KEY_ALIAS = "wonhee_vpn_profiles_aes_v1";
+    private static final int IV_BYTES = 12;
+    private static final int TAG_BITS = 128;
+    private final SharedPreferences prefs;
+
+    static final class Profile {
+        final String name;
+        final String configuration;
+
+        Profile(String name, String configuration) {
+            this.name = name == null ? "" : name.trim();
+            this.configuration = configuration == null ? "" : configuration;
+            if (this.name.isEmpty() || this.name.length() > 64
+                    || this.name.chars().anyMatch(c -> Character.isISOControl((char) c))) {
+                throw new IllegalArgumentException("Use a profile name of 1–64 printable characters.");
+            }
+            if (this.configuration.isEmpty()
+                    || this.configuration.getBytes(StandardCharsets.UTF_8).length > MAX_CONFIG_BYTES) {
+                throw new IllegalArgumentException("WireGuard configuration is empty or too large.");
+            }
+        }
+
+        JSONObject asJson() throws Exception {
+            JSONObject result = new JSONObject();
+            result.put("name", name);
+            result.put("configuration", configuration);
+            return result;
+        }
+
+        static Profile fromJson(JSONObject value) throws Exception {
+            return new Profile(value.getString("name"), value.getString("configuration"));
+        }
+    }
+
+    SecureTunnelProfileStore(Context context) {
+        prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+    }
+
+    synchronized List<Profile> load() throws Exception {
+        String stored = prefs.getString(FIELD, null);
+        List<Profile> result = new ArrayList<>();
+        if (stored == null) return result;
+        if (stored.length() > 1024 * 1024) {
+            throw new IllegalStateException("Encrypted profile data exceeds the limit.");
+        }
+        byte[] packet = Base64.decode(stored, Base64.NO_WRAP);
+        if (packet.length < 1 + IV_BYTES + 16 || packet[0] != 1) {
+            throw new IllegalStateException("Unsupported encrypted VPN profile format.");
+        }
+        byte[] iv = Arrays.copyOfRange(packet, 1, 1 + IV_BYTES);
+        byte[] encrypted = Arrays.copyOfRange(packet, 1 + IV_BYTES, packet.length);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, getKey(), new GCMParameterSpec(TAG_BITS, iv));
+        byte[] plaintext = cipher.doFinal(encrypted);
+        try {
+            JSONObject document = new JSONObject(new String(plaintext, StandardCharsets.UTF_8));
+            if (document.getInt("version") != 1) {
+                throw new IllegalStateException("Unsupported VPN profile document version.");
+            }
+            JSONArray profiles = document.getJSONArray("profiles");
+            if (profiles.length() > MAX_PROFILES) {
+                throw new IllegalStateException("Too many encrypted VPN profiles.");
+            }
+            for (int i = 0; i < profiles.length(); i++) {
+                result.add(Profile.fromJson(profiles.getJSONObject(i)));
+            }
+            return result;
+        } finally {
+            Arrays.fill(plaintext, (byte) 0);
+            Arrays.fill(encrypted, (byte) 0);
+        }
+    }
+
+    synchronized void save(Profile updated) throws Exception {
+        List<Profile> profiles = load(); // Decryption failure must NOT overwrite data.
+        int replaceIndex = -1;
+        for (int i = 0; i < profiles.size(); i++) {
+            if (profiles.get(i).name.equalsIgnoreCase(updated.name)) {
+                replaceIndex = i;
+                break;
+            }
+        }
+        if (replaceIndex >= 0) {
+            profiles.set(replaceIndex, updated);
+        } else {
+            if (profiles.size() >= MAX_PROFILES) {
+                throw new IllegalArgumentException("Maximum of 8 VPN profiles reached.");
+            }
+            profiles.add(updated);
+        }
+        write(profiles);
+    }
+
+    synchronized void delete(String name) throws Exception {
+        List<Profile> profiles = load();
+        boolean removed = profiles.removeIf(p -> p.name.equalsIgnoreCase(name));
+        if (!removed) throw new IllegalArgumentException("Choose an existing VPN profile.");
+        write(profiles);
+    }
+
+    private void write(List<Profile> profiles) throws Exception {
+        JSONObject document = new JSONObject();
+        document.put("version", 1);
+        JSONArray items = new JSONArray();
+        for (Profile profile : profiles) items.put(profile.asJson());
+        document.put("profiles", items);
+        byte[] cleartext = document.toString().getBytes(StandardCharsets.UTF_8);
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, getKey());
+            byte[] iv = cipher.getIV();
+            if (iv == null || iv.length != IV_BYTES) {
+                throw new IllegalStateException("Unexpected AES-GCM IV length.");
+            }
+            byte[] sealed = cipher.doFinal(cleartext);
+            byte[] output = new byte[1 + IV_BYTES + sealed.length];
+            output[0] = 1;
+            System.arraycopy(iv, 0, output, 1, IV_BYTES);
+            System.arraycopy(sealed, 0, output, 1 + IV_BYTES, sealed.length);
+            if (!prefs.edit().putString(FIELD, Base64.encodeToString(output, Base64.NO_WRAP)).commit()) {
+                throw new IllegalStateException("Encrypted VPN profiles were not saved.");
+            }
+            Arrays.fill(sealed, (byte) 0);
+            Arrays.fill(output, (byte) 0);
+        } finally {
+            Arrays.fill(cleartext, (byte) 0);
+        }
+    }
+
+    private static SecretKey getKey() throws Exception {
+        KeyStore store = KeyStore.getInstance("AndroidKeyStore");
+        store.load(null);
+        SecretKey existing = (SecretKey) store.getKey(KEY_ALIAS, null);
+        if (existing != null) return existing;
+        KeyGenerator generator = KeyGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256).build());
+        return generator.generateKey();
+    }
+}

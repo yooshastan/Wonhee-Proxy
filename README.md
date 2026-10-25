@@ -1,29 +1,50 @@
 # Wonhee Proxy
 
-**Alpha 0.4** · Android proxy companion and experimental WireGuard VPN for Yooshastan Ultgram and Moka.
+**Alpha 0.5 (draft)** · WireGuard-first VPN dashboard and Ultgram proxy companion.
 
-Wonhee helps you configure and hand off trusted MTProto or SOCKS5
-endpoints to Ultgram. Alpha 0.4 adds a separate, **user-initiated**
+Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
+endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
+
+## New in Alpha 0.5 — VPN-first dashboard (draft)
+
+- **VPN on launch:** One-tap Connect/Disconnect and a separate Telegram proxy tools screen.
+- **Explicit encrypted tunnel profiles:** Save up to eight configurations with AES-256-GCM and
+  a separate non-exportable Android Keystore key. Import with Android's file picker,
+  name, save, select later, replace after confirmation or delete. Configs are *not*
+  saved on import; no plaintext fallback, remote backup, logs, or automatic startup.
+- **Native diagnostic counters:** The WireGuard GoBackend exposes per-peer latest
+  handshake timestamps and tunnel receive/transmit totals. The dashboard samples
+  while visible, stops updating when hidden, and distinguishes an active interface
+  from a recent peer handshake. A handshake does not prove internet or DNS privacy.
+- **Preserves existing Telegram proxy functionality:** MTProto and SOCKS5 profiles,
+  encrypted proxy credentials, Ultgram handoff and opt-in TCP monitor remain on
+  the secondary screen.
+- **Still experimental:** Android Always-on is disabled, and there is no reconnect
+  guarantee, IPv6 leak prevention, filtering, DoQ/DoH or kill switch yet.
+- **Build:** `gradle :app:assembleDebug`. CI artifact:
+  `wonhee-proxy-alpha05-debug-apk`.
+
+See [Alpha 0.5 manual test plan](docs/ALPHA05_TEST_PLAN.md).
 
 ## New in Alpha 0.4 — experimental WireGuard bring-up
 
 - **Official tunnel engine:** Uses `com.wireguard.android:tunnel:1.0.20260102`
   and its integrated Android `VpnService`. Wonhee does not implement its own
   VPN cryptography.
-- **Private config import:** Import a WireGuard `.conf` with Android's file
-  picker. The config (including the private key) stays only in app-process
-  memory; Wonhee does not save, upload, or log it. Limit: 64 KiB.
+- **Private config import (Alpha 0.4 baseline):** Import a WireGuard `.conf` with Android's file
+  picker. Alpha 0.5 adds separately consented, Keystore-encrypted local saving.
+  The import size limit remains 64 KiB. Keys are never uploaded or logged.
 - **Explicit system permission:** Android asks before enabling this VPN. The
   permission and activation can replace Tailscale or another active VPN.
-  Stop VPN is available on a separate screen.
+  Stop VPN is available on the main dashboard.
 - **Routing by WireGuard configuration:** A config with `AllowedIPs =
   0.0.0.0/0, ::/0` requests full-tunnel IPv4/IPv6 routing. Private-network
   prefixes instead request split routing. The robust in-app mode switch is
   planned for Alpha 0.6.
 - **Safety constraints:** Off by default, no automatic startup, and Android
-  Always-on VPN is disabled for this temporary-config experiment. An active
+  Always-on VPN remains disabled pending reboot/reconnection testing. An active
   tunnel interface is **not** proof of a WireGuard handshake, reachability,
   leak protection, DNS privacy or internet access.
 - **No server changes:** Installing the APK does not create a Fedora
@@ -72,10 +93,10 @@ See [Alpha 0.4 test plan](docs/ALPHA04_TEST_PLAN.md) and
 - Changing networks **does not silently switch an already active Ultgram
   proxy**. Auto selection applies only when you press Test or Open in Ultgram.
   After network changes, open Wonhee and re-import if needed.
-- The Alpha 0.4 VPN is experimental: no tested Fedora gateway, no
-  fail-closed routing, auto-reconnect, background restart, secure tunnel
-  profile storage, system-wide DNS/tracker filtering, DoQ/DoH, or Navidrome
-  access yet. Do not enable it for sensitive traffic or claim leak protection.
+- The VPN is experimental: WireGuard handshakes and home ping were manually
+  tested on a Pixel 8a, but full-tunnel internet routing, fail-closed behavior,
+  auto-reconnect, background restart, system-wide DNS/tracker filtering,
+  DoQ/DoH, and private Navidrome access are not yet validated. Do not enable it for sensitive traffic or claim leak protection.
 - The existing MTProto TCP monitor does not prove proxy authentication;
   WireGuard interface UP does not prove a successful peer handshake.
 - No proof of anonymity or zero leaks. The proxy operator can see the client
@@ -90,7 +111,7 @@ See [Alpha 0.4 test plan](docs/ALPHA04_TEST_PLAN.md) and
 
 ## How to try it
 
-1. Build or download the wonhee-proxy-alpha04-debug-apk from GitHub Actions.
+1. Build or download the wonhee-proxy-alpha05-debug-apk from GitHub Actions.
 2. Install the APK (the CI debug signing key can change across workflow runs,
    so Android may require uninstalling an older debug APK first).
 3. Enter a **Public server IP or DNS name**, port and secret. For your home
@@ -103,10 +124,10 @@ See [Alpha 0.4 test plan](docs/ALPHA04_TEST_PLAN.md) and
    on cellular and Auto on your home Wi-Fi.
 7. Press **Start foreground TCP monitor** and verify reachability counts and
    redacted clipboard diagnostics. Leave Wonhee and confirm it stops.
-8. If you are testing VPN mode, first configure a **separate**, authenticated
-   WireGuard gateway. Tap **Open WireGuard VPN (experimental)** and import a
-   private `.conf`. Only then consent to starting Android's VPN; this may
-   disconnect Tailscale. Test on a spare device with safe fallback internet.
+8. On launch, use the VPN dashboard. Import a private WireGuard `.conf`,
+   give it a name and tap **Save encrypted profile**. After relaunch choose that
+   profile, tap **Connect VPN**, then confirm the Android VPN permission.
+   Monitor handshake and counters; use **Telegram proxy tools** for MTProto.
 9. See [Alpha 0.4 manual test plan](docs/ALPHA04_TEST_PLAN.md),
    [Alpha 0.3 plan](docs/ALPHA03_TEST_PLAN.md) and the
    earlier [Alpha 0.2 plan](docs/ALPHA02_TEST_PLAN.md).

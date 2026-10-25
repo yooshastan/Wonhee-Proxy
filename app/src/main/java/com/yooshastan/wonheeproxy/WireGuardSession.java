@@ -5,20 +5,44 @@ import android.os.Handler;
 import android.os.Looper;
 
 import com.wireguard.android.backend.GoBackend;
+import com.wireguard.android.backend.Statistics;
 import com.wireguard.android.backend.Tunnel;
 import com.wireguard.config.Config;
+import com.wireguard.crypto.Key;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Process-local experimental WireGuard session. The system VPN service is
- * supplied by the official WireGuard tunnel library. No credentials are
- * persisted by this class. Always-on is intentionally unsupported in Alpha 0.4.
+ * Single process-local WireGuard tunnel. All mutating backend calls and
+ * statistics reads use one executor to avoid reading during transition.
+ * The system VPN service is provided by the official WireGuard library.
  */
 final class WireGuardSession {
     interface Completion {
         void finished(boolean success, String message);
+    }
+
+    interface StatsCallback {
+        void finished(StatusSnapshot snapshot);
+    }
+
+    static final class StatusSnapshot {
+        final boolean interfaceUp;
+        final boolean statisticsAvailable;
+        final long receivedBytes;
+        final long transmittedBytes;
+        final long lastHandshakeEpochMillis;
+        final int peers;
+
+        StatusSnapshot(boolean up, boolean available, long rx, long tx, long handshake, int peers) {
+            interfaceUp = up;
+            statisticsAvailable = available;
+            receivedBytes = rx;
+            transmittedBytes = tx;
+            lastHandshakeEpochMillis = handshake;
+            this.peers = peers;
+        }
     }
 
     private static WireGuardSession instance;
@@ -27,7 +51,7 @@ final class WireGuardSession {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Tunnel tunnel = new Tunnel() {
         @Override public String getName() { return "WonheeHome"; }
-        @Override public void onStateChange(State newState) { }
+        @Override public void onStateChange(State state) { }
     };
     private boolean operationPending;
 
@@ -48,12 +72,46 @@ final class WireGuardSession {
         return operationPending;
     }
 
-    void connect(Config config, Completion callback) {
-        dispatch(true, config, callback);
+    void connect(Config config, Completion completion) {
+        dispatch(true, config, completion);
     }
 
-    void disconnect(Completion callback) {
-        dispatch(false, null, callback);
+    void disconnect(Completion completion) {
+        dispatch(false, null, completion);
+    }
+
+    void readStatistics(StatsCallback callback) {
+        executor.execute(() -> {
+            boolean up = false;
+            boolean available = false;
+            long rx = 0L;
+            long tx = 0L;
+            long recentHandshake = 0L;
+            int peerCount = 0;
+            try {
+                up = backend.getState(tunnel) == Tunnel.State.UP;
+                if (up) {
+                    Statistics statistics = backend.getStatistics(tunnel);
+                    rx = statistics.totalRx();
+                    tx = statistics.totalTx();
+                    Key[] keys = statistics.peers();
+                    peerCount = keys.length;
+                    for (Key key : keys) {
+                        Statistics.PeerStats peer = statistics.peer(key);
+                        if (peer != null) {
+                            recentHandshake = Math.max(
+                                    recentHandshake, peer.latestHandshakeEpochMillis());
+                        }
+                    }
+                    available = true;
+                }
+            } catch (Exception | LinkageError ignored) {
+                // Native exceptions and config values are never logged or echoed.
+            }
+            StatusSnapshot result = new StatusSnapshot(
+                    up, available, rx, tx, recentHandshake, peerCount);
+            main.post(() -> callback.finished(result));
+        });
     }
 
     private void dispatch(boolean connect, Config config, Completion callback) {
@@ -67,23 +125,21 @@ final class WireGuardSession {
         executor.execute(() -> {
             boolean success = false;
             try {
-                backend.setState(tunnel, connect ? Tunnel.State.UP : Tunnel.State.DOWN, config);
-                success = backend.getState(tunnel) ==
-                        (connect ? Tunnel.State.UP : Tunnel.State.DOWN);
-            } catch (Exception | LinkageError error) {
-                // Backend exception text could include a config value. Do not
-                // expose it through logs, UI, crash telemetry, or the clipboard.
+                Tunnel.State desired = connect ? Tunnel.State.UP : Tunnel.State.DOWN;
+                backend.setState(tunnel, desired, config);
+                success = backend.getState(tunnel) == desired;
+            } catch (Exception | LinkageError ignored) {
+                // Do not leak private WireGuard configuration via diagnostics.
             }
             synchronized (WireGuardSession.this) {
                 operationPending = false;
             }
             final boolean done = success;
             main.post(() -> callback.finished(done, done
-                    ? (connect ? "WireGuard interface started. A successful handshake "
-                       + "and internet access are NOT yet verified."
-                       : "WireGuard interface stopped.")
-                    : "WireGuard operation failed. Verify the private configuration, "
-                      + "VPN permission, gateway and device compatibility."));
+                    ? (connect
+                        ? "VPN interface started. Waiting for peer handshake verification."
+                        : "VPN interface stopped.")
+                    : "VPN operation failed. Check permission, configuration and the gateway."));
         });
     }
 }
