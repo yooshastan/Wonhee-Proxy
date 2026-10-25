@@ -1,57 +1,72 @@
 # Wonhee Proxy
 
-An independent privacy and proxy companion for **Ultgram**, by Yooshastan
-Studios. Alpha 0.1.1 is a real Android starter with a small, reusable Java core.
+**Alpha 0.2** · Independent Android proxy companion for Yooshastan Ultgram.
 
-**Current scope:** Configure an MTProto or SOCKS5 endpoint, run a manual TCP
-reachability test, and open its profile in an installed Ultgram client. An
-optional self-hosted MTProxy server starter is included.
+Wonhee helps you configure, save and hand off trusted MTProto or SOCKS5
+endpoints to an installed Ultgram client. It does not host the proxy on your
+phone, start a VPN or silently redirect Android traffic.
 
-**Important:** This alpha is **not a VPN**, DNS ad blocker, traffic tunnel,
-kill switch, Navidrome remote-access solution, or identity-anonymizing service.
-It does not run in the background or save credentials. It transfers a proxy
-secret only through an explicit package-scoped Android intent to Ultgram.
+## What works in Alpha 0.2
 
-## First build
+- **Encrypted profiles:** Explicitly save up to 16 named configurations locally.
+  The profile list (including any MTProto secret or SOCKS5 credentials) is
+  encrypted as one authenticated AES-256-GCM document with a non-exportable
+  Android Keystore key. No plaintext fallback or Android Auto Backup.
+- **Two endpoints per profile:** A required public IP/DNS name and an optional
+  home LAN IPv4 address, with one TCP port and credentials.
+- **Endpoint choice:** Public, LAN (manual), or Auto. Auto selects the LAN
+  address only if it is an RFC1918 IPv4 literal on the device's active Wi-Fi
+  subnet and the active network is not reporting VPN transport. Otherwise it
+  selects public. This is a convenience hint, **not authentication of your
+  home network**. Check the displayed endpoint before importing.
+- **TCP-only diagnostics:** An explicit consent dialog shows the selected
+  host and port, then attempts a 4-second TCP connection. Reachability is
+  separate from an authenticated MTProto or SOCKS5 connection.
+- **Ultgram handoff:** Sends proxy data only through an explicitly package-
+  scoped Android intent to known Ultgram variants, including the FOSS debug
+  package com.yooshastan.ultmessenger.foss.beta. No generic chooser.
 
-1. Open GitHub Actions → **Wonhee Proxy Android Alpha** on this branch.
-2. Download the `wonhee-proxy-alpha01-debug-apk` artifact from a successful run.
-3. Install the APK on Pixel 8a or Samsung A36.
-4. Enter a trusted proxy endpoint and choose **Test TCP endpoint** to check only
-   that the host's port answers. You must consent to an explicit network probe.
-5. Choose **Open in Ultgram** to hand off the configuration to the installed
-   `com.yooshastan.ultmessenger` app (or its debug/beta package). The FOSS
-   ARM64 debug build produced by Ultgram's CI installs as
-   `com.yooshastan.ultmessenger.foss.beta`.
-6. Activate the proxy in Ultgram, send messages and media, and independently
-   verify server-side routing. TCP reachability is not proof of proxy use.
+### Important limits
 
-Build locally with JDK 17, Android SDK API 36, Gradle 8.13 and:
-`gradle :app:assembleDebug`. If your Android Studio expects a wrapper,
-generate it with `gradle wrapper --gradle-version 8.13` on your own workstation.
+- Changing networks **does not silently switch an already active Ultgram
+  proxy**. Auto selection applies only when you press Test or Open in Ultgram.
+  After network changes, open Wonhee and re-import if needed.
+- No VPN, system-wide ad blocker, encrypted DNS, background gateway,
+  fail-closed routing, real protocol handshake test, or Navidrome access yet.
+- No proof of anonymity or zero leaks. The proxy operator can see the client
+  IP, and your Telegram account identity remains linked to you.
+- Telegram-sponsored messages are delivered via Telegram APIs as required by
+  client policy.
+- Keystore encryption protects data at rest; it is not a defense against a
+  compromised/unlocked phone or an attacker who can operate the installed app.
+- Uninstalling Wonhee, changing its signing identity, or resetting Android's
+  Keystore may make saved profiles unrecoverable. Keep your own credentials
+  securely stored outside the app. Do not publish secrets in GitHub issues.
 
-## Modules
+## How to try it
 
-- `app/` — simple native Android UI; no Google Play services needed.
-- `app/src/main/java/.../core/` — pure Java validation, safe
-  profile URL construction and opt-in TCP endpoint reachability.
-- `core-tests/` — no-network-external test fixtures using localhost.
-- `gateway/` — optional MTProxy container for a remote Linux VPS.
-- `docs/ROADMAP.md` — privacy claims, limitations, and Tailscale alternative.
+1. Build or download the wonhee-proxy-alpha02-debug-apk from GitHub Actions.
+2. Install the APK (the CI debug signing key can change across workflow runs,
+   so Android may require uninstalling an older debug APK first).
+3. Enter a **Public server IP or DNS name**, port and secret. For your home
+   server, optionally enter the private LAN address separately.
+4. Choose Auto / Public / LAN. Tap **Test selected TCP endpoint** and read the
+   confirmation. TCP success does *not* mean Telegram authenticated.
+5. Tap **Open in Ultgram** and activate the imported profile there.
+6. Give the profile a name and tap **Save / update encrypted profile**. Restart
+   Wonhee, select the saved profile, and verify its fields reload. Test Public
+   on cellular and Auto on your home Wi-Fi.
+7. See [Alpha 0.2 manual test plan](docs/ALPHA02_TEST_PLAN.md).
 
-## Non-goals and safety
+Android SDK API 36, JDK 17, Gradle 8.13:
 
-Wonhee Proxy does not add ads or analytics. Telegram-sponsored messages are
-delivered through the Telegram API, and third-party clients must support them.
-A proxy can hide a connection's originating IP from Telegram **only while**
-Telegram traffic actually passes through that remote relay. It cannot remove
-Telegram's phone-number/account associations or hide your IP from the proxy
-operator. Do not assume a strict or fail-closed connection until separately
-audited.
+    gradle :app:assembleDebug
 
-Not affiliated with Telegram, Telegram Messenger LLP, or any music artist or
-agency. The project name and emblem are original brand assets.
+The repository also includes an optional MTProxy gateway starter and a longer
+privacy/network roadmap. Do not expose your Navidrome HTTP port to the open
+internet or remove Tailscale until a separate authenticated service tunnel
+has been built and audited.
 
-Useful references:
+Not affiliated with Telegram or any recording artist. See:
 - https://core.telegram.org/proxy
 - https://core.telegram.org/api/sponsored-messages
