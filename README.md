@@ -1,13 +1,40 @@
 # Wonhee Proxy
 
-**Alpha 0.5 (draft)** · WireGuard-first VPN dashboard and Ultgram proxy companion.
+**Alpha 0.6 (draft)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
 
-## New in Alpha 0.5 — VPN-first dashboard (draft)
+## New in Alpha 0.6 — explicit connection routing (draft)
+
+- **Three choices on the VPN screen:** Use imported profile routes (default), Home
+  access (custom split CIDRs), or All internet (experimental IPv4+IPv6 default
+  routes). No routing switch occurs while the VPN is active.
+- **Home access:** Enter home networks such as `10.77.0.0/24` and, only when
+  your Fedora routing/firewall permits it, `192.168.50.0/24`. Other destinations
+  use Android's usual network connection. The app rejects `/0` in Home mode.
+- **All internet is an *unverified request*, not a privacy guarantee:** The phone
+  requests both IPv4 and IPv6 default routes; the Fedora home gateway must have
+  appropriate forwarding, firewall/NAT for IPv4, functional IPv6 routing and DNS.
+  A WireGuard handshake or changing egress IP alone does not establish leak
+  safety. Without those server changes, internet requests can fail or leak.
+- **No silent key changes:** The selected mode modifies only a temporary
+  connection configuration. Original imported WireGuard keys/addresses remain
+  unchanged. Choose **Save encrypted profile** to persist the mode and home
+  CIDRs in the AES-GCM Keystore-sealed profile. Existing Alpha 0.5 profiles
+  migrate with the original routing choice and remain readable.
+- **Guardrails:** Custom mode requires a single WireGuard peer; multi-peer
+  profiles can still use their original routing. Warning before Connect;
+  Android's single VPN slot means Tailscale is replaced while Wonhee is active.
+  No Always-on, kill switch, DNS enforcement or leakage claims.
+- **Build:** `gradle :app:assembleDebug`. Actions artifact:
+  `wonhee-proxy-alpha06-debug-apk`.
+
+See [Alpha 0.6 manual test plan](docs/ALPHA06_TEST_PLAN.md).
+
+## New in Alpha 0.5 — VPN-first dashboard
 
 - **VPN on launch:** One-tap Connect/Disconnect and a separate Telegram proxy tools screen.
 - **Explicit encrypted tunnel profiles:** Save up to eight configurations with AES-256-GCM and
@@ -41,8 +68,7 @@ See [Alpha 0.5 manual test plan](docs/ALPHA05_TEST_PLAN.md).
   Stop VPN is available on the main dashboard.
 - **Routing by WireGuard configuration:** A config with `AllowedIPs =
   0.0.0.0/0, ::/0` requests full-tunnel IPv4/IPv6 routing. Private-network
-  prefixes instead request split routing. The robust in-app mode switch is
-  planned for Alpha 0.6.
+  prefixes instead request split routing. Alpha 0.6 adds an explicit connection-time route selector.
 - **Safety constraints:** Off by default, no automatic startup, and Android
   Always-on VPN remains disabled pending reboot/reconnection testing. An active
   tunnel interface is **not** proof of a WireGuard handshake, reachability,
@@ -111,7 +137,7 @@ See [Alpha 0.4 test plan](docs/ALPHA04_TEST_PLAN.md) and
 
 ## How to try it
 
-1. Build or download the wonhee-proxy-alpha05-debug-apk from GitHub Actions.
+1. Build or download the wonhee-proxy-alpha06-debug-apk from GitHub Actions.
 2. Install the APK (the CI debug signing key can change across workflow runs,
    so Android may require uninstalling an older debug APK first).
 3. Enter a **Public server IP or DNS name**, port and secret. For your home
@@ -128,7 +154,10 @@ See [Alpha 0.4 test plan](docs/ALPHA04_TEST_PLAN.md) and
    give it a name and tap **Save encrypted profile**. After relaunch choose that
    profile, tap **Connect VPN**, then confirm the Android VPN permission.
    Monitor handshake and counters; use **Telegram proxy tools** for MTProto.
-9. See [Alpha 0.4 manual test plan](docs/ALPHA04_TEST_PLAN.md),
+9. Set connection routing: imported profile routes, home split CIDRs, or the
+   explicitly experimental all-internet request. Save the encrypted profile to
+   remember the selection, then reconnect and verify its effect.
+10. See [Alpha 0.6 manual test plan](docs/ALPHA06_TEST_PLAN.md), [Alpha 0.4 manual test plan](docs/ALPHA04_TEST_PLAN.md),
    [Alpha 0.3 plan](docs/ALPHA03_TEST_PLAN.md) and the
    earlier [Alpha 0.2 plan](docs/ALPHA02_TEST_PLAN.md).
 
