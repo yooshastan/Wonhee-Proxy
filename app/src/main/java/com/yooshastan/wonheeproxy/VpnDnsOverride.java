@@ -1,6 +1,8 @@
 package com.yooshastan.wonheeproxy;
 
 import com.wireguard.config.Config;
+import com.wireguard.config.InetNetwork;
+import com.wireguard.config.Peer;
 
 import java.io.ByteArrayInputStream;
 import java.net.InetAddress;
@@ -30,6 +32,10 @@ final class VpnDnsOverride {
         if (target.isAnyLocalAddress() || target.isLoopbackAddress()
                 || target.isMulticastAddress() || target.isLinkLocalAddress()) {
             throw new IllegalArgumentException("Choose a reachable home DNS server IP.");
+        }
+        if (!isRoutedInsideTunnel(original, target)) {
+            throw new IllegalArgumentException(
+                    "Home DNS address is outside WireGuard AllowedIPs. Add a tunnel route first.");
         }
         String canonical = target.getHostAddress();
         String source = original.toWgQuickString();
@@ -67,6 +73,29 @@ final class VpnDnsOverride {
             // Never expose a parser exception containing private WireGuard fields.
             throw new IllegalArgumentException("DNS override could not be applied.");
         }
+    }
+
+    private static boolean isRoutedInsideTunnel(Config config, InetAddress target) {
+        byte[] host = target.getAddress();
+        for (Peer peer : config.getPeers()) {
+            for (InetNetwork network : peer.getAllowedIps()) {
+                byte[] subnet = network.getAddress().getAddress();
+                if (subnet.length != host.length) continue;
+                int bits = network.getMask();
+                boolean inside = true;
+                for (int i = 0; i < host.length; i++) {
+                    int useBits = Math.min(8, Math.max(0, bits));
+                    int mask = useBits == 0 ? 0 : (0xff << (8 - useBits)) & 0xff;
+                    if (((host[i] & 0xff) & mask) != ((subnet[i] & 0xff) & mask)) {
+                        inside = false;
+                        break;
+                    }
+                    bits -= 8;
+                }
+                if (inside) return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isNumericIp(String host) {
