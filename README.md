@@ -1,7 +1,7 @@
 # Wonhee Proxy
 
 An independent privacy and proxy companion for **Ultgram**, by Yooshastan
-Studios. Alpha 0.1 is a real Android starter with a small, reusable Java core.
+Studios. Alpha 0.1.1 is a real Android starter with a small, reusable Java core.
 
 **Current scope:** Configure an MTProto or SOCKS5 endpoint, run a manual TCP
 reachability test, and open its profile in an installed Ultgram client. An
@@ -20,7 +20,9 @@ secret only through an explicit package-scoped Android intent to Ultgram.
 4. Enter a trusted proxy endpoint and choose **Test TCP endpoint** to check only
    that the host's port answers. You must consent to an explicit network probe.
 5. Choose **Open in Ultgram** to hand off the configuration to the installed
-   `com.yooshastan.ultmessenger` app (or the beta package).
+   `com.yooshastan.ultmessenger` app (or its debug/beta package). The FOSS
+   ARM64 debug build produced by Ultgram's CI installs as
+   `com.yooshastan.ultmessenger.foss.beta`.
 6. Activate the proxy in Ultgram, send messages and media, and independently
    verify server-side routing. TCP reachability is not proof of proxy use.
 

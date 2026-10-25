@@ -25,10 +25,13 @@ jobs:
           javac -d /tmp/wonhee-classes \
             app/src/main/java/com/yooshastan/wonheeproxy/core/ProxyEndpoint.java \
             app/src/main/java/com/yooshastan/wonheeproxy/core/ProxyProbe.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/core/UltgramPackages.java \
             core-tests/ProxyEndpointTest.java \
-            core-tests/ProxyProbeTest.java
+            core-tests/ProxyProbeTest.java \
+            core-tests/UltgramPackagesTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
+          java -cp /tmp/wonhee-classes UltgramPackagesTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
         with:

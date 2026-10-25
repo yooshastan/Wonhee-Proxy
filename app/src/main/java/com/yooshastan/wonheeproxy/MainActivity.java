@@ -20,6 +20,7 @@ import android.widget.TextView;
 
 import com.yooshastan.wonheeproxy.core.ProxyEndpoint;
 import com.yooshastan.wonheeproxy.core.ProxyProbe;
+import com.yooshastan.wonheeproxy.core.UltgramPackages;
 
 /**
  * Intentionally not a VpnService. A profile is sent only to the installed
@@ -29,12 +30,6 @@ public final class MainActivity extends Activity {
     private static final int BG = Color.rgb(18, 16, 29);
     private static final int FOREGROUND = Color.rgb(248, 241, 249);
     private static final int PINK = Color.rgb(251, 173, 216);
-    private static final String[] ULT_PACKAGES = {
-            "com.yooshastan.ultmessenger.foss",
-            "com.yooshastan.ultmessenger",
-            "com.yooshastan.ultmessenger.beta"
-    };
-
     private Spinner type;
     private EditText host;
     private EditText port;
@@ -178,7 +173,7 @@ public final class MainActivity extends Activity {
         }
         // Package-scoped implicit intent: never send the secret to a general chooser.
         Uri deepLink = Uri.parse(endpoint.telegramDeepLink());
-        for (String packageName : ULT_PACKAGES) {
+        for (String packageName : UltgramPackages.candidates()) {
             Intent intent = new Intent(Intent.ACTION_VIEW, deepLink);
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
             intent.setPackage(packageName);
@@ -191,8 +186,9 @@ public final class MainActivity extends Activity {
                 // Try only the other known Ultgram package, never an arbitrary client.
             }
         }
-        status.setText("Ultgram was not found with the expected package IDs. "
-                + "Install a compatible Ultgram APK first.");
+        status.setText("No compatible Ultgram build accepted this proxy link. "
+                + "Its package ID may differ, or its link handler may be unavailable. "
+                + "Check which Ultgram APK is installed.");
     }
 
     private TextView text(String value, int sp, int color) {
