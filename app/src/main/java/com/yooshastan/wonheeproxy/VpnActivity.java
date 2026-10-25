@@ -364,6 +364,11 @@ public final class VpnActivity extends Activity {
         try {
             VpnRouteModes.prepare(selectedConfig, routingPicker.getSelectedItemPosition(),
                     homeRoutes.getText().toString());
+        } catch (Exception invalid) {
+            message.setText("Cannot validate routing. Check the CIDRs (1–16, no /0 in Home mode).");
+            return;
+        }
+        try {
             updated = new SecureTunnelProfileStore.Profile(
                     profileName.getText().toString(), selectedConfig.toWgQuickString(),
                     routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
@@ -493,7 +498,7 @@ public final class VpnActivity extends Activity {
                     selectedConfig, mode, homeRoutes.getText().toString());
         } catch (Exception invalid) {
             // Avoid logging or echoing configuration details, including private keys.
-            message.setText("Cannot apply routing: " + invalid.getMessage());
+            message.setText("Cannot apply routing. Check the selected mode, peer count and home CIDRs.");
             return;
         }
         String warning = VpnRouteModes.summary(

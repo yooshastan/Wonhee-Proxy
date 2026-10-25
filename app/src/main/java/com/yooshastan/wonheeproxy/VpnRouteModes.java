@@ -130,8 +130,14 @@ final class VpnRouteModes {
             // Reject missing fields instead of silently putting it in a wrong section.
             throw new IllegalArgumentException("Profile peer has no AllowedIPs field.");
         }
-        Config result = Config.parse(new ByteArrayInputStream(
-                rewritten.toString().getBytes(StandardCharsets.UTF_8)));
+        final Config result;
+        try {
+            result = Config.parse(new ByteArrayInputStream(
+                    rewritten.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception invalid) {
+            // Parser errors might contain configuration fields. Do not expose secrets.
+            throw new IllegalArgumentException("The selected routing CIDRs are invalid.");
+        }
         if (result.getPeers().size() != 1) {
             throw new IllegalArgumentException("Failed to prepare single-peer routing.");
         }
