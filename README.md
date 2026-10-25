@@ -1,11 +1,37 @@
 # Wonhee Proxy
 
-**Alpha 0.6 (draft)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8 combined preview (draft, not a release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
+
+## Combined Alpha 0.8 preview — foundations only
+
+This branch combines the next roadmap stages into one future release. It **does
+not** yet implement or claim DNS-over-HTTPS/QUIC, tracker filtering,
+automatic reconnect, Always-on, kill switch or verified leak protection.
+
+- **Opt-in home DNS address:** The saved profile can specify a numeric DNS
+  server for the Android WireGuard connection, such as a *separately configured*
+  DNS resolver on the Fedora wg0 gateway. Requests reach it through the tunnel
+  only when its address is routed over WireGuard. That does not add DoH/DoQ or
+  tracking protection by itself.
+- **Backward-compatible encrypted settings:** An Alpha 0.6 profile restores
+  with home DNS disabled; the new optional DNS choice stays in the AES-GCM
+  Keystore-sealed profile after explicit Save.
+- **Reproducible signing foundation:** CI debug previews still use disposable
+  signing. A separate manually dispatched signed-release job requires a
+  privately provisioned, persistent keystore in GitHub Actions secrets. No
+  keystore or passwords are committed to this repository.
+- **Preview build:** versionCode 8, versionName
+  `0.8.0-alpha08-preview`, debug artifact
+  `wonhee-proxy-alpha08-preview-debug-apk`. Do not install expecting an
+  in-place upgrade from a differently signed debug build.
+
+See [signing setup](docs/SIGNING.md) and the
+[combined preview test plan](docs/ALPHA08_PREVIEW_TEST_PLAN.md).
 
 ## New in Alpha 0.6 — explicit connection routing (draft)
 

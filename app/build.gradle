@@ -1,7 +1,32 @@
 plugins {
     id 'com.android.application'
 }
+// Release signing never falls back to the disposable GitHub Actions debug key.
+def releaseStore = System.getenv('WONHEE_SIGNING_STORE_FILE')
+def releaseStorePassword = System.getenv('WONHEE_SIGNING_STORE_PASSWORD')
+def releaseAlias = System.getenv('WONHEE_SIGNING_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('WONHEE_SIGNING_KEY_PASSWORD')
+def hasReleaseSigning = [releaseStore, releaseStorePassword, releaseAlias, releaseKeyPassword]
+        .every { it != null && !it.isEmpty() }
+
 android {
+    signingConfigs {
+        wonheeRelease {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStore)
+                storePassword releaseStorePassword
+                keyAlias releaseAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.wonheeRelease
+            }
+        }
+    }
     namespace 'com.yooshastan.wonheeproxy'
     compileSdk 36
 
@@ -9,8 +34,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName '0.6.0-alpha06'
+        versionCode 8
+        versionName '0.8.0-alpha08-preview'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

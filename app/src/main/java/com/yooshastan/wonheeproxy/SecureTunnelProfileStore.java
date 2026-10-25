@@ -41,16 +41,28 @@ final class SecureTunnelProfileStore {
         final String configuration;
         final int routeMode;
         final String homeRoutes;
+        final boolean homeDnsEnabled;
+        final String homeDnsServer;
 
         Profile(String name, String configuration) {
             this(name, configuration, VpnRouteModes.PROFILE, "");
         }
 
         Profile(String name, String configuration, int routeMode, String homeRoutes) {
+            this(name, configuration, routeMode, homeRoutes, false, "");
+        }
+
+        Profile(String name, String configuration, int routeMode, String homeRoutes,
+                boolean homeDnsEnabled, String homeDnsServer) {
             this.name = name == null ? "" : name.trim();
             this.configuration = configuration == null ? "" : configuration;
             this.routeMode = routeMode;
             this.homeRoutes = homeRoutes == null ? "" : homeRoutes.trim();
+            this.homeDnsEnabled = homeDnsEnabled;
+            this.homeDnsServer = homeDnsServer == null ? "" : homeDnsServer.trim();
+            if (this.homeDnsServer.length() > 45) {
+                throw new IllegalArgumentException("Home DNS address is too long.");
+            }
             if (routeMode < VpnRouteModes.PROFILE || routeMode > VpnRouteModes.ALL) {
                 throw new IllegalArgumentException("Invalid VPN routing mode.");
             }
@@ -73,6 +85,8 @@ final class SecureTunnelProfileStore {
             result.put("configuration", configuration);
             result.put("routeMode", routeMode);
             result.put("homeRoutes", homeRoutes);
+            result.put("homeDnsEnabled", homeDnsEnabled);
+            result.put("homeDnsServer", homeDnsServer);
             return result;
         }
 
@@ -80,7 +94,9 @@ final class SecureTunnelProfileStore {
             // Alpha 0.5 profiles contain only name + config; migrate safely in place.
             return new Profile(value.getString("name"), value.getString("configuration"),
                     value.optInt("routeMode", VpnRouteModes.PROFILE),
-                    value.optString("homeRoutes", ""));
+                    value.optString("homeRoutes", ""),
+                    value.optBoolean("homeDnsEnabled", false),
+                    value.optString("homeDnsServer", ""));
         }
     }
 

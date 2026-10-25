@@ -16,6 +16,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -35,8 +36,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Alpha 0.6: VPN-first screen with encrypted profiles, connect-time routing
- * choices and native WireGuard diagnostics. No automatic startup or fail-closed
+ * Combined Alpha 0.8 preview: opt-in home DNS through WireGuard, encrypted
+ * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
 public final class VpnActivity extends Activity {
@@ -58,6 +59,8 @@ public final class VpnActivity extends Activity {
     private Spinner savedPicker;
     private Spinner routingPicker;
     private EditText homeRoutes;
+    private EditText homeDnsAddress;
+    private CheckBox homeDnsToggle;
     private EditText profileName;
     private TextView connectionStatus;
     private TextView message;
@@ -94,7 +97,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.6", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -177,11 +180,36 @@ public final class VpnActivity extends Activity {
         label(routingCard, "Routes apply to this connection only. Press Save encrypted profile "
                 + "to remember your mode and home CIDRs. Neither changes the original WireGuard keys.", 12, MUTED);
 
+        LinearLayout dnsCard = card(root);
+        label(dnsCard, "HOME DNS (OPTIONAL)", 17, PINK);
+        homeDnsToggle = new CheckBox(this);
+        homeDnsToggle.setText("Use a home DNS server inside WireGuard");
+        homeDnsToggle.setTextColor(WHITE);
+        dnsCard.addView(homeDnsToggle);
+        homeDnsAddress = new EditText(this);
+        homeDnsAddress.setSingleLine(true);
+        homeDnsAddress.setTextColor(WHITE);
+        homeDnsAddress.setHintTextColor(MUTED);
+        homeDnsAddress.setHint("Home DNS IP (only if it serves DNS), e.g. 10.77.0.1");
+        dnsCard.addView(homeDnsAddress);
+        homeDnsToggle.setOnCheckedChangeListener((check, enabled) -> {
+            homeDnsAddress.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        });
+        homeDnsAddress.setVisibility(View.GONE);
+        label(dnsCard, "Requires a reachable DNS resolver at your home gateway and "
+                + "a tunnel route to its IP. This is ordinary DNS carried inside "
+                + "WireGuard; it is NOT DoH, DoQ, tracker blocking, or proof "
+                + "that every DNS request is leak-free.", 12, MUTED);
+
+
         message = label(root, "VPN is off. A saved profile connects only when you press Connect.", 14, WHITE);
         Button proxyTools = button(root, "Telegram proxy tools");
         proxyTools.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
         label(root, "Security: VPN profiles are encrypted at rest with Android Keystore and are never uploaded or logged. Your keys are saved only when you press Save. Back them up privately before uninstalling or replacing a debug APK.", 12, MUTED);
-        label(root, "Still experimental: no Always-on, automatic restart, kill switch, encrypted DNS enforcement or tracker filtering. All internet mode depends on a working home gateway and has no verified leak protection. Starting this VPN replaces any active Tailscale or other Android VPN.", 12, MUTED);
+        label(root, "Preview limitations: no automatic reconnection, tested Always-on, "
+                + "kill switch, in-app DoH/DoQ or tracker filtering. A configured home DNS "
+                + "resolver must actually exist; external egress and DNS leak safety are unverified. "
+                + "Starting this VPN replaces Tailscale or another Android VPN.", 12, MUTED);
 
         try {
             session = WireGuardSession.get(this);
@@ -273,6 +301,8 @@ public final class VpnActivity extends Activity {
                 pendingConnection = null;
                 routingPicker.setSelection(VpnRouteModes.PROFILE);
                 homeRoutes.setText(VpnRouteModes.suggestedHomeRoutes(imported));
+                homeDnsToggle.setChecked(false);
+                homeDnsAddress.setText("");
                 if (profileName.getText().toString().trim().isEmpty()) {
                     profileName.setText("Home WireGuard");
                 }
@@ -342,6 +372,8 @@ public final class VpnActivity extends Activity {
             routingPicker.setSelection(profile.routeMode);
             homeRoutes.setText(profile.homeRoutes.isEmpty()
                     ? VpnRouteModes.suggestedHomeRoutes(selectedConfig) : profile.homeRoutes);
+            homeDnsAddress.setText(profile.homeDnsServer);
+            homeDnsToggle.setChecked(profile.homeDnsEnabled);
             refreshRoutingPreview();
             message.setText("Encrypted VPN profile loaded. Press Connect to start it.");
         } catch (Exception invalid) {
@@ -362,16 +394,19 @@ public final class VpnActivity extends Activity {
         }
         final SecureTunnelProfileStore.Profile updated;
         try {
-            VpnRouteModes.prepare(selectedConfig, routingPicker.getSelectedItemPosition(),
-                    homeRoutes.getText().toString());
+            Config routed = VpnRouteModes.prepare(selectedConfig,
+                    routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
+            VpnDnsOverride.prepare(routed, homeDnsToggle.isChecked(),
+                    homeDnsAddress.getText().toString());
         } catch (Exception invalid) {
-            message.setText("Cannot validate routing. Check the CIDRs (1–16, no /0 in Home mode).");
+            message.setText("Cannot validate routing or home DNS. Check the CIDRs and DNS IP.");
             return;
         }
         try {
             updated = new SecureTunnelProfileStore.Profile(
                     profileName.getText().toString(), selectedConfig.toWgQuickString(),
-                    routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
+                    routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString(),
+                    homeDnsToggle.isChecked(), homeDnsAddress.getText().toString());
         } catch (IllegalArgumentException invalid) {
             message.setText(invalid.getMessage());
             return;
@@ -427,6 +462,8 @@ public final class VpnActivity extends Activity {
                         profileName.setText("");
                         routingPicker.setSelection(VpnRouteModes.PROFILE);
                         homeRoutes.setText("");
+                        homeDnsToggle.setChecked(false);
+                        homeDnsAddress.setText("");
                         reloadProfiles(null);
                         refreshRoutingPreview();
                         message.setText("Saved profile deleted from the encrypted store.");
@@ -494,17 +531,23 @@ public final class VpnActivity extends Activity {
         final int mode = routingPicker.getSelectedItemPosition();
         final Config connectionConfig;
         try {
-            connectionConfig = VpnRouteModes.prepare(
+            Config routed = VpnRouteModes.prepare(
                     selectedConfig, mode, homeRoutes.getText().toString());
+            connectionConfig = VpnDnsOverride.prepare(
+                    routed, homeDnsToggle.isChecked(), homeDnsAddress.getText().toString());
         } catch (Exception invalid) {
             // Avoid logging or echoing configuration details, including private keys.
-            message.setText("Cannot apply routing. Check the selected mode, peer count and home CIDRs.");
+            message.setText("Cannot apply routing or home DNS. Check the peer count, CIDRs and numeric DNS IP.");
             return;
         }
         String warning = VpnRouteModes.summary(
                 selectedConfig, mode, homeRoutes.getText().toString())
                 + "\n\nAndroid permits only one active VPN: Tailscale may disconnect. "
                 + "No fail-closed, DNS-leak or IPv6-leak protection is guaranteed.";
+        if (homeDnsToggle.isChecked()) {
+            warning += "\n\nHome DNS is enabled only if the server address is routed "
+                    + "through WireGuard and answers DNS. No DoH/DoQ or tracker filtering is provided.";
+        }
         if (mode == VpnRouteModes.ALL) {
             warning += "\n\nThe Fedora gateway MUST support IPv4 forwarding/NAT and IPv6 routing. "
                     + "A handshake alone cannot prove this; test internet and DNS on cellular.";
@@ -576,6 +619,8 @@ public final class VpnActivity extends Activity {
         profileName.setEnabled(!active && !busy);
         routingPicker.setEnabled(!active && !busy);
         homeRoutes.setEnabled(!active && !busy);
+        homeDnsToggle.setEnabled(!active && !busy);
+        homeDnsAddress.setEnabled(!active && !busy);
     }
 
     private LinearLayout card(LinearLayout parent) {
