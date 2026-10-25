@@ -4,13 +4,20 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
-import android.net.VpnService;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.wireguard.config.Config;
@@ -21,76 +28,184 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
 
 /**
- * Alpha 0.4 WireGuard bring-up screen. Deliberately isolated from MTProto
- * profiles: an MTProto secret must never be treated as a WireGuard key.
+ * Alpha 0.5: VPN-first screen with opt-in Keystore-sealed profiles and native
+ * WireGuard traffic/handshake statistics. No automatic startup or fail-closed
+ * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
 public final class VpnActivity extends Activity {
     private static final int PICK_CONFIG = 4201;
     private static final int VPN_PERMISSION = 4202;
-    private static final int MAX_CONFIG_BYTES = 65536;
-    private Config selectedConfig; // Memory-only; never saved or uploaded.
+    private static final int PINK = 0xfffbadd8;
+    private static final int WHITE = 0xfff8f1f9;
+    private static final int MUTED = 0xffc4b7c9;
+    private static final long POLL_INTERVAL_MS = 5000L;
+    private final Handler pollHandler = new Handler(Looper.getMainLooper());
+    private final List<SecureTunnelProfileStore.Profile> profiles = new ArrayList<>();
     private WireGuardSession session;
-    private TextView status;
-    private Button importButton, connectButton, disconnectButton;
+    private SecureTunnelProfileStore profileStore;
+    private Config selectedConfig;
+    private boolean updatingList;
+    private boolean visible;
+    private boolean statisticsPending;
+    private Spinner savedPicker;
+    private EditText profileName;
+    private TextView connectionStatus;
+    private TextView message;
+    private TextView routeStatus;
+    private TextView statisticsText;
+    private Button connectButton, disconnectButton, importButton, saveButton, deleteButton;
 
-    @Override protected void onCreate(Bundle savedState) {
-        super.onCreate(savedState);
+    private final Runnable poll = new Runnable() {
+        @Override public void run() {
+            if (!visible) return;
+            if (session != null && !statisticsPending) {
+                statisticsPending = true;
+                session.readStatistics(snapshot -> {
+                    statisticsPending = false;
+                    if (!visible || isFinishing() || isDestroyed()) return;
+                    renderStatistics(snapshot);
+                    refreshButtons();
+                });
+            }
+            pollHandler.postDelayed(this, POLL_INTERVAL_MS);
+        }
+    };
+
+    @Override protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        profileStore = new SecureTunnelProfileStore(this);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.rgb(18, 16, 29));
+        scroll.setBackgroundColor(0xff12101d);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (22 * getResources().getDisplayMetrics().density);
-        root.setPadding(pad, pad, pad, pad);
+        root.setPadding(dp(20), dp(24), dp(20), dp(30));
         scroll.addView(root);
         setContentView(scroll);
 
-        label(root, "WONHEE VPN · ALPHA 0.4", 24, 0xfffbadd8);
-        label(root, "Experimental WireGuard connection to a gateway you control. "
-                + "This is not MTProto and does not use your Telegram proxy's secret.",
-                15, 0xfff8f1f9);
-        label(root, "WARNING: Starting will replace the current Android VPN, including "
-                + "Tailscale. Neither a kill switch, encrypted DNS enforcement, "
-                + "tracker filtering, automatic reconnection nor VPN-at-boot is "
-                + "implemented. Do not use this alpha as leak protection.",
-                14, 0xffffc6b0);
+        label(root, "WONHEE PROXY", 28, PINK);
+        label(root, "WireGuard VPN · Alpha 0.5", 15, MUTED);
 
-        importButton = button(root, "Import private WireGuard .conf (session only)");
+        LinearLayout dashboard = card(root);
+        connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
+        statisticsText = label(dashboard, "No tunnel active.", 14, MUTED);
+        connectButton = button(dashboard, "Connect VPN");
+        connectButton.setOnClickListener(v -> confirmConnect());
+        disconnectButton = button(dashboard, "Disconnect VPN");
+        disconnectButton.setOnClickListener(v -> stopTunnel());
+        label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
+
+        LinearLayout configCard = card(root);
+        label(configCard, "WIREGUARD PROFILES", 17, PINK);
+        savedPicker = new Spinner(this);
+        configCard.addView(savedPicker);
+        savedPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (!updatingList && position > 0 && position <= profiles.size()) {
+                    loadSelected(profiles.get(position - 1));
+                }
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        profileName = new EditText(this);
+        profileName.setSingleLine(true);
+        profileName.setTextColor(WHITE);
+        profileName.setHintTextColor(MUTED);
+        profileName.setHint("Profile name, e.g. Home VPN");
+        configCard.addView(profileName);
+        importButton = button(configCard, "Import WireGuard .conf");
         importButton.setOnClickListener(v -> chooseConfig());
-        connectButton = button(root, "Start experimental WireGuard VPN");
-        connectButton.setOnClickListener(v -> confirmVpn());
-        disconnectButton = button(root, "Stop WireGuard VPN");
-        disconnectButton.setOnClickListener(v -> disconnect());
-        status = label(root, "No WireGuard configuration imported. VPN is off by default.",
-                14, 0xfff8f1f9);
-        label(root, "Alpha 0.4 routes are taken from the imported [Peer] AllowedIPs: "
-                + "0.0.0.0/0 and ::/0 request full-tunnel routing; home subnets "
-                + "request split routing. Split-mode DNS filtering is NOT implemented. "
-                + "No WireGuard keys or .conf contents are saved by Wonhee.",
-                13, 0xfff8f1f9);
-        label(root, "Until we configure and verify a separate WireGuard gateway on Fedora, "
-                + "a VPN interface starting does not mean internet or Navidrome works. "
-                + "Keep your existing MTProxy and Tailscale available.",
-                13, 0xfff8f1f9);
+        saveButton = button(configCard, "Save encrypted profile");
+        saveButton.setOnClickListener(v -> saveSelected());
+        deleteButton = button(configCard, "Delete selected profile");
+        deleteButton.setOnClickListener(v -> confirmDelete());
+        routeStatus = label(configCard, "Import or choose a saved configuration.", 13, MUTED);
+
+        message = label(root, "VPN is off. A saved profile connects only when you press Connect.", 14, WHITE);
+        Button proxyTools = button(root, "Telegram proxy tools");
+        proxyTools.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
+        label(root, "Security: VPN profiles are encrypted at rest with Android Keystore and are never uploaded or logged. Your keys are saved only when you press Save. Back them up privately before uninstalling or replacing a debug APK.", 12, MUTED);
+        label(root, "Still experimental: no Always-on, automatic restart, kill switch, encrypted DNS enforcement or tracker filtering. Split routes are not whole-device internet protection. Starting this VPN replaces any active Tailscale or other Android VPN.", 12, MUTED);
+
         try {
             session = WireGuardSession.get(this);
-        } catch (RuntimeException | LinkageError failure) {
-            status.setText("WireGuard engine unavailable on this device. VPN cannot start.");
+        } catch (RuntimeException | LinkageError unavailable) {
+            message.setText("WireGuard engine is unavailable on this device.");
         }
-        refresh();
+        reloadProfiles(null);
+        refreshButtons();
     }
 
     @Override protected void onResume() {
         super.onResume();
-        refresh();
+        visible = true;
+        refreshButtons();
+        pollHandler.removeCallbacks(poll);
+        pollHandler.post(poll);
+    }
+
+    @Override protected void onPause() {
+        visible = false;
+        pollHandler.removeCallbacks(poll);
+        super.onPause();
+    }
+
+    private void renderStatistics(WireGuardSession.StatusSnapshot snapshot) {
+        if (!snapshot.interfaceUp) {
+            connectionStatus.setText("Disconnected");
+            connectionStatus.setTextColor(WHITE);
+            statisticsText.setText("No tunnel active.");
+            return;
+        }
+        if (!snapshot.statisticsAvailable) {
+            connectionStatus.setText("Interface active");
+            statisticsText.setText("Peer statistics unavailable. Check the Fedora gateway.");
+            return;
+        }
+        long handshake = snapshot.lastHandshakeEpochMillis;
+        long ageSeconds = handshake <= 0 ? -1 :
+                Math.max(0L, (System.currentTimeMillis() - handshake) / 1000L);
+        if (ageSeconds < 0) {
+            connectionStatus.setText("Waiting for handshake");
+            connectionStatus.setTextColor(PINK);
+        } else if (ageSeconds <= 180L) {
+            connectionStatus.setText("WireGuard peer responding");
+            connectionStatus.setTextColor(0xffa6ebc4);
+        } else {
+            connectionStatus.setText("Handshake may be stale");
+            connectionStatus.setTextColor(0xffffc6b0);
+        }
+        String handshakeText = ageSeconds < 0 ? "None yet"
+                : (ageSeconds < 60 ? ageSeconds + " seconds ago"
+                : (ageSeconds / 60) + " minutes ago");
+        statisticsText.setText("Last handshake: " + handshakeText
+                + "\nReceived: " + formatBytes(snapshot.receivedBytes)
+                + " · Sent: " + formatBytes(snapshot.transmittedBytes)
+                + "\nPeers tracked: " + snapshot.peers);
+    }
+
+    private static String formatBytes(long count) {
+        if (count < 1024) return count + " B";
+        double number = count;
+        String[] units = {"B", "KiB", "MiB", "GiB", "TiB"};
+        int index = 0;
+        while (number >= 1024 && index < units.length - 1) {
+            number /= 1024;
+            index++;
+        }
+        return String.format(Locale.US, "%.1f %s", number, units[index]);
     }
 
     private void chooseConfig() {
         if (session != null && session.isConnected()) {
-            status.setText("Stop the VPN before importing a different configuration.");
+            message.setText("Disconnect before importing or changing profiles.");
             return;
         }
         Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -99,146 +214,316 @@ public final class VpnActivity extends Activity {
         startActivityForResult(picker, PICK_CONFIG);
     }
 
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_CONFIG) {
-            if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
-            selectedConfig = null;
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request == PICK_CONFIG) {
+            if (result != RESULT_OK || data == null || data.getData() == null) return;
             try {
-                Config parsed = loadPrivateConfig(data.getData());
-                if (parsed.getPeers().isEmpty() || parsed.getInterface().getAddresses().isEmpty()) {
-                    status.setText("Invalid WireGuard configuration: peer/address missing.");
-                } else {
-                    selectedConfig = parsed;
-                    status.setText("Private WireGuard configuration imported into memory. "
-                            + routeSummary(parsed) + " No connection has been started.");
+                Config imported = readConfiguration(data.getData());
+                selectedConfig = imported;
+                if (profileName.getText().toString().trim().isEmpty()) {
+                    profileName.setText("Home WireGuard");
                 }
-            } catch (Exception | LinkageError ignored) {
-                status.setText("Could not parse this WireGuard .conf. "
-                        + "Its contents and detailed errors are never displayed or logged.");
+                message.setText("Configuration imported into memory. Tap Save to encrypt it on this device.");
+                routeStatus.setText(routeSummary(imported));
+            } catch (Exception | LinkageError invalid) {
+                selectedConfig = null;
+                message.setText("Invalid WireGuard .conf. Check its interface, peer and key fields. Secrets and detailed parse errors are not logged.");
             }
-            refresh();
-        } else if (requestCode == VPN_PERMISSION) {
-            if (resultCode == RESULT_OK && VpnService.prepare(this) == null) {
-                connect();
+            refreshButtons();
+        } else if (request == VPN_PERMISSION) {
+            if (result == RESULT_OK && VpnService.prepare(this) == null) {
+                startTunnel();
             } else {
-                status.setText("VPN permission not granted. Existing connections unchanged.");
+                message.setText("Android VPN permission was not granted.");
             }
         }
     }
 
-    private Config loadPrivateConfig(Uri uri) throws Exception {
-        try (InputStream input = getContentResolver().openInputStream(uri)) {
-            if (input == null) throw new IOException("Missing document");
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
+    private Config readConfiguration(Uri uri) throws Exception {
+        try (InputStream source = getContentResolver().openInputStream(uri)) {
+            if (source == null) throw new IOException("No document");
+            ByteArrayOutputStream data = new ByteArrayOutputStream();
             byte[] chunk = new byte[4096];
-            int bytes;
-            while ((bytes = input.read(chunk)) != -1) {
-                if (output.size() + bytes > MAX_CONFIG_BYTES) {
-                    throw new IOException("File too large");
+            int read;
+            while ((read = source.read(chunk)) != -1) {
+                if (data.size() + read > SecureTunnelProfileStore.MAX_CONFIG_BYTES) {
+                    throw new IOException("Configuration too large");
                 }
-                output.write(chunk, 0, bytes);
+                data.write(chunk, 0, read);
             }
             Arrays.fill(chunk, (byte) 0);
-            byte[] data = output.toByteArray();
+            byte[] contents = data.toByteArray();
             try {
-                return Config.parse(new ByteArrayInputStream(data));
+                return validated(contents);
             } finally {
-                Arrays.fill(data, (byte) 0);
+                Arrays.fill(contents, (byte) 0);
             }
         }
     }
 
-    private String routeSummary(Config config) {
-        boolean v4 = false;
-        boolean v6 = false;
-        for (Peer peer : config.getPeers()) {
-            for (InetNetwork route : peer.getAllowedIps()) {
-                if ("0.0.0.0/0".equals(route.toString())) v4 = true;
-                if ("::/0".equals(route.toString())
-                        || "0:0:0:0:0:0:0:0/0".equals(route.toString())) v6 = true;
-            }
+    private static Config validated(byte[] contents) throws Exception {
+        Config config = Config.parse(new ByteArrayInputStream(contents));
+        if (config.getPeers().isEmpty() || config.getInterface().getAddresses().isEmpty()) {
+            throw new IllegalArgumentException("Peer and address required");
         }
-        if (v4 && v6) return "Requests IPv4 and IPv6 full-tunnel routes.";
-        if (v4 || v6) return "WARNING: Default route is set for only one IP family; "
-                + "the other family may bypass the tunnel.";
-        return "Requests split routes (not yet a protected DNS/full-device mode).";
+        return config;
     }
 
-    private void confirmVpn() {
-        if (selectedConfig == null || session == null) {
-            status.setText("Import a private WireGuard configuration first.");
+    private void loadSelected(SecureTunnelProfileStore.Profile profile) {
+        if (session != null && session.isConnected()) {
+            message.setText("Disconnect before switching VPN profiles.");
             return;
         }
-        if (session.isBusy() || session.isConnected()) return;
-        new AlertDialog.Builder(this)
-                .setTitle("Start experimental full-device VPN?")
-                .setMessage("This can disconnect Tailscale or another active VPN and "
-                        + "interrupt every application's internet access. "
-                        + "The gateway must support your configuration. "
-                        + "No kill switch, DoQ/DoH, tracker protection, or leak guarantee exists. "
-                        + "Continue only on a device where losing connectivity is acceptable.")
+        try {
+            byte[] raw = profile.configuration.getBytes(StandardCharsets.UTF_8);
+            try {
+                selectedConfig = validated(raw);
+            } finally {
+                Arrays.fill(raw, (byte) 0);
+            }
+            profileName.setText(profile.name);
+            routeStatus.setText(routeSummary(selectedConfig));
+            message.setText("Encrypted VPN profile loaded. Press Connect to start it.");
+        } catch (Exception invalid) {
+            selectedConfig = null;
+            message.setText("Stored profile could not be parsed. No changes were made.");
+        }
+        refreshButtons();
+    }
+
+    private void saveSelected() {
+        if (selectedConfig == null) {
+            message.setText("Import or select a WireGuard configuration first.");
+            return;
+        }
+        if (session != null && session.isConnected()) {
+            message.setText("Disconnect before editing saved profiles.");
+            return;
+        }
+        final SecureTunnelProfileStore.Profile updated;
+        try {
+            updated = new SecureTunnelProfileStore.Profile(
+                    profileName.getText().toString(), selectedConfig.toWgQuickString());
+        } catch (IllegalArgumentException invalid) {
+            message.setText(invalid.getMessage());
+            return;
+        }
+        boolean replacing = false;
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            if (profile.name.equalsIgnoreCase(updated.name)) {
+                replacing = true;
+                break;
+            }
+        }
+        if (replacing) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Replace existing encrypted VPN profile?")
+                    .setMessage("This replaces the saved configuration for this name. Continue?")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Replace", (dialog, which) -> persist(updated))
+                    .show();
+        } else {
+            persist(updated);
+        }
+    }
+
+    private void persist(SecureTunnelProfileStore.Profile profile) {
+        try {
+            profileStore.save(profile);
+            reloadProfiles(profile.name);
+            message.setText("Encrypted profile saved locally. Connect remains manual.");
+        } catch (Exception failure) {
+            message.setText("Secure storage failed. No plaintext profile was saved and existing profiles were not intentionally overwritten.");
+        }
+    }
+
+    private void confirmDelete() {
+        int index = savedPicker.getSelectedItemPosition() - 1;
+        if (index < 0 || index >= profiles.size()) {
+            message.setText("Select a saved profile before deleting it.");
+            return;
+        }
+        if (session != null && session.isConnected()) {
+            message.setText("Disconnect before deleting a VPN profile.");
+            return;
+        }
+        String name = profiles.get(index).name;
+        new AlertDialog.Builder(this).setTitle("Delete encrypted VPN profile?")
+                .setMessage("Remove \"" + name + "\" from this device? This cannot be undone.")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Continue", (dialog, which) -> {
-                    Intent permission = VpnService.prepare(this);
-                    if (permission != null) {
-                        startActivityForResult(permission, VPN_PERMISSION);
-                    } else {
-                        connect();
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    try {
+                        profileStore.delete(name);
+                        selectedConfig = null;
+                        profileName.setText("");
+                        reloadProfiles(null);
+                        routeStatus.setText("Import or choose a saved configuration.");
+                        message.setText("Saved profile deleted from the encrypted store.");
+                        refreshButtons();
+                    } catch (Exception failure) {
+                        message.setText("Could not delete profile; encrypted storage was not intentionally altered.");
                     }
                 }).show();
     }
 
-    private void connect() {
+    private void reloadProfiles(String selectName) {
+        try {
+            List<SecureTunnelProfileStore.Profile> items = profileStore.load();
+            profiles.clear();
+            profiles.addAll(items);
+            List<String> labels = new ArrayList<>();
+            labels.add("Choose a saved profile");
+            int desired = 0;
+            for (int i = 0; i < items.size(); i++) {
+                labels.add(items.get(i).name);
+                if (selectName != null && items.get(i).name.equalsIgnoreCase(selectName)) {
+                    desired = i + 1;
+                }
+            }
+            updatingList = true;
+            ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
+                    android.R.layout.simple_spinner_item, labels) {
+                @Override public View getView(int position, View convertView,
+                                              android.view.ViewGroup parent) {
+                    View row = super.getView(position, convertView, parent);
+                    if (row instanceof TextView) ((TextView) row).setTextColor(WHITE);
+                    return row;
+                }
+                @Override public View getDropDownView(int position, View convertView,
+                                                      android.view.ViewGroup parent) {
+                    View row = super.getDropDownView(position, convertView, parent);
+                    if (row instanceof TextView) ((TextView) row).setTextColor(Color.BLACK);
+                    return row;
+                }
+            };
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            savedPicker.setAdapter(adapter);
+            savedPicker.setSelection(desired);
+            updatingList = false;
+        } catch (Exception unavailable) {
+            updatingList = false;
+            message.setText("Encrypted profiles could not be read. Nothing was overwritten. The Android Keystore may have changed.");
+        }
+    }
+
+    private void confirmConnect() {
+        if (session == null || selectedConfig == null) {
+            message.setText("Choose or import a VPN profile first.");
+            return;
+        }
+        if (session.isBusy() || session.isConnected()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Start WireGuard VPN?")
+                .setMessage(routeSummary(selectedConfig)
+                        + "\n\nThis takes Android's single active VPN slot and may disconnect Tailscale. "
+                        + "No fail-closed, DNS-leak or IPv6 protection is guaranteed. Continue?")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Connect", (dialog, which) -> {
+                    Intent permission = VpnService.prepare(this);
+                    if (permission != null) {
+                        startActivityForResult(permission, VPN_PERMISSION);
+                    } else {
+                        startTunnel();
+                    }
+                }).show();
+    }
+
+    private void startTunnel() {
         if (session == null || selectedConfig == null) return;
-        status.setText("Requesting WireGuard tunnel; no handshake verified yet...");
-        connectButton.setEnabled(false);
-        session.connect(selectedConfig, (ok, message) -> {
-            if (!isDestroyed()) {
-                status.setText(message);
-                refresh();
+        message.setText("Starting WireGuard. A tunnel interface is not proof of a handshake.");
+        session.connect(selectedConfig, (success, summary) -> {
+            if (!isFinishing() && !isDestroyed()) {
+                message.setText(summary);
+                refreshButtons();
+                pollHandler.removeCallbacks(poll);
+                if (visible) pollHandler.post(poll);
             }
         });
-        refresh();
+        refreshButtons();
     }
 
-    private void disconnect() {
+    private void stopTunnel() {
         if (session == null || session.isBusy()) return;
-        status.setText("Stopping experimental WireGuard...");
-        session.disconnect((ok, message) -> {
-            if (!isDestroyed()) {
-                status.setText(message);
-                refresh();
+        message.setText("Stopping WireGuard...");
+        session.disconnect((success, summary) -> {
+            if (!isFinishing() && !isDestroyed()) {
+                message.setText(summary);
+                refreshButtons();
+                if (visible) {
+                    pollHandler.removeCallbacks(poll);
+                    pollHandler.post(poll);
+                }
             }
         });
-        refresh();
+        refreshButtons();
     }
 
-    private void refresh() {
+    private String routeSummary(Config config) {
+        boolean v4 = false, v6 = false;
+        for (Peer peer : config.getPeers()) {
+            for (InetNetwork route : peer.getAllowedIps()) {
+                String routeName = route.toString();
+                if ("0.0.0.0/0".equals(routeName)) v4 = true;
+                if ("::/0".equals(routeName)
+                        || "0:0:0:0:0:0:0:0/0".equals(routeName)) v6 = true;
+            }
+        }
+        if (v4 && v6) return "Full-route request (IPv4 + IPv6). Gateway support and leak safety are unverified.";
+        if (v4 || v6) return "Partial full route: one IP family could bypass the VPN. Not leak safe.";
+        return "Home/split routing. Other internet traffic may bypass this VPN.";
+    }
+
+    private void refreshButtons() {
         if (importButton == null) return;
-        boolean connected = session != null && session.isConnected();
+        boolean active = session != null && session.isConnected();
         boolean busy = session != null && session.isBusy();
-        importButton.setEnabled(!connected && !busy);
-        connectButton.setEnabled(!connected && !busy
-                && selectedConfig != null && session != null);
-        disconnectButton.setEnabled(connected && !busy);
+        connectButton.setVisibility(active ? View.GONE : View.VISIBLE);
+        disconnectButton.setVisibility(active ? View.VISIBLE : View.GONE);
+        connectButton.setEnabled(!active && !busy && selectedConfig != null);
+        disconnectButton.setEnabled(active && !busy);
+        importButton.setEnabled(!active && !busy);
+        saveButton.setEnabled(!active && !busy && selectedConfig != null);
+        deleteButton.setEnabled(!active && !busy && !profiles.isEmpty());
+        savedPicker.setEnabled(!active && !busy);
+        profileName.setEnabled(!active && !busy);
     }
 
-    private TextView label(LinearLayout parent, String value, int size, int color) {
-        TextView text = new TextView(this);
-        text.setText(value);
-        text.setTextSize(size);
-        text.setTextColor(color);
-        text.setPadding(0, 12, 0, 14);
-        parent.addView(text);
-        return text;
+    private LinearLayout card(LinearLayout parent) {
+        LinearLayout child = new LinearLayout(this);
+        child.setOrientation(LinearLayout.VERTICAL);
+        child.setPadding(dp(16), dp(14), dp(16), dp(16));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(0xff292135);
+        background.setCornerRadius(dp(18));
+        child.setBackground(background);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(16);
+        parent.addView(child, params);
+        return child;
     }
 
-    private Button button(LinearLayout parent, String value) {
-        Button button = new Button(this);
-        button.setText(value);
-        button.setAllCaps(false);
-        parent.addView(button);
-        return button;
+    private TextView label(LinearLayout parent, String label, int size, int color) {
+        TextView view = new TextView(this);
+        view.setText(label);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        view.setPadding(0, dp(6), 0, dp(8));
+        parent.addView(view);
+        return view;
+    }
+
+    private Button button(LinearLayout parent, String title) {
+        Button view = new Button(this);
+        view.setAllCaps(false);
+        view.setText(title);
+        parent.addView(view);
+        return view;
+    }
+
+    private int dp(int units) {
+        return (int) (units * getResources().getDisplayMetrics().density);
     }
 }
