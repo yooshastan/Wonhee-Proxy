@@ -1,6 +1,7 @@
 package com.yooshastan.wonheeproxy;
 
 import android.content.Context;
+import android.net.VpnService;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -10,6 +11,10 @@ import com.wireguard.android.backend.Tunnel;
 import com.wireguard.config.Config;
 import com.wireguard.crypto.Key;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -46,6 +51,7 @@ final class WireGuardSession {
     }
 
     private static WireGuardSession instance;
+    private final Context appContext;
     private final GoBackend backend;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -56,7 +62,8 @@ final class WireGuardSession {
     private boolean operationPending;
 
     private WireGuardSession(Context context) {
-        backend = new GoBackend(context.getApplicationContext());
+        appContext = context.getApplicationContext();
+        backend = new GoBackend(appContext);
     }
 
     static synchronized WireGuardSession get(Context context) {
@@ -70,6 +77,73 @@ final class WireGuardSession {
 
     synchronized boolean isBusy() {
         return operationPending;
+    }
+
+    boolean isAlwaysOn() {
+        try {
+            return backend.isAlwaysOn();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception | LinkageError unavailable) {
+            return false;
+        }
+    }
+
+    boolean isLockdownEnabled() {
+        try {
+            return backend.isLockdownEnabled();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception | LinkageError unavailable) {
+            return false;
+        }
+    }
+
+    /**
+     * Invoked only from the WireGuard library's system Always-on callback.
+     * Restore the most recently selected encrypted profile on the serialized
+     * backend executor, preserving the same single tunnel used by the UI.
+     * Do not start from the ordinary app launch or after a user chose Off.
+     */
+    void restoreSavedProfileForAlwaysOn() {
+        synchronized (this) {
+            if (operationPending) return;
+            operationPending = true;
+        }
+        executor.execute(() -> {
+            try {
+                if (backend.getState(tunnel) == Tunnel.State.UP) return;
+                SecureTunnelProfileStore store = new SecureTunnelProfileStore(appContext);
+                List<SecureTunnelProfileStore.Profile> saved = store.load();
+                int selected = store.preferredIndex(saved.size());
+                if (selected < 0) return;
+                SecureTunnelProfileStore.Profile profile = saved.get(selected);
+                byte[] bytes = profile.configuration.getBytes(StandardCharsets.UTF_8);
+                Config original;
+                try {
+                    original = Config.parse(new ByteArrayInputStream(bytes));
+                } finally {
+                    Arrays.fill(bytes, (byte) 0);
+                }
+                if (original.getPeers().isEmpty()
+                        || original.getInterface().getAddresses().isEmpty()) return;
+                Config routed = VpnRouteModes.prepare(original, profile.routeMode,
+                        profile.homeRoutes);
+                Config runtime = VpnDnsOverride.prepare(routed, profile.homeDnsEnabled,
+                        profile.homeDnsServer);
+                if (VpnService.prepare(appContext) != null) return;
+                backend.setState(tunnel, Tunnel.State.UP, runtime);
+            } catch (Exception | LinkageError ignored) {
+                // Do not disclose saved WireGuard configuration or secrets.
+                // The system may enforce lockdown while the tunnel is unavailable.
+            } finally {
+                synchronized (WireGuardSession.this) {
+                    operationPending = false;
+                }
+            }
+        });
     }
 
     void connect(Config config, Completion completion) {
