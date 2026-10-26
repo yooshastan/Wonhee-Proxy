@@ -1,13 +1,13 @@
 # Wonhee Proxy
 
-**Alpha 0.8 combined preview (draft, not a release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.2 combined preview (draft, not a release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
 
-## Combined Alpha 0.8 preview — foundations only
+## Combined Alpha 0.8.2 preview — foundations only
 
 This branch combines the next roadmap stages into one future release. It does
 **not** yet implement or claim DNS-over-HTTPS/QUIC, tracker filtering,
@@ -24,7 +24,8 @@ system-start callback, but it requires device testing before a secure release.
 - **Profiles persist across force stop:** Importing a valid WireGuard `.conf`
   immediately commits its encryption-sealed configuration. The selected profile
   returns when the app is launched again. One on/off button controls the tunnel;
-  Save profile settings persists routing and DNS option changes. Explicit
+  tapping Connect saves validated routing and DNS choices automatically;
+  Save profile settings remains available when saving without connecting. Explicit
   Force stop terminates the active VPN and must not be silently bypassed.
 - **Optional Android Always-on & lockdown:** The native VPN settings link
   opens Android's settings for Always-on VPN and Block connections without VPN.
@@ -39,9 +40,9 @@ system-start callback, but it requires device testing before a secure release.
   signing. A separate manually dispatched signed-release job requires a
   privately provisioned, persistent keystore in GitHub Actions secrets. No
   keystore or passwords are committed to this repository.
-- **Preview build:** versionCode 9, versionName
-  `0.8.0-alpha08.1-preview`, debug artifact
-  `wonhee-proxy-alpha08.1-preview-debug-apk`. Do not install expecting an
+- **Preview build:** versionCode 10, versionName
+  `0.8.0-alpha08.2-preview`, debug artifact
+  `wonhee-proxy-alpha08.2-preview-debug-apk`. Do not install expecting an
   in-place upgrade from a differently signed debug build.
 
 See [signing setup](docs/SIGNING.md) and the
@@ -62,8 +63,9 @@ See [signing setup](docs/SIGNING.md) and the
   safety. Without those server changes, internet requests can fail or leak.
 - **No silent key changes:** The selected mode modifies only a temporary
   connection configuration. Original imported WireGuard keys/addresses remain
-  unchanged. New imports save automatically; choose **Save profile settings**
-  to persist subsequent mode, DNS and home CIDR changes. Existing Alpha 0.5
+  unchanged. New imports save automatically; tapping **Connect** saves valid
+  mode, DNS and home CIDR choices to the encrypted profile. Use **Save profile
+  settings** to save preferences without connecting. Existing Alpha 0.5
   profiles remain readable.
 - **Guardrails:** Custom mode requires a single WireGuard peer; multi-peer
   profiles can still use their original routing. Warning before Connect;
