@@ -1,13 +1,13 @@
 # Wonhee Proxy
 
-**Alpha 0.8.2 combined preview (draft, not a release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.3 DNS preview (draft, not a release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
 
-## Combined Alpha 0.8.2 preview — foundations only
+## Combined Alpha 0.8.3 preview — DNS presets and persistence
 
 This branch combines the next roadmap stages into one future release. It does
 **not** yet implement or claim DNS-over-HTTPS/QUIC, tracker filtering,
@@ -16,11 +16,15 @@ Always-on/lockdown path is now integrated as an **opt-in, unverified preview**:
 the encrypted selected profile can be restored by the official GoBackend
 system-start callback, but it requires device testing before a secure release.
 
-- **Opt-in home DNS address:** The saved profile can specify a numeric DNS
-  server for the Android WireGuard connection, such as a *separately configured*
-  DNS resolver on the Fedora wg0 gateway. Requests reach it through the tunnel
-  only when its address is routed over WireGuard. That does not add DoH/DoQ or
-  tracking protection by itself.
+- **DNS presets:** Select imported profile DNS (no override), Cloudflare,
+  Quad9, AdGuard, Google, or one/two custom numeric DNS IPs. Presets supply
+  primary and secondary addresses. Existing single-IP custom profiles are
+  preserved; all options use the current Keystore-encrypted profile settings.
+  The address must be routed in WireGuard AllowedIPs. Some DNS providers offer
+  their own filtering, but Wonhee does not implement DoH/DoQ or tracker blocking.
+- **DNS preflight warnings:** All Internet routing with no configured DNS
+  shows an on-screen warning and a separate confirmation before connection.
+  This is a usability guard, not a connectivity test or leak-proof guarantee.
 - **Profiles persist across force stop:** Importing a valid WireGuard `.conf`
   immediately commits its encryption-sealed configuration. The selected profile
   returns when the app is launched again. One on/off button controls the tunnel;
@@ -34,19 +38,20 @@ system-start callback, but it requires device testing before a secure release.
   a validated full-tunnel VPN, and lockdown could eliminate all internet access
   until Fedora forwarding/NAT, IPv6, DNS and reboot recovery are tested.
 - **Backward-compatible encrypted settings:** Existing profiles restore
-  with home DNS disabled where that setting did not previously exist.
+  with imported-profile DNS selected where no custom DNS existed.
   VPN credentials remain sealed with AES-GCM and Android Keystore.
 - **Reproducible signing foundation:** CI debug previews still use disposable
   signing. A separate manually dispatched signed-release job requires a
   privately provisioned, persistent keystore in GitHub Actions secrets. No
   keystore or passwords are committed to this repository.
-- **Preview build:** versionCode 10, versionName
-  `0.8.0-alpha08.2-preview`, debug artifact
-  `wonhee-proxy-alpha08.2-preview-debug-apk`. Do not install expecting an
+- **Preview build:** versionCode 11, versionName
+  `0.8.3-alpha08.3-preview`, debug artifact
+  `wonhee-proxy-alpha08.3-preview-debug-apk`. Do not install expecting an
   in-place upgrade from a differently signed debug build.
 
 See [signing setup](docs/SIGNING.md) and the
-[combined preview test plan](docs/ALPHA08_PREVIEW_TEST_PLAN.md).
+[combined preview test plan](docs/ALPHA08_PREVIEW_TEST_PLAN.md) and
+[Alpha 0.8.3 DNS test plan](docs/ALPHA083_DNS_TEST_PLAN.md).
 
 ## New in Alpha 0.6 — explicit connection routing (draft)
 
