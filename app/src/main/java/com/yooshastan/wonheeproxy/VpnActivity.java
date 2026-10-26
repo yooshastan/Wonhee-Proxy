@@ -98,7 +98,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.2 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -186,8 +186,9 @@ public final class VpnActivity extends Activity {
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
-        label(routingCard, "Imported keys are saved securely right away. After changing "
-                + "routing or DNS, tap Save settings to remember the new options.", 12, MUTED);
+        label(routingCard, "Imported keys are saved securely right away. "
+                + "Connecting automatically saves routing and DNS choices. "
+                + "Use Save profile settings to save without connecting.", 12, MUTED);
 
         LinearLayout dnsCard = card(root);
         label(dnsCard, "HOME DNS (OPTIONAL)", 17, PINK);
@@ -514,6 +515,43 @@ public final class VpnActivity extends Activity {
         }
     }
 
+    /**
+     * Save connection preferences before bringing up a tunnel. If encrypted
+     * storage fails, do not connect with settings Always-on cannot restore.
+     * Preserve the imported WireGuard keys and the selected profile identity.
+     */
+    private boolean saveConnectionChoices() {
+        int index = savedPicker.getSelectedItemPosition() - 1;
+        if (index < 0 || index >= profiles.size()) {
+            message.setText("Select a saved WireGuard profile before connecting.");
+            return false;
+        }
+        SecureTunnelProfileStore.Profile existing = profiles.get(index);
+        if (!existing.name.equals(profileName.getText().toString().trim())
+                || !existing.configuration.equals(selectedConfig.toWgQuickString())) {
+            message.setText("Profile name or configuration has unsaved changes. "
+                    + "Use Save profile settings before connecting.");
+            return false;
+        }
+        try {
+            SecureTunnelProfileStore.Profile updated =
+                    new SecureTunnelProfileStore.Profile(existing.name,
+                            existing.configuration,
+                            routingPicker.getSelectedItemPosition(),
+                            homeRoutes.getText().toString(),
+                            homeDnsToggle.isChecked(),
+                            homeDnsAddress.getText().toString());
+            profileStore.save(updated);
+            profileStore.rememberSelectedIndex(index);
+            profiles.set(index, updated);
+            return true;
+        } catch (Exception failure) {
+            message.setText("Connection choices could not be saved securely. "
+                    + "VPN was not started. Check your saved profile.");
+            return false;
+        }
+    }
+
     private void confirmDelete() {
         int index = savedPicker.getSelectedItemPosition() - 1;
         if (index < 0 || index >= profiles.size()) {
@@ -624,6 +662,7 @@ public final class VpnActivity extends Activity {
         }
         String warning = VpnRouteModes.summary(
                 selectedConfig, mode, homeRoutes.getText().toString())
+                + "\n\nConnecting saves these routing and DNS choices in your encrypted profile."
                 + "\n\nAndroid permits only one active VPN: Tailscale may disconnect. "
                 + "No fail-closed, DNS-leak or IPv6-leak protection is guaranteed.";
         if (homeDnsToggle.isChecked()) {
@@ -640,6 +679,7 @@ public final class VpnActivity extends Activity {
                 .setMessage(warning)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Connect", (dialog, which) -> {
+                    if (!saveConnectionChoices()) return;
                     pendingConnection = connectionConfig;
                     Intent permission = VpnService.prepare(this);
                     if (permission != null) {
