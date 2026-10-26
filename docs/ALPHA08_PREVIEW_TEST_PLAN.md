@@ -1,4 +1,4 @@
-# Combined Alpha 0.8 preview — test matrix
+# Combined Alpha 0.8.2 preview — test matrix
 
 This branch is **foundational**, not a completed DNS/privacy or always-on
 release. CI compiles a debug preview. Do not use for sensitive traffic.
@@ -13,8 +13,14 @@ release. CI compiles a debug preview. Do not use for sensitive traffic.
   or silently restart it.
 - Press Turn VPN On and Turn VPN Off; confirm each action toggles the actual
   WireGuard interface and survives activity rotation or ordinary app reopen.
-- Save changed route or home DNS settings, force stop, reopen, and confirm they
-  remain selected (test both DNS-enabled and disabled).
+- Without tapping Save, choose All internet, opt-in DNS and a numeric resolver;
+  confirm Connect; force stop, relaunch and verify those exact settings return.
+  Repeat with Home Access and DNS disabled. Confirm Cancel on the Connect
+  warning does not save unsaved choices.
+- Save changed route or home DNS settings with the explicit Save button, force
+  stop, reopen, and confirm they remain selected (both DNS-enabled and disabled).
+- Simulate encrypted profile storage failure and verify Connect is refused rather
+  than starting a session that Always-on cannot restore consistently.
 - Import a second `.conf` with the same desired name; ensure it is assigned
   a new name and does not silently replace the existing encrypted profile.
 - Select the second profile, force stop, reopen, confirm that exact selection
@@ -71,3 +77,23 @@ release. CI compiles a debug preview. Do not use for sensitive traffic.
   match and an in-place upgrade must retain saved profiles.
 - Never replace an installed build with a different signing certificate
   by uninstalling until private WireGuard and proxy credentials are backed up.
+
+## Pixel 8a field feedback (user-reported, 2026-10-26)
+
+- Imported profile restored after force stop without reimporting the `.conf`.
+- After explicitly saving All internet (experimental) and DNS override, routing
+  mode and DNS settings restored after force stop.
+- On cellular, Fedora WireGuard gateway and browser reported matching home WAN
+  IPv4; WireGuard observed a distinct mobile peer endpoint.
+- Android reported Always-on configured and lockdown=1. User reports web traffic
+  stopped during force stop and resumed after reopening/reconnecting.
+- User reports Wonhee VPN and Ultgram MTProto/SOCKS5 proxy connected automatically
+  following a full phone reboot, with no manual recovery needed.
+- User reports network-switching and connection-recovery tests successful. Exact
+  transition timings and app/server logs were not independently inspected.
+- Browser DNS leak test displayed the intentionally configured Cloudflare resolver
+  addresses; browser IPv6 test reported no IPv6 address. Neither result by itself
+  constitutes a comprehensive application-level DNS/IPv6 leak audit.
+- Further release gates: regression test Connect auto-save, verify signed APK
+  upgrades preserve encrypted profiles, and validate loss/recovery across
+  separate networks and additional Android devices.
