@@ -46,12 +46,10 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnHealthSummaryTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
       - name: Install Android 16 SDK
         run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
       - name: Build installable debug APK
-        run: gradle :app:assembleDebug --no-daemon --console=plain
+        run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
           name: wonhee-proxy-alpha08.4-preview-debug-apk
@@ -72,8 +70,6 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
       - name: Install Android SDK
         run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
       - name: Restore persistent release keystore
@@ -96,7 +92,7 @@ jobs:
           WONHEE_SIGNING_STORE_PASSWORD: ${{ secrets.WONHEE_SIGNING_STORE_PASSWORD }}
           WONHEE_SIGNING_KEY_ALIAS: ${{ secrets.WONHEE_SIGNING_KEY_ALIAS }}
           WONHEE_SIGNING_KEY_PASSWORD: ${{ secrets.WONHEE_SIGNING_KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon --console=plain
+        run: ./gradlew :app:assembleRelease --no-daemon --console=plain
       - name: Verify pinned release signing certificate
         shell: bash
         env:

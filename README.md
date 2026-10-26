@@ -7,6 +7,24 @@ endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
 
+## Build with Android Studio (Gradle 8.13 pinned)
+
+Import this repository's source project in Android Studio, **not the prebuilt APK**.
+Android Gradle Plugin 8.12.2 requires a compatible Gradle version; Gradle 9.6
+fails with a removed `InternalProblems` API. The committed and checksum-verified
+Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
+
+1. Open the repository folder in Android Studio and use the **Gradle wrapper**.
+2. Use Java/JDK 17 and let Android Studio sync and install missing Android SDKs.
+3. Run `./gradlew :app:assembleDebug` from the terminal for a debug APK, or
+   choose **Build → Generate Signed Bundle / APK → APK** for a release signed
+   with your own privately stored, long-lived keystore.
+4. A newly created release signing key will not update an APK signed by an
+   incompatible debug key in place. Back up original WireGuard configuration
+   and other private settings before uninstalling an older build.
+
+See [release signing instructions](docs/SIGNING.md).
+
 ## Combined Alpha 0.8.4 preview — DNS presets, connection health and signing
 
 This branch combines the next roadmap stages into one future release. It does
