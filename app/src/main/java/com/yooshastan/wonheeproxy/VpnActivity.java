@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Combined Alpha 0.8.3 preview: selectable DNS presets through WireGuard, encrypted
+ * Combined Alpha 0.8.4 preview: DNS presets, connection health and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -56,6 +56,7 @@ public final class VpnActivity extends Activity {
     private boolean updatingList;
     private boolean visible;
     private boolean statisticsPending;
+    private boolean diagnosticsRunning;
     private Spinner savedPicker;
     private Spinner routingPicker;
     private EditText homeRoutes;
@@ -67,6 +68,9 @@ public final class VpnActivity extends Activity {
     private TextView message;
     private TextView routeStatus;
     private TextView statisticsText;
+    private TextView healthStatus;
+    private TextView diagnosticsReport;
+    private Button diagnosticsButton;
     private Button vpnToggleButton, importButton, saveButton, deleteButton;
 
     private final Runnable poll = new Runnable() {
@@ -98,7 +102,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.3 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.4 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -110,6 +114,16 @@ public final class VpnActivity extends Activity {
             else confirmConnect();
         });
         label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
+
+        LinearLayout healthCard = card(root);
+        label(healthCard, "CONNECTION HEALTH", 17, PINK);
+        healthStatus = label(healthCard, "Waiting for local VPN status...", 14, WHITE);
+        diagnosticsButton = button(healthCard, "Run DNS & HTTPS test (example.com)");
+        diagnosticsButton.setOnClickListener(v -> confirmDiagnostics());
+        diagnosticsReport = label(healthCard, "No active network test has been run.", 13, MUTED);
+        label(healthCard, "The test sends an explicit DNS lookup and HTTPS HEAD request only "
+                + "on an Android-reported VPN network, with no normal-network fallback. "
+                + "A successful test is not proof against DNS, IPv6 or traffic leaks.", 12, MUTED);
 
         LinearLayout configCard = card(root);
         label(configCard, "WIREGUARD PROFILES", 17, PINK);
@@ -282,6 +296,7 @@ public final class VpnActivity extends Activity {
     }
 
     private void renderStatistics(WireGuardSession.StatusSnapshot snapshot) {
+        refreshPassiveHealth(snapshot);
         if (!snapshot.interfaceUp) {
             connectionStatus.setText("Disconnected");
             connectionStatus.setTextColor(WHITE);
@@ -313,6 +328,58 @@ public final class VpnActivity extends Activity {
                 + "\nReceived: " + formatBytes(snapshot.receivedBytes)
                 + " · Sent: " + formatBytes(snapshot.transmittedBytes)
                 + "\nPeers tracked: " + snapshot.peers);
+    }
+
+    private void refreshPassiveHealth(WireGuardSession.StatusSnapshot snapshot) {
+        if (healthStatus == null || session == null) return;
+        boolean dnsPresent = false;
+        if (selectedConfig != null) {
+            try {
+                Config routed = VpnRouteModes.prepare(selectedConfig,
+                        routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
+                Config ready = VpnDnsOverride.prepare(
+                        routed, dnsOverrideEnabled(), chosenDnsAddresses());
+                dnsPresent = VpnDnsOverride.hasDns(ready);
+            } catch (Exception invalid) {
+                // No configuration content or private-key exceptions are shown.
+            }
+        }
+        long age = snapshot.lastHandshakeEpochMillis <= 0 ? -1L
+                : Math.max(0L, (System.currentTimeMillis()
+                        - snapshot.lastHandshakeEpochMillis) / 1000L);
+        healthStatus.setText(VpnHealthSummary.render(snapshot.interfaceUp,
+                snapshot.statisticsAvailable, age, dnsPresent,
+                session.isAlwaysOn(), session.isLockdownEnabled()));
+    }
+
+    private void confirmDiagnostics() {
+        if (session == null || !session.isConnected() || session.isBusy()) {
+            diagnosticsReport.setText("Connect WireGuard before running a VPN-bound test.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Test connection through Android VPN?")
+                .setMessage("Wonhee will resolve example.com and send one HTTPS HEAD request "
+                        + "through the Android-reported VPN network. No WireGuard keys or "
+                        + "proxy credentials are sent. This tests reachability, not leak freedom.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Run test", (dialog, which) -> runDiagnostics())
+                .show();
+    }
+
+    private void runDiagnostics() {
+        if (diagnosticsRunning || session == null || !session.isConnected()) return;
+        diagnosticsRunning = true;
+        diagnosticsReport.setText("Testing VPN-bound DNS and HTTPS on example.com...");
+        refreshButtons();
+        VpnConnectionDiagnostics.run(this, report -> {
+            diagnosticsRunning = false;
+            if (isFinishing() || isDestroyed()) return;
+            String note = session == null || !session.isConnected()
+                    ? "VPN disconnected during the test; result may be stale.\n" : "";
+            diagnosticsReport.setText(note + report);
+            refreshButtons();
+        });
     }
 
     private static String formatBytes(long count) {
@@ -812,6 +879,7 @@ public final class VpnActivity extends Activity {
                 : active ? "Turn VPN Off" : "Turn VPN On");
         vpnToggleButton.setEnabled(!busy && !systemAlwaysOn
                 && (active || selectedConfig != null));
+        diagnosticsButton.setEnabled(active && !busy && !diagnosticsRunning);
         importButton.setEnabled(!active && !busy);
         saveButton.setEnabled(!active && !busy && selectedConfig != null);
         deleteButton.setEnabled(!active && !busy && !profiles.isEmpty());
