@@ -25,6 +25,22 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
 
 See [release signing instructions](docs/SIGNING.md).
 
+## Alpha 0.8.5 preview — ongoing VPN throughput notification
+
+- A silent notification displays **download ↓ and upload ↑ throughput** from
+  WireGuard's cumulative RX/TX byte counters, sampled roughly every five seconds
+  only while the tunnel is active. It also shows total transferred bytes.
+- Tap the notification to open Wonhee. It disappears when the tunnel stops.
+  Notifications require Android notification permission on Android 13+.
+- The optional `systemExempted` foreground service can be unavailable on a
+  device or blocked from starting in the background after Always-on restoration.
+  In that case WireGuard still works, and opening Wonhee can start the monitor.
+  This notification does **not** send keep-alive packets, enforce VPN lockdown,
+  prove connectivity, measure all device traffic, or audit DNS leaks.
+- Android Studio/GitHub build uses the existing pinned Gradle 8.13 wrapper;
+  build versionCode 13 / `0.8.5-alpha08.5-preview`.
+- See [notification test plan](docs/ALPHA085_NOTIFICATION_TEST_PLAN.md).
+
 ## Combined Alpha 0.8.4 preview — DNS presets, connection health and signing
 
 This branch combines the next roadmap stages into one future release. It does

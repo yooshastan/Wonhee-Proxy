@@ -135,6 +135,9 @@ final class WireGuardSession {
                         profile.homeDnsServer);
                 if (VpnService.prepare(appContext) != null) return;
                 backend.setState(tunnel, Tunnel.State.UP, runtime);
+                if (backend.getState(tunnel) == Tunnel.State.UP) {
+                    VpnTrafficNotificationService.startIfPossible(appContext);
+                }
             } catch (Exception | LinkageError ignored) {
                 // Do not disclose saved WireGuard configuration or secrets.
                 // The system may enforce lockdown while the tunnel is unavailable.
@@ -215,6 +218,10 @@ final class WireGuardSession {
                 operationPending = false;
             }
             final boolean done = success;
+            if (done) {
+                if (connect) VpnTrafficNotificationService.startIfPossible(appContext);
+                else VpnTrafficNotificationService.stop(appContext);
+            }
             final String safeFailure = failure;
             main.post(() -> callback.finished(done, done
                     ? (connect
