@@ -1,4 +1,4 @@
-name: Wonhee Proxy Android Alpha 0.8.2 Preview
+name: Wonhee Proxy Android Alpha 0.8.4 Preview
 
 on:
   push:
@@ -28,27 +28,31 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/core/UltgramPackages.java \
             app/src/main/java/com/yooshastan/wonheeproxy/core/EndpointSelector.java \
             app/src/main/java/com/yooshastan/wonheeproxy/core/ProbeHistory.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/VpnDnsPresets.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/VpnHealthSummary.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
             core-tests/UltgramPackagesTest.java \
             core-tests/EndpointSelectorTest.java \
-            core-tests/ProbeHistoryTest.java
+            core-tests/ProbeHistoryTest.java \
+            core-tests/VpnDnsPresetsTest.java \
+            core-tests/VpnHealthSummaryTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
           java -cp /tmp/wonhee-classes UltgramPackagesTest
           java -cp /tmp/wonhee-classes EndpointSelectorTest
           java -cp /tmp/wonhee-classes ProbeHistoryTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnDnsPresetsTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnHealthSummaryTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
       - name: Install Android 16 SDK
         run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
       - name: Build installable debug APK
-        run: gradle :app:assembleDebug --no-daemon --console=plain
+        run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.2-preview-debug-apk
+          name: wonhee-proxy-alpha08.4-preview-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -66,8 +70,6 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
       - name: Install Android SDK
         run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
       - name: Restore persistent release keystore
@@ -90,11 +92,34 @@ jobs:
           WONHEE_SIGNING_STORE_PASSWORD: ${{ secrets.WONHEE_SIGNING_STORE_PASSWORD }}
           WONHEE_SIGNING_KEY_ALIAS: ${{ secrets.WONHEE_SIGNING_KEY_ALIAS }}
           WONHEE_SIGNING_KEY_PASSWORD: ${{ secrets.WONHEE_SIGNING_KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon --console=plain
+        run: ./gradlew :app:assembleRelease --no-daemon --console=plain
+      - name: Verify pinned release signing certificate
+        shell: bash
+        env:
+          EXPECTED_CERT_SHA256: ${{ secrets.WONHEE_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXPECTED_CERT_SHA256:-}" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo "Set WONHEE_SIGNING_CERT_SHA256 to the 64-character public cert fingerprint. See docs/SIGNING.md." >&2
+            exit 1
+          fi
+          apk="app/build/outputs/apk/release/app-release.apk"
+          output="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk")"
+          actual="$(printf '%s\n' "$output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          actual="${actual//:/}"
+          actual="${actual//[[:space:]]/}"
+          if [[ ! "$actual" =~ ^[[:xdigit:]]{64}$ || "${actual,,}" != "${EXPECTED_CERT_SHA256,,}" ]]; then
+            echo "Signing fingerprint mismatch or missing signature. Refusing to publish APK." >&2
+            exit 1
+          fi
+          sha256sum "$apk" > app/build/outputs/apk/release/wonhee-sha256.txt
+          echo "Signed APK certificate pinned and verified. APK checksum written." >> "$GITHUB_STEP_SUMMARY"
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.2-preview-signed-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: wonhee-proxy-alpha08.4-preview-signed-apk
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/wonhee-sha256.txt
           if-no-files-found: error
           retention-days: 14

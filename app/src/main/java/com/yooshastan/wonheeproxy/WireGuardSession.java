@@ -198,22 +198,29 @@ final class WireGuardSession {
         }
         executor.execute(() -> {
             boolean success = false;
+            String failure = "VPN operation failed. Check the tunnel, Android VPN permission and gateway.";
             try {
                 Tunnel.State desired = connect ? Tunnel.State.UP : Tunnel.State.DOWN;
                 backend.setState(tunnel, desired, config);
                 success = backend.getState(tunnel) == desired;
-            } catch (Exception | LinkageError ignored) {
-                // Do not leak private WireGuard configuration via diagnostics.
+                if (!success) failure = "VPN backend did not reach the requested state.";
+            } catch (SecurityException permission) {
+                failure = "Android denied VPN access. Check system VPN permission and Always-on settings.";
+            } catch (IllegalArgumentException invalidConfig) {
+                failure = "WireGuard rejected the runtime configuration. Check the selected routes and DNS.";
+            } catch (Exception | LinkageError unavailable) {
+                // Do not echo backend exceptions, private WireGuard keys or endpoint data.
             }
             synchronized (WireGuardSession.this) {
                 operationPending = false;
             }
             final boolean done = success;
+            final String safeFailure = failure;
             main.post(() -> callback.finished(done, done
                     ? (connect
                         ? "VPN interface started. Waiting for peer handshake verification."
                         : "VPN interface stopped.")
-                    : "VPN operation failed. Check permission, configuration and the gateway."));
+                    : safeFailure));
         });
     }
 }

@@ -17,7 +17,6 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -37,7 +36,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Combined Alpha 0.8 preview: opt-in home DNS through WireGuard, encrypted
+ * Combined Alpha 0.8.4 preview: DNS presets, connection health and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -57,16 +56,21 @@ public final class VpnActivity extends Activity {
     private boolean updatingList;
     private boolean visible;
     private boolean statisticsPending;
+    private boolean diagnosticsRunning;
     private Spinner savedPicker;
     private Spinner routingPicker;
     private EditText homeRoutes;
-    private EditText homeDnsAddress;
-    private CheckBox homeDnsToggle;
+    private Spinner dnsPicker;
+    private EditText customDnsAddresses;
+    private TextView dnsStatus;
     private EditText profileName;
     private TextView connectionStatus;
     private TextView message;
     private TextView routeStatus;
     private TextView statisticsText;
+    private TextView healthStatus;
+    private TextView diagnosticsReport;
+    private Button diagnosticsButton;
     private Button vpnToggleButton, importButton, saveButton, deleteButton;
 
     private final Runnable poll = new Runnable() {
@@ -98,7 +102,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.2 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.4 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -110,6 +114,16 @@ public final class VpnActivity extends Activity {
             else confirmConnect();
         });
         label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
+
+        LinearLayout healthCard = card(root);
+        label(healthCard, "CONNECTION HEALTH", 17, PINK);
+        healthStatus = label(healthCard, "Waiting for local VPN status...", 14, WHITE);
+        diagnosticsButton = button(healthCard, "Run DNS & HTTPS test (example.com)");
+        diagnosticsButton.setOnClickListener(v -> confirmDiagnostics());
+        diagnosticsReport = label(healthCard, "No active network test has been run.", 13, MUTED);
+        label(healthCard, "The test sends an explicit DNS lookup and HTTPS HEAD request only "
+                + "on an Android-reported VPN network, with no normal-network fallback. "
+                + "A successful test is not proof against DNS, IPv6 or traffic leaks.", 12, MUTED);
 
         LinearLayout configCard = card(root);
         label(configCard, "WIREGUARD PROFILES", 17, PINK);
@@ -191,26 +205,49 @@ public final class VpnActivity extends Activity {
                 + "Use Save profile settings to save without connecting.", 12, MUTED);
 
         LinearLayout dnsCard = card(root);
-        label(dnsCard, "HOME DNS (OPTIONAL)", 17, PINK);
-        homeDnsToggle = new CheckBox(this);
-        homeDnsToggle.setText("Use a home DNS server inside WireGuard");
-        homeDnsToggle.setTextColor(WHITE);
-        dnsCard.addView(homeDnsToggle);
-        homeDnsAddress = new EditText(this);
-        homeDnsAddress.setSingleLine(true);
-        homeDnsAddress.setTextColor(WHITE);
-        homeDnsAddress.setHintTextColor(MUTED);
-        homeDnsAddress.setHint("Home DNS IP (only if it serves DNS), e.g. 10.77.0.1");
-        dnsCard.addView(homeDnsAddress);
-        homeDnsToggle.setOnCheckedChangeListener((check, enabled) -> {
-            homeDnsAddress.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        label(dnsCard, "DNS RESOLVERS", 17, PINK);
+        label(dnsCard, "Choose a DNS preset for this encrypted WireGuard profile.", 13, MUTED);
+        dnsPicker = new Spinner(this);
+        ArrayAdapter<String> dnsAdapter = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, VpnDnsPresets.LABELS) {
+            @Override public View getView(int position, View convertView,
+                                          android.view.ViewGroup parent) {
+                View row = super.getView(position, convertView, parent);
+                if (row instanceof TextView) ((TextView) row).setTextColor(WHITE);
+                return row;
+            }
+            @Override public View getDropDownView(int position, View convertView,
+                                                  android.view.ViewGroup parent) {
+                View row = super.getDropDownView(position, convertView, parent);
+                if (row instanceof TextView) ((TextView) row).setTextColor(Color.BLACK);
+                return row;
+            }
+        };
+        dnsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        dnsPicker.setAdapter(dnsAdapter);
+        dnsCard.addView(dnsPicker);
+        customDnsAddresses = new EditText(this);
+        customDnsAddresses.setSingleLine(true);
+        customDnsAddresses.setTextColor(WHITE);
+        customDnsAddresses.setHintTextColor(MUTED);
+        customDnsAddresses.setHint("One or two IPs, separated by a comma");
+        dnsCard.addView(customDnsAddresses);
+        dnsStatus = label(dnsCard, "Choose a saved configuration.", 13, MUTED);
+        dnsPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
+                refreshDnsPreview();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
-        homeDnsAddress.setVisibility(View.GONE);
-        label(dnsCard, "Requires a reachable DNS resolver at your home gateway and "
-                + "a tunnel route to its IP. This is ordinary DNS carried inside "
-                + "WireGuard; it is NOT DoH, DoQ, tracker blocking, or proof "
-                + "that every DNS request is leak-free.", 12, MUTED);
-
+        customDnsAddresses.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable text) { refreshDnsPreview(); }
+        });
+        refreshDnsPreview();
+        label(dnsCard, "DNS is routed inside WireGuard when AllowedIPs cover the selected "
+                + "addresses. Public presets do not add DoH/DoQ; provider-specific filtering "
+                + "is not a full tracker or DNS-leak protection audit.", 12, MUTED);
 
         LinearLayout alwaysOnCard = card(root);
         label(alwaysOnCard, "PERSISTENT VPN & TRAFFIC BLOCKING", 17, PINK);
@@ -259,6 +296,7 @@ public final class VpnActivity extends Activity {
     }
 
     private void renderStatistics(WireGuardSession.StatusSnapshot snapshot) {
+        refreshPassiveHealth(snapshot);
         if (!snapshot.interfaceUp) {
             connectionStatus.setText("Disconnected");
             connectionStatus.setTextColor(WHITE);
@@ -290,6 +328,58 @@ public final class VpnActivity extends Activity {
                 + "\nReceived: " + formatBytes(snapshot.receivedBytes)
                 + " · Sent: " + formatBytes(snapshot.transmittedBytes)
                 + "\nPeers tracked: " + snapshot.peers);
+    }
+
+    private void refreshPassiveHealth(WireGuardSession.StatusSnapshot snapshot) {
+        if (healthStatus == null || session == null) return;
+        boolean dnsPresent = false;
+        if (selectedConfig != null) {
+            try {
+                Config routed = VpnRouteModes.prepare(selectedConfig,
+                        routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
+                Config ready = VpnDnsOverride.prepare(
+                        routed, dnsOverrideEnabled(), chosenDnsAddresses());
+                dnsPresent = VpnDnsOverride.hasDns(ready);
+            } catch (Exception invalid) {
+                // No configuration content or private-key exceptions are shown.
+            }
+        }
+        long age = snapshot.lastHandshakeEpochMillis <= 0 ? -1L
+                : Math.max(0L, (System.currentTimeMillis()
+                        - snapshot.lastHandshakeEpochMillis) / 1000L);
+        healthStatus.setText(VpnHealthSummary.render(snapshot.interfaceUp,
+                snapshot.statisticsAvailable, age, dnsPresent,
+                session.isAlwaysOn(), session.isLockdownEnabled()));
+    }
+
+    private void confirmDiagnostics() {
+        if (session == null || !session.isConnected() || session.isBusy()) {
+            diagnosticsReport.setText("Connect WireGuard before running a VPN-bound test.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Test connection through Android VPN?")
+                .setMessage("Wonhee will resolve example.com and send one HTTPS HEAD request "
+                        + "through the Android-reported VPN network. No WireGuard keys or "
+                        + "proxy credentials are sent. This tests reachability, not leak freedom.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Run test", (dialog, which) -> runDiagnostics())
+                .show();
+    }
+
+    private void runDiagnostics() {
+        if (diagnosticsRunning || session == null || !session.isConnected()) return;
+        diagnosticsRunning = true;
+        diagnosticsReport.setText("Testing VPN-bound DNS and HTTPS on example.com...");
+        refreshButtons();
+        VpnConnectionDiagnostics.run(this, report -> {
+            diagnosticsRunning = false;
+            if (isFinishing() || isDestroyed()) return;
+            String note = session == null || !session.isConnected()
+                    ? "VPN disconnected during the test; result may be stale.\n" : "";
+            diagnosticsReport.setText(note + report);
+            refreshButtons();
+        });
     }
 
     private static String formatBytes(long count) {
@@ -325,8 +415,8 @@ public final class VpnActivity extends Activity {
                 pendingConnection = null;
                 routingPicker.setSelection(VpnRouteModes.PROFILE);
                 homeRoutes.setText(VpnRouteModes.suggestedHomeRoutes(imported));
-                homeDnsToggle.setChecked(false);
-                homeDnsAddress.setText("");
+                dnsPicker.setSelection(VpnDnsPresets.IMPORTED);
+                customDnsAddresses.setText("");
                 String importedName = availableImportName();
                 profileName.setText(importedName);
                 refreshRoutingPreview();
@@ -438,8 +528,11 @@ public final class VpnActivity extends Activity {
             routingPicker.setSelection(profile.routeMode);
             homeRoutes.setText(profile.homeRoutes.isEmpty()
                     ? VpnRouteModes.suggestedHomeRoutes(selectedConfig) : profile.homeRoutes);
-            homeDnsAddress.setText(profile.homeDnsServer);
-            homeDnsToggle.setChecked(profile.homeDnsEnabled);
+            int savedDnsChoice = VpnDnsPresets.choiceForSaved(
+                    profile.homeDnsEnabled, profile.homeDnsServer);
+            customDnsAddresses.setText(savedDnsChoice == VpnDnsPresets.CUSTOM
+                    ? profile.homeDnsServer : "");
+            dnsPicker.setSelection(savedDnsChoice);
             refreshRoutingPreview();
             int index = savedPicker.getSelectedItemPosition() - 1;
             if (index >= 0 && index < profiles.size()) {
@@ -471,17 +564,16 @@ public final class VpnActivity extends Activity {
         try {
             Config routed = VpnRouteModes.prepare(selectedConfig,
                     routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
-            VpnDnsOverride.prepare(routed, homeDnsToggle.isChecked(),
-                    homeDnsAddress.getText().toString());
+            VpnDnsOverride.prepare(routed, dnsOverrideEnabled(), chosenDnsAddresses());
         } catch (Exception invalid) {
-            message.setText("Cannot validate routing or home DNS. Check the CIDRs and DNS IP.");
+            message.setText("Cannot validate routing or DNS. Check the CIDRs and DNS IPs.");
             return;
         }
         try {
             updated = new SecureTunnelProfileStore.Profile(
                     profileName.getText().toString(), selectedConfig.toWgQuickString(),
                     routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString(),
-                    homeDnsToggle.isChecked(), homeDnsAddress.getText().toString());
+                    dnsOverrideEnabled(), chosenDnsAddresses());
         } catch (IllegalArgumentException invalid) {
             message.setText(invalid.getMessage());
             return;
@@ -539,8 +631,8 @@ public final class VpnActivity extends Activity {
                             existing.configuration,
                             routingPicker.getSelectedItemPosition(),
                             homeRoutes.getText().toString(),
-                            homeDnsToggle.isChecked(),
-                            homeDnsAddress.getText().toString());
+                            dnsOverrideEnabled(),
+                            chosenDnsAddresses());
             profileStore.save(updated);
             profileStore.rememberSelectedIndex(index);
             profiles.set(index, updated);
@@ -574,8 +666,8 @@ public final class VpnActivity extends Activity {
                         profileName.setText("");
                         routingPicker.setSelection(VpnRouteModes.PROFILE);
                         homeRoutes.setText("");
-                        homeDnsToggle.setChecked(false);
-                        homeDnsAddress.setText("");
+                        dnsPicker.setSelection(VpnDnsPresets.IMPORTED);
+                        customDnsAddresses.setText("");
                         reloadProfiles(null);
                         refreshRoutingPreview();
                         message.setText("Saved profile deleted from the encrypted store.");
@@ -640,6 +732,42 @@ public final class VpnActivity extends Activity {
         homeRoutes.setVisibility(mode == VpnRouteModes.HOME ? View.VISIBLE : View.GONE);
         routeStatus.setText(VpnRouteModes.summary(
                 selectedConfig, mode, homeRoutes.getText().toString()));
+        refreshDnsPreview();
+    }
+
+    private boolean dnsOverrideEnabled() {
+        return VpnDnsPresets.isOverride(dnsPicker.getSelectedItemPosition());
+    }
+
+    private String chosenDnsAddresses() {
+        return VpnDnsPresets.addresses(dnsPicker.getSelectedItemPosition(),
+                customDnsAddresses.getText().toString());
+    }
+
+    private void refreshDnsPreview() {
+        if (dnsPicker == null || customDnsAddresses == null || dnsStatus == null) return;
+        int choice = dnsPicker.getSelectedItemPosition();
+        customDnsAddresses.setVisibility(choice == VpnDnsPresets.CUSTOM
+                ? View.VISIBLE : View.GONE);
+        if (choice == VpnDnsPresets.IMPORTED) {
+            boolean existingDns = VpnDnsOverride.hasDns(selectedConfig);
+            if (!existingDns && routingPicker != null
+                    && routingPicker.getSelectedItemPosition() == VpnRouteModes.ALL) {
+                dnsStatus.setTextColor(0xffffc6b0);
+                dnsStatus.setText("WARNING: No DNS configured. Websites may fail with Android VPN lockdown. Choose a preset.");
+            } else {
+                dnsStatus.setTextColor(MUTED);
+                dnsStatus.setText(existingDns
+                        ? "Using DNS already present in the imported WireGuard profile."
+                        : "No DNS override. The imported profile does not provide a DNS server.");
+            }
+        } else {
+            dnsStatus.setTextColor(MUTED);
+            String configured = chosenDnsAddresses();
+            dnsStatus.setText(choice == VpnDnsPresets.CUSTOM && configured.isEmpty()
+                    ? "Enter a numeric DNS IP before connecting."
+                    : "Selected DNS: " + configured + "\nSaved with this profile when you connect.");
+        }
     }
 
     private void confirmConnect() {
@@ -654,20 +782,36 @@ public final class VpnActivity extends Activity {
             Config routed = VpnRouteModes.prepare(
                     selectedConfig, mode, homeRoutes.getText().toString());
             connectionConfig = VpnDnsOverride.prepare(
-                    routed, homeDnsToggle.isChecked(), homeDnsAddress.getText().toString());
+                    routed, dnsOverrideEnabled(), chosenDnsAddresses());
         } catch (Exception invalid) {
             // Avoid logging or echoing configuration details, including private keys.
-            message.setText("Cannot apply routing or home DNS. Check the peer count, CIDRs and numeric DNS IP.");
+            message.setText("Cannot apply routing or DNS. Check the peer count, CIDRs and numeric DNS IPs.");
             return;
         }
+        if (mode == VpnRouteModes.ALL && !VpnDnsOverride.hasDns(connectionConfig)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("No DNS server configured")
+                    .setMessage("The WireGuard tunnel has no DNS server. Under Android "
+                            + "Block connections without VPN, websites may fail to resolve. "
+                            + "Choose a DNS preset or explicitly continue without DNS.")
+                    .setNegativeButton("Choose DNS", null)
+                    .setPositiveButton("Continue without DNS", (dialog, which) ->
+                            showConnectionConfirmation(mode, connectionConfig))
+                    .show();
+            return;
+        }
+        showConnectionConfirmation(mode, connectionConfig);
+    }
+
+    private void showConnectionConfirmation(int mode, Config connectionConfig) {
         String warning = VpnRouteModes.summary(
                 selectedConfig, mode, homeRoutes.getText().toString())
                 + "\n\nConnecting saves these routing and DNS choices in your encrypted profile."
                 + "\n\nAndroid permits only one active VPN: Tailscale may disconnect. "
                 + "No fail-closed, DNS-leak or IPv6-leak protection is guaranteed.";
-        if (homeDnsToggle.isChecked()) {
-            warning += "\n\nHome DNS is enabled only if the server address is routed "
-                    + "through WireGuard and answers DNS. No DoH/DoQ or tracker filtering is provided.";
+        if (dnsOverrideEnabled()) {
+            warning += "\n\nDNS overrides must be routed through WireGuard. "
+                    + "The app does not implement DoH/DoQ or provide a DNS-leak guarantee.";
         }
         if (mode == VpnRouteModes.ALL) {
             warning += "\n\nThe Fedora gateway MUST support IPv4 forwarding/NAT and IPv6 routing. "
@@ -735,6 +879,7 @@ public final class VpnActivity extends Activity {
                 : active ? "Turn VPN Off" : "Turn VPN On");
         vpnToggleButton.setEnabled(!busy && !systemAlwaysOn
                 && (active || selectedConfig != null));
+        diagnosticsButton.setEnabled(active && !busy && !diagnosticsRunning);
         importButton.setEnabled(!active && !busy);
         saveButton.setEnabled(!active && !busy && selectedConfig != null);
         deleteButton.setEnabled(!active && !busy && !profiles.isEmpty());
@@ -742,8 +887,8 @@ public final class VpnActivity extends Activity {
         profileName.setEnabled(!active && !busy);
         routingPicker.setEnabled(!active && !busy);
         homeRoutes.setEnabled(!active && !busy);
-        homeDnsToggle.setEnabled(!active && !busy);
-        homeDnsAddress.setEnabled(!active && !busy);
+        dnsPicker.setEnabled(!active && !busy);
+        customDnsAddresses.setEnabled(!active && !busy);
     }
 
     private LinearLayout card(LinearLayout parent) {

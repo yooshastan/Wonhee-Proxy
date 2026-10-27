@@ -7,37 +7,51 @@ import com.wireguard.config.Peer;
 import java.io.ByteArrayInputStream;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Optional plain DNS forwarding to a trusted server reachable inside WireGuard.
- * This changes only the connection-time configuration. It is NOT a DoH/DoQ
- * client and does not perform filtering; those require trusted gateway services.
+ * Optional DNS addresses reachable through WireGuard. This changes only the
+ * runtime configuration, not the imported profile. The app does not provide
+ * DoH/DoQ or its own tracker blocking.
  */
 final class VpnDnsOverride {
     private VpnDnsOverride() { }
 
     static Config prepare(Config original, boolean useHomeDns, String server) throws Exception {
         if (!useHomeDns) return original;
-        String host = server == null ? "" : server.trim();
-        if (!isNumericIp(host)) {
-            throw new IllegalArgumentException("Enter one numeric home DNS IP address.");
+        String input = server == null ? "" : server.trim();
+        String[] hosts = input.split(",", -1);
+        if (hosts.length == 0 || hosts.length > 2) {
+            throw new IllegalArgumentException("Enter one or two numeric DNS IP addresses.");
         }
-        // Java resolution is safe here because numeric syntax is enforced first.
-        final InetAddress target;
-        try {
-            target = InetAddress.getByName(host);
-        } catch (Exception invalid) {
-            throw new IllegalArgumentException("Home DNS must be a valid IP address.");
+        List<String> servers = new ArrayList<>();
+        for (String item : hosts) {
+            String host = item.trim();
+            if (!isNumericIp(host)) {
+                throw new IllegalArgumentException("DNS must contain one or two numeric IP addresses.");
+            }
+            final InetAddress target;
+            try {
+                // Only numeric syntax reaches this call; no hostname lookup is attempted.
+                target = InetAddress.getByName(host);
+            } catch (Exception invalid) {
+                throw new IllegalArgumentException("DNS must contain valid IP addresses.");
+            }
+            if (target.isAnyLocalAddress() || target.isLoopbackAddress()
+                    || target.isMulticastAddress() || target.isLinkLocalAddress()) {
+                throw new IllegalArgumentException("Choose a reachable DNS server IP.");
+            }
+            if (!isRoutedInsideTunnel(original, target)) {
+                throw new IllegalArgumentException("DNS address is outside WireGuard AllowedIPs.");
+            }
+            String canonicalHost = target.getHostAddress();
+            if (servers.contains(canonicalHost)) {
+                throw new IllegalArgumentException("Use two different DNS IP addresses.");
+            }
+            servers.add(canonicalHost);
         }
-        if (target.isAnyLocalAddress() || target.isLoopbackAddress()
-                || target.isMulticastAddress() || target.isLinkLocalAddress()) {
-            throw new IllegalArgumentException("Choose a reachable home DNS server IP.");
-        }
-        if (!isRoutedInsideTunnel(original, target)) {
-            throw new IllegalArgumentException(
-                    "Home DNS address is outside WireGuard AllowedIPs. Add a tunnel route first.");
-        }
-        String canonical = target.getHostAddress();
+        String canonical = String.join(", ", servers);
         String source = original.toWgQuickString();
         StringBuilder modified = new StringBuilder(source.length() + 48);
         boolean inInterface = false;
@@ -73,6 +87,22 @@ final class VpnDnsOverride {
             // Never expose a parser exception containing private WireGuard fields.
             throw new IllegalArgumentException("DNS override could not be applied.");
         }
+    }
+
+    static boolean hasDns(Config config) {
+        if (config == null) return false;
+        boolean inInterface = false;
+        for (String line : config.toWgQuickString().split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                inInterface = "[Interface]".equalsIgnoreCase(trimmed);
+            } else if (inInterface) {
+                int equals = trimmed.indexOf('=');
+                if (equals >= 0 && "DNS".equalsIgnoreCase(trimmed.substring(0, equals).trim())
+                        && !trimmed.substring(equals + 1).trim().isEmpty()) return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isRoutedInsideTunnel(Config config, InetAddress target) {

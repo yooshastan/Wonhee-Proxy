@@ -61,8 +61,8 @@ final class SecureTunnelProfileStore {
             this.homeRoutes = homeRoutes == null ? "" : homeRoutes.trim();
             this.homeDnsEnabled = homeDnsEnabled;
             this.homeDnsServer = homeDnsServer == null ? "" : homeDnsServer.trim();
-            if (this.homeDnsServer.length() > 45) {
-                throw new IllegalArgumentException("Home DNS address is too long.");
+            if (this.homeDnsServer.length() > 120) {
+                throw new IllegalArgumentException("DNS addresses exceed 120 characters.");
             }
             if (routeMode < VpnRouteModes.PROFILE || routeMode > VpnRouteModes.ALL) {
                 throw new IllegalArgumentException("Invalid VPN routing mode.");
