@@ -5,11 +5,14 @@ import android.net.ConnectivityManager;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.RouteInfo;
 import android.os.Handler;
 import android.os.Looper;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
@@ -72,6 +75,23 @@ final class VpnConnectionDiagnostics {
 
         LinkProperties links = manager.getLinkProperties(vpnNetwork);
         int configuredDns = links == null ? 0 : links.getDnsServers().size();
+        boolean defaultIpv4 = false;
+        boolean defaultIpv6 = false;
+        if (links != null) {
+            for (RouteInfo route : links.getRoutes()) {
+                if (!route.isDefaultRoute()) continue;
+                InetAddress address = route.getDestination().getAddress();
+                if (address instanceof Inet4Address) defaultIpv4 = true;
+                if (address instanceof Inet6Address) defaultIpv6 = true;
+            }
+        }
+        // Local system observations are not proof of egress or leak protection.
+        String observation = VpnRouteInspection.render(
+                defaultIpv4, defaultIpv6, configuredDns);
+        return observation + "\n\n" + testVpnBoundReachability(vpnNetwork, configuredDns);
+    }
+
+    private static String testVpnBoundReachability(Network vpnNetwork, int configuredDns) {
         if (configuredDns == 0) {
             return "VPN transport observed, but Android reports no DNS servers on that VPN network. "
                     + "DNS and HTTPS tests were not started. Check the selected DNS preset.";
@@ -79,7 +99,7 @@ final class VpnConnectionDiagnostics {
 
         final InetAddress[] resolved;
         try {
-            // Resolves on the selected VPN Network, never the default network.
+            // Name resolution remains pinned to the Android VPN Network.
             resolved = vpnNetwork.getAllByName(TEST_HOST);
         } catch (UnknownHostException lookupFailure) {
             return "VPN transport observed; DNS resolution FAILED on the VPN network. "
@@ -93,8 +113,8 @@ final class VpnConnectionDiagnostics {
 
         HttpURLConnection connection = null;
         try {
-            // Opening explicitly on the VPN Network forbids testing the normal
-            // cellular/Wi-Fi network as a silent substitute.
+            // Opening explicitly on the VPN Network forbids silent fallback
+            // to the underlying Wi-Fi/cellular network.
             connection = (HttpURLConnection) vpnNetwork.openConnection(
                     new URL("https://" + TEST_HOST + "/"));
             connection.setConnectTimeout(6000);

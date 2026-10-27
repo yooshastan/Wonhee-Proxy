@@ -2,6 +2,7 @@ package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.app.AlertDialog;
@@ -14,6 +15,7 @@ import android.provider.Settings;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
@@ -39,7 +41,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Combined Alpha 0.8.4 preview: DNS presets, connection health and encrypted
+ * Alpha 0.8.6 preview: local traffic history, VPN route observations and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -53,6 +55,7 @@ public final class VpnActivity extends Activity {
     private static final long POLL_INTERVAL_MS = 5000L;
     private final Handler pollHandler = new Handler(Looper.getMainLooper());
     private final List<SecureTunnelProfileStore.Profile> profiles = new ArrayList<>();
+    private final TunnelTrafficHistory trafficHistory = new TunnelTrafficHistory();
     private WireGuardSession session;
     private SecureTunnelProfileStore profileStore;
     private Config selectedConfig;
@@ -72,10 +75,14 @@ public final class VpnActivity extends Activity {
     private TextView message;
     private TextView routeStatus;
     private TextView statisticsText;
+    private TextView trafficSummary;
+    private TunnelTrafficGraphView trafficGraph;
     private TextView healthStatus;
     private TextView diagnosticsReport;
     private Button diagnosticsButton;
     private Button vpnToggleButton, importButton, saveButton, deleteButton;
+    private Button notificationPermissionButton;
+    private TextView notificationPermissionStatus;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -106,7 +113,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.4 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.6 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -117,8 +124,34 @@ public final class VpnActivity extends Activity {
             if (session.isConnected()) stopTunnel();
             else confirmConnect();
         });
-        label(dashboard, "The silent Wonhee notification shows tunnel download/upload speeds while VPN is active. Allow notifications when Android asks. Speeds are not a traffic leak test.", 12, MUTED);
+        label(dashboard, "The silent Wonhee notification shows tunnel download/upload speeds while VPN is active. Notifications are optional; speeds are not a traffic leak test.", 12, MUTED);
+        notificationPermissionStatus = label(dashboard, "", 13, MUTED);
+        notificationPermissionButton = button(dashboard, "Enable tunnel notifications");
+        notificationPermissionButton.setOnClickListener(v -> {
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+                    && getPreferences(Context.MODE_PRIVATE)
+                    .getBoolean("traffic_notification_permission_request_attempted_v2", false)
+                    && !shouldShowRequestPermissionRationale(
+                    android.Manifest.permission.POST_NOTIFICATIONS)) {
+                openAppNotificationSettings();
+            } else {
+                requestTrafficNotificationPermission();
+            }
+        });
         label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
+
+        LinearLayout trafficCard = card(root);
+        label(trafficCard, "LIVE TUNNEL TRAFFIC", 17, PINK);
+        trafficSummary = label(trafficCard,
+                "Waiting for two WireGuard counter samples...", 14, WHITE);
+        trafficGraph = new TunnelTrafficGraphView(this);
+        trafficCard.addView(trafficGraph, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(150)));
+        label(trafficCard, "Blue = download · Pink = upload · Last ~2 minutes while open. "
+                + "These are VPN tunnel counter deltas, not a whole-device speed test "
+                + "or proof against traffic leaks.", 12, MUTED);
 
         LinearLayout healthCard = card(root);
         label(healthCard, "CONNECTION HEALTH", 17, PINK);
@@ -284,12 +317,15 @@ public final class VpnActivity extends Activity {
         }
         reloadProfiles(null);
         refreshButtons();
+        refreshNotificationPermissionUi();
+        root.post(this::maybeShowNotificationOnboarding);
     }
 
     @Override protected void onResume() {
         super.onResume();
         visible = true;
         refreshButtons();
+        refreshNotificationPermissionUi();
         if (session != null && session.isConnected()) {
             VpnTrafficNotificationService.startIfPossible(this);
         }
@@ -300,18 +336,25 @@ public final class VpnActivity extends Activity {
     @Override protected void onPause() {
         visible = false;
         pollHandler.removeCallbacks(poll);
+        trafficHistory.pause();
         super.onPause();
     }
 
     private void renderStatistics(WireGuardSession.StatusSnapshot snapshot) {
         refreshPassiveHealth(snapshot);
         if (!snapshot.interfaceUp) {
+            trafficHistory.clear();
+            trafficGraph.setValues(trafficHistory.values());
+            trafficSummary.setText("No active tunnel; no traffic data.");
             connectionStatus.setText("Disconnected");
             connectionStatus.setTextColor(WHITE);
             statisticsText.setText("No tunnel active.");
             return;
         }
         if (!snapshot.statisticsAvailable) {
+            trafficHistory.clear();
+            trafficGraph.setValues(trafficHistory.values());
+            trafficSummary.setText("WireGuard transfer counters unavailable.");
             connectionStatus.setText("Interface active");
             statisticsText.setText("Peer statistics unavailable. Check the Fedora gateway.");
             return;
@@ -336,6 +379,18 @@ public final class VpnActivity extends Activity {
                 + "\nReceived: " + formatBytes(snapshot.receivedBytes)
                 + " · Sent: " + formatBytes(snapshot.transmittedBytes)
                 + "\nPeers tracked: " + snapshot.peers);
+        TunnelTrafficRates.Result rate = trafficHistory.add(
+                SystemClock.elapsedRealtime(), snapshot.receivedBytes,
+                snapshot.transmittedBytes);
+        trafficSummary.setText(rate == null
+                ? "Collecting two live counter samples..."
+                : "↓ " + TunnelTrafficRates.formatSpeed(rate.downloadMbps)
+                + " · ↑ " + TunnelTrafficRates.formatSpeed(rate.uploadMbps)
+                + "\nObserved peak ↓ "
+                + TunnelTrafficRates.formatSpeed(trafficHistory.peakDownloadMbps())
+                + " · ↑ "
+                + TunnelTrafficRates.formatSpeed(trafficHistory.peakUploadMbps()));
+        trafficGraph.setValues(trafficHistory.values());
     }
 
     private void refreshPassiveHealth(WireGuardSession.StatusSnapshot snapshot) {
@@ -852,7 +907,6 @@ public final class VpnActivity extends Activity {
         message.setText("Starting WireGuard. Interface UP does not prove internet privacy.");
         session.connect(runtime, (success, summary) -> {
             if (!isFinishing() && !isDestroyed()) {
-                if (success) requestTrafficNotificationPermission();
                 message.setText(summary);
                 refreshButtons();
                 pollHandler.removeCallbacks(poll);
@@ -863,17 +917,84 @@ public final class VpnActivity extends Activity {
     }
 
 
+    private void refreshNotificationPermissionUi() {
+        if (notificationPermissionButton == null || notificationPermissionStatus == null) return;
+        if (Build.VERSION.SDK_INT < 33) {
+            notificationPermissionButton.setVisibility(View.GONE);
+            notificationPermissionStatus.setVisibility(View.GONE);
+            return;
+        }
+        boolean granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED;
+        notificationPermissionStatus.setText(granted
+                ? "Tunnel notifications enabled."
+                : "Tunnel notifications are off. VPN can still connect; enable them to see live speeds.");
+        notificationPermissionButton.setVisibility(granted ? View.GONE : View.VISIBLE);
+        boolean settingsRequired = !granted
+                && getPreferences(Context.MODE_PRIVATE)
+                .getBoolean("traffic_notification_permission_request_attempted_v2", false)
+                && !shouldShowRequestPermissionRationale(
+                        android.Manifest.permission.POST_NOTIFICATIONS);
+        notificationPermissionButton.setText(settingsRequired
+                ? "Open notification settings" : "Enable tunnel notifications");
+    }
+
+    private void maybeShowNotificationOnboarding() {
+        if (isFinishing() || isDestroyed() || Build.VERSION.SDK_INT < 33
+                || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) return;
+        if (getPreferences(Context.MODE_PRIVATE)
+                .getBoolean("traffic_notification_onboarding_shown_v2", false)) return;
+        getPreferences(Context.MODE_PRIVATE).edit()
+                .putBoolean("traffic_notification_onboarding_shown_v2", true).apply();
+        new AlertDialog.Builder(this)
+                .setTitle("Show live VPN traffic in notifications?")
+                .setMessage("Allow Wonhee Proxy notifications to see download/upload Mbps "
+                        + "while WireGuard is connected. The VPN still works if you skip this. "
+                        + "You can change your choice later on the VPN dashboard.")
+                .setNegativeButton("Not now", (dialog, which) ->
+                        refreshNotificationPermissionUi())
+                .setPositiveButton("Continue", (dialog, which) ->
+                        requestTrafficNotificationPermission())
+                .show();
+    }
+
     private void requestTrafficNotificationPermission() {
         if (Build.VERSION.SDK_INT < 33) return;
         if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
-                == PackageManager.PERMISSION_GRANTED) return;
-        if (getPreferences(Context.MODE_PRIVATE)
-                .getBoolean("traffic_notification_permission_asked", false)) return;
+                == PackageManager.PERMISSION_GRANTED) {
+            refreshNotificationPermissionUi();
+            return;
+        }
         getPreferences(Context.MODE_PRIVATE).edit()
-                .putBoolean("traffic_notification_permission_asked", true).apply();
+                .putBoolean("traffic_notification_permission_request_attempted_v2", true)
+                .apply();
         requestPermissions(new String[] {
                 android.Manifest.permission.POST_NOTIFICATIONS
         }, NOTIFICATION_PERMISSION);
+    }
+
+    @Override public void onRequestPermissionsResult(
+            int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != NOTIFICATION_PERMISSION) return;
+        refreshNotificationPermissionUi();
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                && session != null && session.isConnected()) {
+            VpnTrafficNotificationService.startIfPossible(this);
+        }
+    }
+
+    private void openAppNotificationSettings() {
+        Intent settings = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+        settings.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+        try {
+            startActivity(settings);
+        } catch (ActivityNotFoundException unavailable) {
+            Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            details.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(details);
+        }
     }
 
     private void stopTunnel() {
