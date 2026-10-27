@@ -1,6 +1,9 @@
 package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
@@ -43,6 +46,7 @@ import java.util.Locale;
 public final class VpnActivity extends Activity {
     private static final int PICK_CONFIG = 4201;
     private static final int VPN_PERMISSION = 4202;
+    private static final int NOTIFICATION_PERMISSION = 4203;
     private static final int PINK = 0xfffbadd8;
     private static final int WHITE = 0xfff8f1f9;
     private static final int MUTED = 0xffc4b7c9;
@@ -113,6 +117,7 @@ public final class VpnActivity extends Activity {
             if (session.isConnected()) stopTunnel();
             else confirmConnect();
         });
+        label(dashboard, "The silent Wonhee notification shows tunnel download/upload speeds while VPN is active. Allow notifications when Android asks. Speeds are not a traffic leak test.", 12, MUTED);
         label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
 
         LinearLayout healthCard = card(root);
@@ -285,6 +290,9 @@ public final class VpnActivity extends Activity {
         super.onResume();
         visible = true;
         refreshButtons();
+        if (session != null && session.isConnected()) {
+            VpnTrafficNotificationService.startIfPossible(this);
+        }
         pollHandler.removeCallbacks(poll);
         pollHandler.post(poll);
     }
@@ -844,6 +852,7 @@ public final class VpnActivity extends Activity {
         message.setText("Starting WireGuard. Interface UP does not prove internet privacy.");
         session.connect(runtime, (success, summary) -> {
             if (!isFinishing() && !isDestroyed()) {
+                if (success) requestTrafficNotificationPermission();
                 message.setText(summary);
                 refreshButtons();
                 pollHandler.removeCallbacks(poll);
@@ -851,6 +860,20 @@ public final class VpnActivity extends Activity {
             }
         });
         refreshButtons();
+    }
+
+
+    private void requestTrafficNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) return;
+        if (getPreferences(Context.MODE_PRIVATE)
+                .getBoolean("traffic_notification_permission_asked", false)) return;
+        getPreferences(Context.MODE_PRIVATE).edit()
+                .putBoolean("traffic_notification_permission_asked", true).apply();
+        requestPermissions(new String[] {
+                android.Manifest.permission.POST_NOTIFICATIONS
+        }, NOTIFICATION_PERMISSION);
     }
 
     private void stopTunnel() {
