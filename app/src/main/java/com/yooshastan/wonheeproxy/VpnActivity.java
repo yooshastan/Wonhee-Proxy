@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.VpnService;
+import android.provider.Settings;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -16,6 +17,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -35,8 +37,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Alpha 0.6: VPN-first screen with encrypted profiles, connect-time routing
- * choices and native WireGuard diagnostics. No automatic startup or fail-closed
+ * Combined Alpha 0.8 preview: opt-in home DNS through WireGuard, encrypted
+ * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
 public final class VpnActivity extends Activity {
@@ -58,12 +60,14 @@ public final class VpnActivity extends Activity {
     private Spinner savedPicker;
     private Spinner routingPicker;
     private EditText homeRoutes;
+    private EditText homeDnsAddress;
+    private CheckBox homeDnsToggle;
     private EditText profileName;
     private TextView connectionStatus;
     private TextView message;
     private TextView routeStatus;
     private TextView statisticsText;
-    private Button connectButton, disconnectButton, importButton, saveButton, deleteButton;
+    private Button vpnToggleButton, importButton, saveButton, deleteButton;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -94,15 +98,17 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.6", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.2 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
         statisticsText = label(dashboard, "No tunnel active.", 14, MUTED);
-        connectButton = button(dashboard, "Connect VPN");
-        connectButton.setOnClickListener(v -> confirmConnect());
-        disconnectButton = button(dashboard, "Disconnect VPN");
-        disconnectButton.setOnClickListener(v -> stopTunnel());
+        vpnToggleButton = button(dashboard, "Turn VPN On");
+        vpnToggleButton.setOnClickListener(v -> {
+            if (session == null || session.isBusy()) return;
+            if (session.isConnected()) stopTunnel();
+            else confirmConnect();
+        });
         label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
 
         LinearLayout configCard = card(root);
@@ -111,8 +117,14 @@ public final class VpnActivity extends Activity {
         configCard.addView(savedPicker);
         savedPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (!updatingList && position > 0 && position <= profiles.size()) {
+                if (updatingList || (session != null && session.isConnected())) return;
+                if (position > 0 && position <= profiles.size()) {
                     loadSelected(profiles.get(position - 1));
+                } else if (position == 0 && !profiles.isEmpty()) {
+                    selectedConfig = null;
+                    pendingConnection = null;
+                    refreshRoutingPreview();
+                    refreshButtons();
                 }
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
@@ -125,7 +137,7 @@ public final class VpnActivity extends Activity {
         configCard.addView(profileName);
         importButton = button(configCard, "Import WireGuard .conf");
         importButton.setOnClickListener(v -> chooseConfig());
-        saveButton = button(configCard, "Save encrypted profile");
+        saveButton = button(configCard, "Save profile settings");
         saveButton.setOnClickListener(v -> saveSelected());
         deleteButton = button(configCard, "Delete selected profile");
         deleteButton.setOnClickListener(v -> confirmDelete());
@@ -174,14 +186,54 @@ public final class VpnActivity extends Activity {
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
-        label(routingCard, "Routes apply to this connection only. Press Save encrypted profile "
-                + "to remember your mode and home CIDRs. Neither changes the original WireGuard keys.", 12, MUTED);
+        label(routingCard, "Imported keys are saved securely right away. "
+                + "Connecting automatically saves routing and DNS choices. "
+                + "Use Save profile settings to save without connecting.", 12, MUTED);
 
-        message = label(root, "VPN is off. A saved profile connects only when you press Connect.", 14, WHITE);
+        LinearLayout dnsCard = card(root);
+        label(dnsCard, "HOME DNS (OPTIONAL)", 17, PINK);
+        homeDnsToggle = new CheckBox(this);
+        homeDnsToggle.setText("Use a home DNS server inside WireGuard");
+        homeDnsToggle.setTextColor(WHITE);
+        dnsCard.addView(homeDnsToggle);
+        homeDnsAddress = new EditText(this);
+        homeDnsAddress.setSingleLine(true);
+        homeDnsAddress.setTextColor(WHITE);
+        homeDnsAddress.setHintTextColor(MUTED);
+        homeDnsAddress.setHint("Home DNS IP (only if it serves DNS), e.g. 10.77.0.1");
+        dnsCard.addView(homeDnsAddress);
+        homeDnsToggle.setOnCheckedChangeListener((check, enabled) -> {
+            homeDnsAddress.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        });
+        homeDnsAddress.setVisibility(View.GONE);
+        label(dnsCard, "Requires a reachable DNS resolver at your home gateway and "
+                + "a tunnel route to its IP. This is ordinary DNS carried inside "
+                + "WireGuard; it is NOT DoH, DoQ, tracker blocking, or proof "
+                + "that every DNS request is leak-free.", 12, MUTED);
+
+
+        LinearLayout alwaysOnCard = card(root);
+        label(alwaysOnCard, "PERSISTENT VPN & TRAFFIC BLOCKING", 17, PINK);
+        label(alwaysOnCard, "Android controls Always-on VPN and Block connections without VPN. "
+                + "These settings restore your last saved tunnel after an ordinary restart, "
+                + "but Force stop can stop the VPN until you reopen the app.", 13, MUTED);
+        Button androidVpnSettings = button(alwaysOnCard, "Open Android VPN settings");
+        androidVpnSettings.setOnClickListener(v -> openSystemVpnSettings());
+        label(alwaysOnCard, "CAUTION: Block connections without VPN may disable all internet "
+                + "access while the VPN is unavailable or while Fedora lacks full-tunnel "
+                + "forwarding, IPv6 routing or working DNS. Leave it off until tested.", 12, MUTED);
+
+        message = label(root, "VPN is off. Import a profile once; the app will save it securely.", 14, WHITE);
         Button proxyTools = button(root, "Telegram proxy tools");
         proxyTools.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
-        label(root, "Security: VPN profiles are encrypted at rest with Android Keystore and are never uploaded or logged. Your keys are saved only when you press Save. Back them up privately before uninstalling or replacing a debug APK.", 12, MUTED);
-        label(root, "Still experimental: no Always-on, automatic restart, kill switch, encrypted DNS enforcement or tracker filtering. All internet mode depends on a working home gateway and has no verified leak protection. Starting this VPN replaces any active Tailscale or other Android VPN.", 12, MUTED);
+        label(root, "Security: imported VPN profiles are encrypted at rest with Android Keystore "
+                + "and never uploaded or logged. Force stop does not delete saved profiles, "
+                + "but uninstalling or replacing a differently signed debug APK may. "
+                + "Back up the original .conf privately.", 12, MUTED);
+        label(root, "Preview limitations: Android Always-on restoration is experimental and "
+                + "must be tested after reboot and network changes. There is no independent "
+                + "kill switch, in-app DoH/DoQ, tracker filtering or verified DNS/IPv6 leak "
+                + "protection. Starting this VPN replaces Tailscale or another Android VPN.", 12, MUTED);
 
         try {
             session = WireGuardSession.get(this);
@@ -273,11 +325,25 @@ public final class VpnActivity extends Activity {
                 pendingConnection = null;
                 routingPicker.setSelection(VpnRouteModes.PROFILE);
                 homeRoutes.setText(VpnRouteModes.suggestedHomeRoutes(imported));
-                if (profileName.getText().toString().trim().isEmpty()) {
-                    profileName.setText("Home WireGuard");
-                }
-                message.setText("Configuration imported into memory. Tap Save to encrypt it on this device.");
+                homeDnsToggle.setChecked(false);
+                homeDnsAddress.setText("");
+                String importedName = availableImportName();
+                profileName.setText(importedName);
                 refreshRoutingPreview();
+                try {
+                    SecureTunnelProfileStore.Profile saved =
+                            new SecureTunnelProfileStore.Profile(importedName,
+                                    imported.toWgQuickString(),
+                                    VpnRouteModes.PROFILE,
+                                    homeRoutes.getText().toString());
+                    profileStore.save(saved);
+                    reloadProfiles(saved.name);
+                    message.setText("WireGuard profile imported and saved securely. "
+                            + "You can reconnect after closing or force-stopping the app.");
+                } catch (Exception storageFailure) {
+                    message.setText("Configuration imported, but secure storage FAILED. "
+                            + "Do not force-stop until you correct storage and tap Save settings.");
+                }
             } catch (Exception | LinkageError invalid) {
                 selectedConfig = null;
                 pendingConnection = null;
@@ -292,6 +358,38 @@ public final class VpnActivity extends Activity {
                 pendingConnection = null;
                 message.setText("Android VPN permission was not granted.");
             }
+        }
+    }
+
+    private String availableImportName() {
+        String requested = profileName.getText().toString().trim();
+        if (requested.isEmpty() || requested.length() > 64
+                || requested.chars().anyMatch(c -> Character.isISOControl((char) c))) {
+            requested = "Home WireGuard";
+        }
+        String candidate = requested;
+        for (int suffix = 2; suffix < 100; suffix++) {
+            boolean exists = false;
+            for (SecureTunnelProfileStore.Profile profile : profiles) {
+                if (profile.name.equalsIgnoreCase(candidate)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) return candidate;
+            String tail = " (" + suffix + ")";
+            candidate = requested.substring(0, Math.min(requested.length(), 64 - tail.length()))
+                    + tail;
+        }
+        throw new IllegalArgumentException("Too many similarly named VPN profiles.");
+    }
+
+    private void openSystemVpnSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));
+        } catch (RuntimeException unavailable) {
+            message.setText("Android VPN settings could not be opened. "
+                    + "Open Settings > Network & internet > VPN manually.");
         }
     }
 
@@ -326,10 +424,8 @@ public final class VpnActivity extends Activity {
     }
 
     private void loadSelected(SecureTunnelProfileStore.Profile profile) {
-        if (session != null && session.isConnected()) {
-            message.setText("Disconnect before switching VPN profiles.");
-            return;
-        }
+        // Reloading the already-selected profile is safe even if the VPN is UP.
+        // The picker itself remains disabled during an active connection.
         try {
             byte[] raw = profile.configuration.getBytes(StandardCharsets.UTF_8);
             try {
@@ -342,8 +438,19 @@ public final class VpnActivity extends Activity {
             routingPicker.setSelection(profile.routeMode);
             homeRoutes.setText(profile.homeRoutes.isEmpty()
                     ? VpnRouteModes.suggestedHomeRoutes(selectedConfig) : profile.homeRoutes);
+            homeDnsAddress.setText(profile.homeDnsServer);
+            homeDnsToggle.setChecked(profile.homeDnsEnabled);
             refreshRoutingPreview();
-            message.setText("Encrypted VPN profile loaded. Press Connect to start it.");
+            int index = savedPicker.getSelectedItemPosition() - 1;
+            if (index >= 0 && index < profiles.size()) {
+                try {
+                    profileStore.rememberSelectedIndex(index);
+                } catch (Exception selectionSaveFailure) {
+                    // The encrypted profile itself remains usable.
+                    // A new launch will fall back to the first saved profile.
+                }
+            }
+            message.setText("Saved VPN profile restored. Use Turn VPN On to reconnect.");
         } catch (Exception invalid) {
             selectedConfig = null;
             message.setText("Stored profile could not be parsed. No changes were made.");
@@ -362,16 +469,19 @@ public final class VpnActivity extends Activity {
         }
         final SecureTunnelProfileStore.Profile updated;
         try {
-            VpnRouteModes.prepare(selectedConfig, routingPicker.getSelectedItemPosition(),
-                    homeRoutes.getText().toString());
+            Config routed = VpnRouteModes.prepare(selectedConfig,
+                    routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
+            VpnDnsOverride.prepare(routed, homeDnsToggle.isChecked(),
+                    homeDnsAddress.getText().toString());
         } catch (Exception invalid) {
-            message.setText("Cannot validate routing. Check the CIDRs (1–16, no /0 in Home mode).");
+            message.setText("Cannot validate routing or home DNS. Check the CIDRs and DNS IP.");
             return;
         }
         try {
             updated = new SecureTunnelProfileStore.Profile(
                     profileName.getText().toString(), selectedConfig.toWgQuickString(),
-                    routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
+                    routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString(),
+                    homeDnsToggle.isChecked(), homeDnsAddress.getText().toString());
         } catch (IllegalArgumentException invalid) {
             message.setText(invalid.getMessage());
             return;
@@ -399,9 +509,46 @@ public final class VpnActivity extends Activity {
         try {
             profileStore.save(profile);
             reloadProfiles(profile.name);
-            message.setText("Encrypted profile saved locally. Connect remains manual.");
+            message.setText("Encrypted VPN profile and settings saved. Use Turn VPN On to connect.");
         } catch (Exception failure) {
             message.setText("Secure storage failed. No plaintext profile was saved and existing profiles were not intentionally overwritten.");
+        }
+    }
+
+    /**
+     * Save connection preferences before bringing up a tunnel. If encrypted
+     * storage fails, do not connect with settings Always-on cannot restore.
+     * Preserve the imported WireGuard keys and the selected profile identity.
+     */
+    private boolean saveConnectionChoices() {
+        int index = savedPicker.getSelectedItemPosition() - 1;
+        if (index < 0 || index >= profiles.size()) {
+            message.setText("Select a saved WireGuard profile before connecting.");
+            return false;
+        }
+        SecureTunnelProfileStore.Profile existing = profiles.get(index);
+        if (!existing.name.equals(profileName.getText().toString().trim())
+                || !existing.configuration.equals(selectedConfig.toWgQuickString())) {
+            message.setText("Profile name or configuration has unsaved changes. "
+                    + "Use Save profile settings before connecting.");
+            return false;
+        }
+        try {
+            SecureTunnelProfileStore.Profile updated =
+                    new SecureTunnelProfileStore.Profile(existing.name,
+                            existing.configuration,
+                            routingPicker.getSelectedItemPosition(),
+                            homeRoutes.getText().toString(),
+                            homeDnsToggle.isChecked(),
+                            homeDnsAddress.getText().toString());
+            profileStore.save(updated);
+            profileStore.rememberSelectedIndex(index);
+            profiles.set(index, updated);
+            return true;
+        } catch (Exception failure) {
+            message.setText("Connection choices could not be saved securely. "
+                    + "VPN was not started. Check your saved profile.");
+            return false;
         }
     }
 
@@ -427,12 +574,15 @@ public final class VpnActivity extends Activity {
                         profileName.setText("");
                         routingPicker.setSelection(VpnRouteModes.PROFILE);
                         homeRoutes.setText("");
+                        homeDnsToggle.setChecked(false);
+                        homeDnsAddress.setText("");
                         reloadProfiles(null);
                         refreshRoutingPreview();
                         message.setText("Saved profile deleted from the encrypted store.");
                         refreshButtons();
                     } catch (Exception failure) {
-                        message.setText("Could not delete profile; encrypted storage was not intentionally altered.");
+                        message.setText("Unable to finish deleting this profile. "
+                                + "Refresh the profile list to verify what remains saved.");
                     }
                 }).show();
     }
@@ -444,7 +594,7 @@ public final class VpnActivity extends Activity {
             profiles.addAll(items);
             List<String> labels = new ArrayList<>();
             labels.add("Choose a saved profile");
-            int desired = 0;
+            int desired = profileStore.preferredIndex(items.size()) + 1;
             for (int i = 0; i < items.size(); i++) {
                 labels.add(items.get(i).name);
                 if (selectName != null && items.get(i).name.equalsIgnoreCase(selectName)) {
@@ -471,6 +621,13 @@ public final class VpnActivity extends Activity {
             savedPicker.setAdapter(adapter);
             savedPicker.setSelection(desired);
             updatingList = false;
+            if (desired > 0) {
+                loadSelected(items.get(desired - 1));
+            } else {
+                selectedConfig = null;
+                pendingConnection = null;
+                refreshRoutingPreview();
+            }
         } catch (Exception unavailable) {
             updatingList = false;
             message.setText("Encrypted profiles could not be read. Nothing was overwritten. The Android Keystore may have changed.");
@@ -494,17 +651,24 @@ public final class VpnActivity extends Activity {
         final int mode = routingPicker.getSelectedItemPosition();
         final Config connectionConfig;
         try {
-            connectionConfig = VpnRouteModes.prepare(
+            Config routed = VpnRouteModes.prepare(
                     selectedConfig, mode, homeRoutes.getText().toString());
+            connectionConfig = VpnDnsOverride.prepare(
+                    routed, homeDnsToggle.isChecked(), homeDnsAddress.getText().toString());
         } catch (Exception invalid) {
             // Avoid logging or echoing configuration details, including private keys.
-            message.setText("Cannot apply routing. Check the selected mode, peer count and home CIDRs.");
+            message.setText("Cannot apply routing or home DNS. Check the peer count, CIDRs and numeric DNS IP.");
             return;
         }
         String warning = VpnRouteModes.summary(
                 selectedConfig, mode, homeRoutes.getText().toString())
+                + "\n\nConnecting saves these routing and DNS choices in your encrypted profile."
                 + "\n\nAndroid permits only one active VPN: Tailscale may disconnect. "
                 + "No fail-closed, DNS-leak or IPv6-leak protection is guaranteed.";
+        if (homeDnsToggle.isChecked()) {
+            warning += "\n\nHome DNS is enabled only if the server address is routed "
+                    + "through WireGuard and answers DNS. No DoH/DoQ or tracker filtering is provided.";
+        }
         if (mode == VpnRouteModes.ALL) {
             warning += "\n\nThe Fedora gateway MUST support IPv4 forwarding/NAT and IPv6 routing. "
                     + "A handshake alone cannot prove this; test internet and DNS on cellular.";
@@ -515,6 +679,7 @@ public final class VpnActivity extends Activity {
                 .setMessage(warning)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Connect", (dialog, which) -> {
+                    if (!saveConnectionChoices()) return;
                     pendingConnection = connectionConfig;
                     Intent permission = VpnService.prepare(this);
                     if (permission != null) {
@@ -565,10 +730,11 @@ public final class VpnActivity extends Activity {
         if (importButton == null) return;
         boolean active = session != null && session.isConnected();
         boolean busy = session != null && session.isBusy();
-        connectButton.setVisibility(active ? View.GONE : View.VISIBLE);
-        disconnectButton.setVisibility(active ? View.VISIBLE : View.GONE);
-        connectButton.setEnabled(!active && !busy && selectedConfig != null);
-        disconnectButton.setEnabled(active && !busy);
+        boolean systemAlwaysOn = active && session.isAlwaysOn();
+        vpnToggleButton.setText(systemAlwaysOn ? "VPN managed by Android Always-on"
+                : active ? "Turn VPN Off" : "Turn VPN On");
+        vpnToggleButton.setEnabled(!busy && !systemAlwaysOn
+                && (active || selectedConfig != null));
         importButton.setEnabled(!active && !busy);
         saveButton.setEnabled(!active && !busy && selectedConfig != null);
         deleteButton.setEnabled(!active && !busy && !profiles.isEmpty());
@@ -576,6 +742,8 @@ public final class VpnActivity extends Activity {
         profileName.setEnabled(!active && !busy);
         routingPicker.setEnabled(!active && !busy);
         homeRoutes.setEnabled(!active && !busy);
+        homeDnsToggle.setEnabled(!active && !busy);
+        homeDnsAddress.setEnabled(!active && !busy);
     }
 
     private LinearLayout card(LinearLayout parent) {

@@ -1,11 +1,52 @@
 # Wonhee Proxy
 
-**Alpha 0.6 (draft)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.2 combined preview (draft, not a release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
+
+## Combined Alpha 0.8.2 preview — foundations only
+
+This branch combines the next roadmap stages into one future release. It does
+**not** yet implement or claim DNS-over-HTTPS/QUIC, tracker filtering,
+a standalone kill switch or verified leak protection. Android's native
+Always-on/lockdown path is now integrated as an **opt-in, unverified preview**:
+the encrypted selected profile can be restored by the official GoBackend
+system-start callback, but it requires device testing before a secure release.
+
+- **Opt-in home DNS address:** The saved profile can specify a numeric DNS
+  server for the Android WireGuard connection, such as a *separately configured*
+  DNS resolver on the Fedora wg0 gateway. Requests reach it through the tunnel
+  only when its address is routed over WireGuard. That does not add DoH/DoQ or
+  tracking protection by itself.
+- **Profiles persist across force stop:** Importing a valid WireGuard `.conf`
+  immediately commits its encryption-sealed configuration. The selected profile
+  returns when the app is launched again. One on/off button controls the tunnel;
+  tapping Connect saves validated routing and DNS choices automatically;
+  Save profile settings remains available when saving without connecting. Explicit
+  Force stop terminates the active VPN and must not be silently bypassed.
+- **Optional Android Always-on & lockdown:** The native VPN settings link
+  opens Android's settings for Always-on VPN and Block connections without VPN.
+  System-started Always-on attempts to restore the saved profile using the
+  WireGuard library callback. This does NOT make a split-tunnel gateway into
+  a validated full-tunnel VPN, and lockdown could eliminate all internet access
+  until Fedora forwarding/NAT, IPv6, DNS and reboot recovery are tested.
+- **Backward-compatible encrypted settings:** Existing profiles restore
+  with home DNS disabled where that setting did not previously exist.
+  VPN credentials remain sealed with AES-GCM and Android Keystore.
+- **Reproducible signing foundation:** CI debug previews still use disposable
+  signing. A separate manually dispatched signed-release job requires a
+  privately provisioned, persistent keystore in GitHub Actions secrets. No
+  keystore or passwords are committed to this repository.
+- **Preview build:** versionCode 10, versionName
+  `0.8.0-alpha08.2-preview`, debug artifact
+  `wonhee-proxy-alpha08.2-preview-debug-apk`. Do not install expecting an
+  in-place upgrade from a differently signed debug build.
+
+See [signing setup](docs/SIGNING.md) and the
+[combined preview test plan](docs/ALPHA08_PREVIEW_TEST_PLAN.md).
 
 ## New in Alpha 0.6 — explicit connection routing (draft)
 
@@ -22,13 +63,15 @@ tunnel library. It does not host the Telegram proxy on the phone.
   safety. Without those server changes, internet requests can fail or leak.
 - **No silent key changes:** The selected mode modifies only a temporary
   connection configuration. Original imported WireGuard keys/addresses remain
-  unchanged. Choose **Save encrypted profile** to persist the mode and home
-  CIDRs in the AES-GCM Keystore-sealed profile. Existing Alpha 0.5 profiles
-  migrate with the original routing choice and remain readable.
+  unchanged. New imports save automatically; tapping **Connect** saves valid
+  mode, DNS and home CIDR choices to the encrypted profile. Use **Save profile
+  settings** to save preferences without connecting. Existing Alpha 0.5
+  profiles remain readable.
 - **Guardrails:** Custom mode requires a single WireGuard peer; multi-peer
   profiles can still use their original routing. Warning before Connect;
   Android's single VPN slot means Tailscale is replaced while Wonhee is active.
-  No Always-on, kill switch, DNS enforcement or leakage claims.
+  Native Always-on is now opt-in and requires validation; no independent
+  kill switch, DNS enforcement or leakage claims.
 - **Build:** `gradle :app:assembleDebug`. Actions artifact:
   `wonhee-proxy-alpha06-debug-apk`.
 
@@ -150,14 +193,20 @@ See [Alpha 0.4 test plan](docs/ALPHA04_TEST_PLAN.md) and
    on cellular and Auto on your home Wi-Fi.
 7. Press **Start foreground TCP monitor** and verify reachability counts and
    redacted clipboard diagnostics. Leave Wonhee and confirm it stops.
-8. On launch, use the VPN dashboard. Import a private WireGuard `.conf`,
-   give it a name and tap **Save encrypted profile**. After relaunch choose that
-   profile, tap **Connect VPN**, then confirm the Android VPN permission.
-   Monitor handshake and counters; use **Telegram proxy tools** for MTProto.
+8. On launch, import a private WireGuard `.conf`. Wonhee saves it securely
+   immediately and remembers the selected profile. Tap **Turn VPN On** and
+   approve Android VPN permission. Use **Turn VPN Off** to disconnect.
+   Force stop ends the active VPN, but reopening the app should restore the
+   saved profile without reimporting.
+   Use **Telegram proxy tools** for MTProto.
 9. Set connection routing: imported profile routes, home split CIDRs, or the
-   explicitly experimental all-internet request. Save the encrypted profile to
-   remember the selection, then reconnect and verify its effect.
-10. See [Alpha 0.6 manual test plan](docs/ALPHA06_TEST_PLAN.md), [Alpha 0.4 manual test plan](docs/ALPHA04_TEST_PLAN.md),
+   explicitly experimental all-internet request. Tap **Save profile settings**
+   to remember changes, then reconnect and verify their effect.
+10. To test persistent VPN, open **Android VPN settings** from Wonhee and
+   enable Android Always-on only after validating the saved-profile recovery.
+   Enable **Block connections without VPN** only when full internet routing
+   and DNS work; otherwise all internet may stop working.
+11. See [Alpha 0.6 manual test plan](docs/ALPHA06_TEST_PLAN.md), [Alpha 0.4 manual test plan](docs/ALPHA04_TEST_PLAN.md),
    [Alpha 0.3 plan](docs/ALPHA03_TEST_PLAN.md) and the
    earlier [Alpha 0.2 plan](docs/ALPHA02_TEST_PLAN.md).
 
