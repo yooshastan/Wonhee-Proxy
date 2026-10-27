@@ -25,6 +25,25 @@ unchanged while testing.
 8. Disconnect while permitted; chart resets. The 0.8.5 notification must stop.
    Check force-stop, Always-on reconnect and lockdown separately.
 
+## First-run tunnel notification permission (Android 13+)
+
+1. On a fresh install with notifications not yet granted, open the VPN dashboard.
+   Confirm a contextual explanation offers **Continue** and **Not now**.
+   Continue should open Android's **Allow notifications** system prompt.
+2. Allow: the dashboard says notifications are enabled; start the VPN and verify
+   the silent live RX/TX notification updates.
+3. Deny or tap Not now: VPN connection, DNS choices and Always-on must still
+   function; the dashboard shows a clear **Enable tunnel notifications** action.
+4. On denial, use the in-app action to retry when Android permits it; if the
+   system no longer offers a prompt, it opens this app's notification settings.
+   Return to the app after enabling and verify the status refreshes.
+5. Upgrade from a version that had the old saved "already asked" flag.
+   If notifications are still denied, the new on-boarding path and dashboard
+   action must not be suppressed by that legacy flag.
+6. Android 12 and earlier should not request POST_NOTIFICATIONS.
+7. If notification permission was already granted before updating, the app
+   should not prompt again. No permission path should transmit network data.
+
 ## Opt-in connection diagnostics
 
 1. With the tunnel connected, open **CONNECTION HEALTH** and run the existing
