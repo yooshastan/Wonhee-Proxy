@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.4 reliability preview (draft, not a release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.5 integrated on main; Alpha 0.8.6 traffic/diagnostics development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -24,6 +24,23 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
    and other private settings before uninstalling an older build.
 
 See [release signing instructions](docs/SIGNING.md).
+
+## Alpha 0.8.6 development preview — traffic chart and route observations
+
+- A **LIVE TUNNEL TRAFFIC** card shows passive WireGuard throughput,
+  a bounded ~2-minute blue/pink line chart, and observed peak download/upload
+  while the VPN screen is visible. Samples reset when the screen is hidden,
+  counters reset, or the VPN disconnects. No background capture or automatic
+  network request is added.
+- The existing **user-consented VPN-only** DNS and HTTPS diagnostic now also
+  shows whether Android reports IPv4/IPv6 default routes and how many DNS
+  servers it observes on that VPN network. It does not prove forwarding,
+  encryption, filtering, fail-closed behavior or absence of DNS/IP leaks.
+  Split-tunnel mode may intentionally omit default routes.
+- Keeps the **Alpha 0.8.5 notification and connection behavior**. This change
+  is on a feature branch only and is not ready for signed release.
+- Build versionCode 14 / `0.8.6-alpha08.6-preview`.
+- See [Alpha 0.8.6 manual test plan](docs/ALPHA086_TRAFFIC_ROUTE_TEST_PLAN.md).
 
 ## Alpha 0.8.5 preview — ongoing VPN throughput notification
 
