@@ -18,14 +18,15 @@ public final class TunnelTrafficHistoryTest {
         samples.pause();
         check(samples.add(200_000, 99_000_000, 50_000_000) == null,
                 "resuming after background is not a live interval");
-        check(samples.values().size() == TunnelTrafficHistory.MAX_POINTS,
-                "pause preserves history");
+        check(samples.values().isEmpty(),
+                "pause clears stale live history");
         check(samples.add(205_000, 99_000_001, 50_000_000) != null,
                 "sampling resumes with a new baseline");
         check(samples.add(210_000, 5, 5) == null, "counter reset is not a speed");
         check(samples.values().isEmpty(), "counter reset clears stale graph");
         check(samples.add(215_000, 500, 500) != null, "recover after counter reset");
         check(samples.add(250_100, 550, 550) == null, "long gap never averaged");
+        check(samples.values().isEmpty(), "gap clears stale live history");
         samples.clear();
         check(samples.values().isEmpty(), "manual reset");
         check(samples.add(251_000, 0, 0) == null, "fresh baseline");
