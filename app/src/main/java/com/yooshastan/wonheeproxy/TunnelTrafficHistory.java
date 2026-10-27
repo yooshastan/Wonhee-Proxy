@@ -26,6 +26,7 @@ final class TunnelTrafficHistory {
         if (delta <= 0L || delta > MAX_VALID_INTERVAL_MS) {
             // Do not mislabel a background interval as a live data rate.
             previous = current;
+            points.clear();
             return null;
         }
         TunnelTrafficRates.Result rate = TunnelTrafficRates.calculate(previous, current);
@@ -41,12 +42,13 @@ final class TunnelTrafficHistory {
     }
 
     void pause() {
+        // Hidden-screen samples would otherwise appear as recent live traffic.
         previous = null;
+        points.clear();
     }
 
     void clear() {
         pause();
-        points.clear();
     }
 
     List<TunnelTrafficRates.Result> values() {
