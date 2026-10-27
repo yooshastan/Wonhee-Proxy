@@ -14,6 +14,7 @@ import android.provider.Settings;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
@@ -39,7 +40,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Combined Alpha 0.8.4 preview: DNS presets, connection health and encrypted
+ * Alpha 0.8.6 preview: local traffic history, VPN route observations and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -53,6 +54,7 @@ public final class VpnActivity extends Activity {
     private static final long POLL_INTERVAL_MS = 5000L;
     private final Handler pollHandler = new Handler(Looper.getMainLooper());
     private final List<SecureTunnelProfileStore.Profile> profiles = new ArrayList<>();
+    private final TunnelTrafficHistory trafficHistory = new TunnelTrafficHistory();
     private WireGuardSession session;
     private SecureTunnelProfileStore profileStore;
     private Config selectedConfig;
@@ -72,6 +74,8 @@ public final class VpnActivity extends Activity {
     private TextView message;
     private TextView routeStatus;
     private TextView statisticsText;
+    private TextView trafficSummary;
+    private TunnelTrafficGraphView trafficGraph;
     private TextView healthStatus;
     private TextView diagnosticsReport;
     private Button diagnosticsButton;
@@ -106,7 +110,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.4 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.6 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -119,6 +123,17 @@ public final class VpnActivity extends Activity {
         });
         label(dashboard, "The silent Wonhee notification shows tunnel download/upload speeds while VPN is active. Allow notifications when Android asks. Speeds are not a traffic leak test.", 12, MUTED);
         label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
+
+        LinearLayout trafficCard = card(root);
+        label(trafficCard, "LIVE TUNNEL TRAFFIC", 17, PINK);
+        trafficSummary = label(trafficCard,
+                "Waiting for two WireGuard counter samples...", 14, WHITE);
+        trafficGraph = new TunnelTrafficGraphView(this);
+        trafficCard.addView(trafficGraph, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(150)));
+        label(trafficCard, "Blue = download · Pink = upload · Last ~2 minutes while open. "
+                + "These are VPN tunnel counter deltas, not a whole-device speed test "
+                + "or proof against traffic leaks.", 12, MUTED);
 
         LinearLayout healthCard = card(root);
         label(healthCard, "CONNECTION HEALTH", 17, PINK);
@@ -300,18 +315,25 @@ public final class VpnActivity extends Activity {
     @Override protected void onPause() {
         visible = false;
         pollHandler.removeCallbacks(poll);
+        trafficHistory.pause();
         super.onPause();
     }
 
     private void renderStatistics(WireGuardSession.StatusSnapshot snapshot) {
         refreshPassiveHealth(snapshot);
         if (!snapshot.interfaceUp) {
+            trafficHistory.clear();
+            trafficGraph.setValues(trafficHistory.values());
+            trafficSummary.setText("No active tunnel; no traffic data.");
             connectionStatus.setText("Disconnected");
             connectionStatus.setTextColor(WHITE);
             statisticsText.setText("No tunnel active.");
             return;
         }
         if (!snapshot.statisticsAvailable) {
+            trafficHistory.clear();
+            trafficGraph.setValues(trafficHistory.values());
+            trafficSummary.setText("WireGuard transfer counters unavailable.");
             connectionStatus.setText("Interface active");
             statisticsText.setText("Peer statistics unavailable. Check the Fedora gateway.");
             return;
@@ -336,6 +358,18 @@ public final class VpnActivity extends Activity {
                 + "\nReceived: " + formatBytes(snapshot.receivedBytes)
                 + " · Sent: " + formatBytes(snapshot.transmittedBytes)
                 + "\nPeers tracked: " + snapshot.peers);
+        TunnelTrafficRates.Result rate = trafficHistory.add(
+                SystemClock.elapsedRealtime(), snapshot.receivedBytes,
+                snapshot.transmittedBytes);
+        trafficSummary.setText(rate == null
+                ? "Collecting two live counter samples..."
+                : "↓ " + TunnelTrafficRates.formatSpeed(rate.downloadMbps)
+                + " · ↑ " + TunnelTrafficRates.formatSpeed(rate.uploadMbps)
+                + "\nObserved peak ↓ "
+                + TunnelTrafficRates.formatSpeed(trafficHistory.peakDownloadMbps())
+                + " · ↑ "
+                + TunnelTrafficRates.formatSpeed(trafficHistory.peakUploadMbps()));
+        trafficGraph.setValues(trafficHistory.values());
     }
 
     private void refreshPassiveHealth(WireGuardSession.StatusSnapshot snapshot) {
