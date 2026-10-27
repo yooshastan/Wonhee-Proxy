@@ -10,6 +10,8 @@ import android.net.VpnService;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -21,8 +23,6 @@ import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.wireguard.config.Config;
-import com.wireguard.config.InetNetwork;
-import com.wireguard.config.Peer;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -35,8 +35,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Alpha 0.5: VPN-first screen with opt-in Keystore-sealed profiles and native
- * WireGuard traffic/handshake statistics. No automatic startup or fail-closed
+ * Alpha 0.6: VPN-first screen with encrypted profiles, connect-time routing
+ * choices and native WireGuard diagnostics. No automatic startup or fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
 public final class VpnActivity extends Activity {
@@ -51,10 +51,13 @@ public final class VpnActivity extends Activity {
     private WireGuardSession session;
     private SecureTunnelProfileStore profileStore;
     private Config selectedConfig;
+    private Config pendingConnection;
     private boolean updatingList;
     private boolean visible;
     private boolean statisticsPending;
     private Spinner savedPicker;
+    private Spinner routingPicker;
+    private EditText homeRoutes;
     private EditText profileName;
     private TextView connectionStatus;
     private TextView message;
@@ -91,7 +94,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.5", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.6", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -126,13 +129,59 @@ public final class VpnActivity extends Activity {
         saveButton.setOnClickListener(v -> saveSelected());
         deleteButton = button(configCard, "Delete selected profile");
         deleteButton.setOnClickListener(v -> confirmDelete());
-        routeStatus = label(configCard, "Import or choose a saved configuration.", 13, MUTED);
+        LinearLayout routingCard = card(root);
+        label(routingCard, "CONNECTION ROUTING", 17, PINK);
+        label(routingCard, "Choose where the phone sends traffic when you connect.", 13, MUTED);
+        routingPicker = new Spinner(this);
+        ArrayAdapter<String> routingAdapter = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item,
+                new String[] {
+                        "Use profile routes (unchanged)",
+                        "Home access (split routes)",
+                        "All internet (experimental)"
+                }) {
+            @Override public View getView(int position, View convertView,
+                                          android.view.ViewGroup parent) {
+                View row = super.getView(position, convertView, parent);
+                if (row instanceof TextView) ((TextView) row).setTextColor(WHITE);
+                return row;
+            }
+            @Override public View getDropDownView(int position, View convertView,
+                                                  android.view.ViewGroup parent) {
+                View row = super.getDropDownView(position, convertView, parent);
+                if (row instanceof TextView) ((TextView) row).setTextColor(Color.BLACK);
+                return row;
+            }
+        };
+        routingAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        routingPicker.setAdapter(routingAdapter);
+        routingCard.addView(routingPicker);
+        homeRoutes = new EditText(this);
+        homeRoutes.setSingleLine(true);
+        homeRoutes.setTextColor(WHITE);
+        homeRoutes.setHintTextColor(MUTED);
+        homeRoutes.setHint("Home CIDRs, e.g. 10.77.0.0/24, 192.168.50.0/24");
+        routingCard.addView(homeRoutes);
+        homeRoutes.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable text) { refreshRoutingPreview(); }
+        });
+        routeStatus = label(routingCard, "Import or choose a saved configuration.", 13, MUTED);
+        routingPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
+                refreshRoutingPreview();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        label(routingCard, "Routes apply to this connection only. Press Save encrypted profile "
+                + "to remember your mode and home CIDRs. Neither changes the original WireGuard keys.", 12, MUTED);
 
         message = label(root, "VPN is off. A saved profile connects only when you press Connect.", 14, WHITE);
         Button proxyTools = button(root, "Telegram proxy tools");
         proxyTools.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
         label(root, "Security: VPN profiles are encrypted at rest with Android Keystore and are never uploaded or logged. Your keys are saved only when you press Save. Back them up privately before uninstalling or replacing a debug APK.", 12, MUTED);
-        label(root, "Still experimental: no Always-on, automatic restart, kill switch, encrypted DNS enforcement or tracker filtering. Split routes are not whole-device internet protection. Starting this VPN replaces any active Tailscale or other Android VPN.", 12, MUTED);
+        label(root, "Still experimental: no Always-on, automatic restart, kill switch, encrypted DNS enforcement or tracker filtering. All internet mode depends on a working home gateway and has no verified leak protection. Starting this VPN replaces any active Tailscale or other Android VPN.", 12, MUTED);
 
         try {
             session = WireGuardSession.get(this);
@@ -221,13 +270,18 @@ public final class VpnActivity extends Activity {
             try {
                 Config imported = readConfiguration(data.getData());
                 selectedConfig = imported;
+                pendingConnection = null;
+                routingPicker.setSelection(VpnRouteModes.PROFILE);
+                homeRoutes.setText(VpnRouteModes.suggestedHomeRoutes(imported));
                 if (profileName.getText().toString().trim().isEmpty()) {
                     profileName.setText("Home WireGuard");
                 }
                 message.setText("Configuration imported into memory. Tap Save to encrypt it on this device.");
-                routeStatus.setText(routeSummary(imported));
+                refreshRoutingPreview();
             } catch (Exception | LinkageError invalid) {
                 selectedConfig = null;
+                pendingConnection = null;
+                refreshRoutingPreview();
                 message.setText("Invalid WireGuard .conf. Check its interface, peer and key fields. Secrets and detailed parse errors are not logged.");
             }
             refreshButtons();
@@ -235,6 +289,7 @@ public final class VpnActivity extends Activity {
             if (result == RESULT_OK && VpnService.prepare(this) == null) {
                 startTunnel();
             } else {
+                pendingConnection = null;
                 message.setText("Android VPN permission was not granted.");
             }
         }
@@ -282,8 +337,12 @@ public final class VpnActivity extends Activity {
             } finally {
                 Arrays.fill(raw, (byte) 0);
             }
+            pendingConnection = null;
             profileName.setText(profile.name);
-            routeStatus.setText(routeSummary(selectedConfig));
+            routingPicker.setSelection(profile.routeMode);
+            homeRoutes.setText(profile.homeRoutes.isEmpty()
+                    ? VpnRouteModes.suggestedHomeRoutes(selectedConfig) : profile.homeRoutes);
+            refreshRoutingPreview();
             message.setText("Encrypted VPN profile loaded. Press Connect to start it.");
         } catch (Exception invalid) {
             selectedConfig = null;
@@ -303,8 +362,16 @@ public final class VpnActivity extends Activity {
         }
         final SecureTunnelProfileStore.Profile updated;
         try {
+            VpnRouteModes.prepare(selectedConfig, routingPicker.getSelectedItemPosition(),
+                    homeRoutes.getText().toString());
+        } catch (Exception invalid) {
+            message.setText("Cannot validate routing. Check the CIDRs (1–16, no /0 in Home mode).");
+            return;
+        }
+        try {
             updated = new SecureTunnelProfileStore.Profile(
-                    profileName.getText().toString(), selectedConfig.toWgQuickString());
+                    profileName.getText().toString(), selectedConfig.toWgQuickString(),
+                    routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString());
         } catch (IllegalArgumentException invalid) {
             message.setText(invalid.getMessage());
             return;
@@ -356,9 +423,12 @@ public final class VpnActivity extends Activity {
                     try {
                         profileStore.delete(name);
                         selectedConfig = null;
+                        pendingConnection = null;
                         profileName.setText("");
+                        routingPicker.setSelection(VpnRouteModes.PROFILE);
+                        homeRoutes.setText("");
                         reloadProfiles(null);
-                        routeStatus.setText("Import or choose a saved configuration.");
+                        refreshRoutingPreview();
                         message.setText("Saved profile deleted from the encrypted store.");
                         refreshButtons();
                     } catch (Exception failure) {
@@ -407,19 +477,45 @@ public final class VpnActivity extends Activity {
         }
     }
 
+    private void refreshRoutingPreview() {
+        if (routeStatus == null || routingPicker == null || homeRoutes == null) return;
+        int mode = routingPicker.getSelectedItemPosition();
+        homeRoutes.setVisibility(mode == VpnRouteModes.HOME ? View.VISIBLE : View.GONE);
+        routeStatus.setText(VpnRouteModes.summary(
+                selectedConfig, mode, homeRoutes.getText().toString()));
+    }
+
     private void confirmConnect() {
         if (session == null || selectedConfig == null) {
             message.setText("Choose or import a VPN profile first.");
             return;
         }
         if (session.isBusy() || session.isConnected()) return;
+        final int mode = routingPicker.getSelectedItemPosition();
+        final Config connectionConfig;
+        try {
+            connectionConfig = VpnRouteModes.prepare(
+                    selectedConfig, mode, homeRoutes.getText().toString());
+        } catch (Exception invalid) {
+            // Avoid logging or echoing configuration details, including private keys.
+            message.setText("Cannot apply routing. Check the selected mode, peer count and home CIDRs.");
+            return;
+        }
+        String warning = VpnRouteModes.summary(
+                selectedConfig, mode, homeRoutes.getText().toString())
+                + "\n\nAndroid permits only one active VPN: Tailscale may disconnect. "
+                + "No fail-closed, DNS-leak or IPv6-leak protection is guaranteed.";
+        if (mode == VpnRouteModes.ALL) {
+            warning += "\n\nThe Fedora gateway MUST support IPv4 forwarding/NAT and IPv6 routing. "
+                    + "A handshake alone cannot prove this; test internet and DNS on cellular.";
+        }
         new AlertDialog.Builder(this)
-                .setTitle("Start WireGuard VPN?")
-                .setMessage(routeSummary(selectedConfig)
-                        + "\n\nThis takes Android's single active VPN slot and may disconnect Tailscale. "
-                        + "No fail-closed, DNS-leak or IPv6 protection is guaranteed. Continue?")
+                .setTitle(mode == VpnRouteModes.ALL
+                        ? "Test experimental all-internet VPN?" : "Start WireGuard VPN?")
+                .setMessage(warning)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Connect", (dialog, which) -> {
+                    pendingConnection = connectionConfig;
                     Intent permission = VpnService.prepare(this);
                     if (permission != null) {
                         startActivityForResult(permission, VPN_PERMISSION);
@@ -430,9 +526,14 @@ public final class VpnActivity extends Activity {
     }
 
     private void startTunnel() {
-        if (session == null || selectedConfig == null) return;
-        message.setText("Starting WireGuard. A tunnel interface is not proof of a handshake.");
-        session.connect(selectedConfig, (success, summary) -> {
+        if (session == null || pendingConnection == null) {
+            message.setText("Connection preparation expired. Press Connect again.");
+            return;
+        }
+        Config runtime = pendingConnection;
+        pendingConnection = null;
+        message.setText("Starting WireGuard. Interface UP does not prove internet privacy.");
+        session.connect(runtime, (success, summary) -> {
             if (!isFinishing() && !isDestroyed()) {
                 message.setText(summary);
                 refreshButtons();
@@ -445,6 +546,7 @@ public final class VpnActivity extends Activity {
 
     private void stopTunnel() {
         if (session == null || session.isBusy()) return;
+        pendingConnection = null;
         message.setText("Stopping WireGuard...");
         session.disconnect((success, summary) -> {
             if (!isFinishing() && !isDestroyed()) {
@@ -457,21 +559,6 @@ public final class VpnActivity extends Activity {
             }
         });
         refreshButtons();
-    }
-
-    private String routeSummary(Config config) {
-        boolean v4 = false, v6 = false;
-        for (Peer peer : config.getPeers()) {
-            for (InetNetwork route : peer.getAllowedIps()) {
-                String routeName = route.toString();
-                if ("0.0.0.0/0".equals(routeName)) v4 = true;
-                if ("::/0".equals(routeName)
-                        || "0:0:0:0:0:0:0:0/0".equals(routeName)) v6 = true;
-            }
-        }
-        if (v4 && v6) return "Full-route request (IPv4 + IPv6). Gateway support and leak safety are unverified.";
-        if (v4 || v6) return "Partial full route: one IP family could bypass the VPN. Not leak safe.";
-        return "Home/split routing. Other internet traffic may bypass this VPN.";
     }
 
     private void refreshButtons() {
@@ -487,6 +574,8 @@ public final class VpnActivity extends Activity {
         deleteButton.setEnabled(!active && !busy && !profiles.isEmpty());
         savedPicker.setEnabled(!active && !busy);
         profileName.setEnabled(!active && !busy);
+        routingPicker.setEnabled(!active && !busy);
+        homeRoutes.setEnabled(!active && !busy);
     }
 
     private LinearLayout card(LinearLayout parent) {

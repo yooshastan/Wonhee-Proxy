@@ -39,10 +39,24 @@ final class SecureTunnelProfileStore {
     static final class Profile {
         final String name;
         final String configuration;
+        final int routeMode;
+        final String homeRoutes;
 
         Profile(String name, String configuration) {
+            this(name, configuration, VpnRouteModes.PROFILE, "");
+        }
+
+        Profile(String name, String configuration, int routeMode, String homeRoutes) {
             this.name = name == null ? "" : name.trim();
             this.configuration = configuration == null ? "" : configuration;
+            this.routeMode = routeMode;
+            this.homeRoutes = homeRoutes == null ? "" : homeRoutes.trim();
+            if (routeMode < VpnRouteModes.PROFILE || routeMode > VpnRouteModes.ALL) {
+                throw new IllegalArgumentException("Invalid VPN routing mode.");
+            }
+            if (this.homeRoutes.length() > 512) {
+                throw new IllegalArgumentException("Home routes exceed 512 characters.");
+            }
             if (this.name.isEmpty() || this.name.length() > 64
                     || this.name.chars().anyMatch(c -> Character.isISOControl((char) c))) {
                 throw new IllegalArgumentException("Use a profile name of 1–64 printable characters.");
@@ -57,11 +71,16 @@ final class SecureTunnelProfileStore {
             JSONObject result = new JSONObject();
             result.put("name", name);
             result.put("configuration", configuration);
+            result.put("routeMode", routeMode);
+            result.put("homeRoutes", homeRoutes);
             return result;
         }
 
         static Profile fromJson(JSONObject value) throws Exception {
-            return new Profile(value.getString("name"), value.getString("configuration"));
+            // Alpha 0.5 profiles contain only name + config; migrate safely in place.
+            return new Profile(value.getString("name"), value.getString("configuration"),
+                    value.optInt("routeMode", VpnRouteModes.PROFILE),
+                    value.optString("homeRoutes", ""));
         }
     }
 
