@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.6 integrated on main; Alpha 0.8.7 local diagnostics/shortcut development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 on main; Alpha 0.8.7 awaiting device test; Alpha 0.8.8 private home-service probe development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -24,6 +24,25 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
    and other private settings before uninstalling an older build.
 
 See [release signing instructions](docs/SIGNING.md).
+
+## Alpha 0.8.8 development preview — manual home service reachability
+
+- Enter a numeric private IPv4 address and TCP port, or tap **Use Navidrome
+  port (4533)** to fill the port. No target address or results are saved.
+- Press **Test home service through VPN** and approve the confirmation.
+  The app validates a strict RFC1918 target, finds exactly one Android-reported
+  VPN Network, and attempts a single 4-second TCP connection using that
+  Network's socket factory. No hostname resolution, retry, or Wi-Fi/cellular
+  fallback is permitted. The result does not print the destination.
+- A successful test means the port accepted a TCP connection on the
+  Android-reported VPN transport; it does not prove the application is
+  authenticated, that Navidrome is configured correctly, or that DNS/IPv6
+  traffic cannot bypass the VPN. Failed or ambiguous tests are cautious.
+- This is useful when checking home services like a locally reachable
+  Navidrome gateway without exposing it to the public internet.
+- Existing WireGuard routing, saved profiles, notifications and proxy
+  tools remain unchanged. VersionCode 17 / `0.8.8-alpha08.8-preview`.
+- See [manual test plan](docs/ALPHA088_HOME_SERVICE_TEST_PLAN.md).
 
 ## Alpha 0.8.7 development preview — local event history and shortcut
 

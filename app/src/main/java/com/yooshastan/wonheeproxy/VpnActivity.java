@@ -25,6 +25,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.text.InputType;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -43,7 +44,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Alpha 0.8.7 preview: local traffic and connection histories, VPN route observations and encrypted
+ * Alpha 0.8.8 preview: user-approved VPN-bound home service checks, VPN route observations and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -67,6 +68,7 @@ public final class VpnActivity extends Activity {
     private boolean visible;
     private boolean statisticsPending;
     private boolean diagnosticsRunning;
+    private boolean homeServiceProbeRunning;
     private Spinner savedPicker;
     private Spinner routingPicker;
     private EditText homeRoutes;
@@ -83,6 +85,10 @@ public final class VpnActivity extends Activity {
     private TextView healthStatus;
     private TextView connectionEventsText;
     private TextView diagnosticsReport;
+    private EditText homeServiceIp;
+    private EditText homeServicePort;
+    private TextView homeServiceResult;
+    private Button homeServiceProbeButton;
     private Button diagnosticsButton;
     private Button vpnToggleButton, importButton, saveButton, deleteButton;
     private Button notificationPermissionButton;
@@ -117,7 +123,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.7 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.8 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -166,6 +172,35 @@ public final class VpnActivity extends Activity {
         label(healthCard, "The test sends an explicit DNS lookup and HTTPS HEAD request only "
                 + "on an Android-reported VPN network, with no normal-network fallback. "
                 + "A successful test is not proof against DNS, IPv6 or traffic leaks.", 12, MUTED);
+
+        LinearLayout homeServiceCard = card(root);
+        label(homeServiceCard, "HOME SERVICE CHECK (MANUAL)", 17, PINK);
+        label(homeServiceCard, "Test one private IPv4 TCP destination through your "
+                + "Android-reported WireGuard VPN network. Enter a home service IP "
+                + "(for example 10.77.0.1) and port. Nothing is saved or tested automatically.", 13, MUTED);
+        homeServiceIp = new EditText(this);
+        homeServiceIp.setSingleLine(true);
+        homeServiceIp.setInputType(InputType.TYPE_CLASS_PHONE);
+        homeServiceIp.setTextColor(WHITE);
+        homeServiceIp.setHintTextColor(MUTED);
+        homeServiceIp.setHint("Private IPv4, e.g. 10.77.0.1");
+        homeServiceCard.addView(homeServiceIp);
+        homeServicePort = new EditText(this);
+        homeServicePort.setSingleLine(true);
+        homeServicePort.setInputType(InputType.TYPE_CLASS_NUMBER);
+        homeServicePort.setTextColor(WHITE);
+        homeServicePort.setHintTextColor(MUTED);
+        homeServicePort.setHint("TCP port, e.g. 4533");
+        homeServiceCard.addView(homeServicePort);
+        Button navidromePort = button(homeServiceCard, "Use Navidrome port (4533)");
+        navidromePort.setOnClickListener(v -> homeServicePort.setText("4533"));
+        homeServiceProbeButton = button(homeServiceCard, "Test home service through VPN");
+        homeServiceProbeButton.setOnClickListener(v -> confirmHomeServiceProbe());
+        homeServiceResult = label(homeServiceCard, "No private service check performed.", 13, MUTED);
+        label(homeServiceCard, "Strict numeric RFC1918 IPv4 only; no DNS lookup, automatic "
+                + "retry, direct-network fallback, saved destination or credentials. "
+                + "A TCP success only proves that port accepted a connection on the "
+                + "Android-reported VPN network—not service authentication or leak freedom.", 12, MUTED);
 
         LinearLayout eventCard = card(root);
         label(eventCard, "RECENT CONNECTION EVENTS", 17, PINK);
@@ -448,7 +483,7 @@ public final class VpnActivity extends Activity {
         // Health text is generated only from booleans and WireGuard handshake state.
         // Never include imported profile text, editable CIDRs, hostnames, DNS IPs,
         // network diagnostic raw output, secrets, endpoints or usernames.
-        String report = "Wonhee Proxy Alpha 0.8.7 — local support report\n"
+        String report = "Wonhee Proxy Alpha 0.8.8 — local support report\n"
                 + healthStatus.getText().toString()
                 + "\nRoute choice: " + routeChoice
                 + "\nRecent local events:\n" + connectionEvents.render()
@@ -463,6 +498,46 @@ public final class VpnActivity extends Activity {
         } catch (RuntimeException unavailable) {
             message.setText("Could not copy the local report on this device.");
         }
+    }
+
+    private void confirmHomeServiceProbe() {
+        if (homeServiceProbeRunning) return;
+        if (session == null || !session.isConnected() || session.isBusy()) {
+            homeServiceResult.setText("Connect WireGuard before checking a home service.");
+            return;
+        }
+        final PrivateIpv4Target target;
+        try {
+            target = PrivateIpv4Target.parse(
+                    homeServiceIp.getText().toString(), homeServicePort.getText().toString());
+        } catch (IllegalArgumentException invalid) {
+            homeServiceResult.setText(invalid.getMessage());
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Run one VPN-bound TCP test?")
+                .setMessage("Wonhee will attempt one TCP connection to the private IP and "
+                        + "port you entered, explicitly bound to Android's single reported VPN "
+                        + "network. Your gateway/service can observe the connection attempt. "
+                        + "No credentials, DNS lookup or normal-network fallback. Continue?")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Run test", (dialog, which) -> runHomeServiceProbe(target))
+                .show();
+    }
+
+    private void runHomeServiceProbe(PrivateIpv4Target target) {
+        if (homeServiceProbeRunning || session == null || !session.isConnected()) return;
+        homeServiceProbeRunning = true;
+        homeServiceProbeButton.setEnabled(false);
+        homeServiceResult.setText("Testing one TCP port on the VPN network...");
+        VpnHomeServiceProbe.run(this, target, report -> {
+            homeServiceProbeRunning = false;
+            if (isFinishing() || isDestroyed()) return;
+            homeServiceProbeButton.setEnabled(true);
+            String changed = session == null || !session.isConnected()
+                    ? "Tunnel disconnected during the test; result may be stale. " : "";
+            homeServiceResult.setText(changed + report);
+        });
     }
 
     private void confirmDiagnostics() {
