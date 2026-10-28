@@ -28,6 +28,9 @@ public final class VpnTrafficNotificationService extends Service {
     private NotificationManager manager;
     private boolean running;
     private TunnelTrafficRates.Sample previous;
+    private final VpnRecoveryBackoff recoveryBackoff = new VpnRecoveryBackoff();
+    private boolean recoveryPending;
+    private boolean lastInterfaceUp = true;
 
     static void startIfPossible(Context context) {
         try {
@@ -94,9 +97,37 @@ public final class VpnTrafficNotificationService extends Service {
             WireGuardSession.get(this).readStatistics(snapshot -> {
                 if (!running) return;
                 if (!snapshot.interfaceUp) {
-                    stopSelf();
+                    previous = null;
+                    lastInterfaceUp = false;
+                    WireGuardSession session = WireGuardSession.get(this);
+                    VpnRecoveryPreferences prefs = new VpnRecoveryPreferences(this);
+                    if (!prefs.canRetry(session.isAlwaysOn())) {
+                        stopSelf();
+                        return;
+                    }
+                    long now = SystemClock.elapsedRealtime();
+                    if (!recoveryPending && !session.isBusy() && recoveryBackoff.isDue(now)) {
+                        recoveryPending = true;
+                        session.recoverSavedProfileIfDesired((success, message) -> {
+                            recoveryPending = false;
+                            if (success) recoveryBackoff.reset();
+                            else recoveryBackoff.failed(SystemClock.elapsedRealtime());
+                        });
+                    }
+                    String next = recoveryPending ? "Recovery attempt underway"
+                            : "Retry in " + recoveryBackoff.secondsUntilNext(now) + "s";
+                    try {
+                        manager.notify(NOTIFICATION_ID, makeNotification(
+                                "VPN interface down · Auto-reconnect ON",
+                                next + ". Android lockdown remains unchanged."));
+                    } catch (RuntimeException | LinkageError ignored) {
+                        // Notifications are optional; never disable lockdown.
+                    }
+                    handler.postDelayed(this::pollOnce, REFRESH_MILLIS);
                     return;
                 }
+                lastInterfaceUp = true;
+                recoveryBackoff.reset();
                 String speed = "Traffic statistics unavailable";
                 String detail = "The VPN interface is active; no traffic audit is running.";
                 if (snapshot.statisticsAvailable) {
@@ -134,7 +165,8 @@ public final class VpnTrafficNotificationService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_vpn_status)
-                .setContentTitle("Wonhee VPN · Interface active")
+                .setContentTitle(lastInterfaceUp
+                        ? "Wonhee VPN · Interface active" : "Wonhee VPN · Reconnecting")
                 .setContentText(speed)
                 .setStyle(new Notification.BigTextStyle().bigText(speed + "\n" + detail))
                 .setContentIntent(open)
@@ -149,6 +181,8 @@ public final class VpnTrafficNotificationService extends Service {
     @Override public void onDestroy() {
         running = false;
         previous = null;
+        recoveryPending = false;
+        recoveryBackoff.reset();
         handler.removeCallbacksAndMessages(null);
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
