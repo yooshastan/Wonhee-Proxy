@@ -169,6 +169,7 @@ public final class VpnActivity extends Activity {
         recoveryToggle.setOnCheckedChangeListener((button, checked) -> {
             boolean active = session != null && session.isConnected();
             recoveryPrefs.setEnabled(checked, active);
+            VpnRecoveryScheduler.update(this);
             refreshRecoveryStatus();
         });
         label(recoveryCard, "Opt-in and requires Android Always-on VPN. While its optional "
@@ -200,7 +201,7 @@ public final class VpnActivity extends Activity {
                 + "A successful test is not proof against DNS, IPv6 or traffic leaks.", 12, MUTED);
 
         LinearLayout homeServiceCard = card(root);
-        label(homeServiceCard, "HOME SERVICE CHECK (MANUAL)", 17, PINK);
+        label(homeServiceCard, "HOME SERVICE PORT CHECK (MANUAL)", 17, PINK);
         label(homeServiceCard, "Test one private IPv4 TCP destination through your "
                 + "Android-reported WireGuard VPN network. Enter a home service IP "
                 + "(for example 10.77.0.1) and port. Nothing is saved or tested automatically.", 13, MUTED);
@@ -218,12 +219,15 @@ public final class VpnActivity extends Activity {
         homeServicePort.setHintTextColor(MUTED);
         homeServicePort.setHint("TCP port, e.g. 4533");
         homeServiceCard.addView(homeServicePort);
-        Button navidromePort = button(homeServiceCard, "Use Navidrome port (4533)");
+        Button navidromePort = button(homeServiceCard, "Use Navidrome TCP port (4533)");
         navidromePort.setOnClickListener(v -> homeServicePort.setText("4533"));
         homeServiceProbeButton = button(homeServiceCard, "Test home service through VPN");
         homeServiceProbeButton.setOnClickListener(v -> confirmHomeServiceProbe());
         homeServiceResult = label(homeServiceCard, "No private service check performed.", 13, MUTED);
-        label(homeServiceCard, "Strict numeric RFC1918 IPv4 only; no DNS lookup, automatic "
+        label(homeServiceCard, "This is a TCP port check, NOT Navidrome setup. If your Fedora "
+                + "container publishes only 127.0.0.1:4533, the phone cannot reach it "
+                + "at 10.77.0.1:4533 without a separate protected listener/proxy. "
+                + "Strict numeric RFC1918 IPv4 only; no DNS lookup, automatic "
                 + "retry, direct-network fallback, saved destination or credentials. "
                 + "A TCP success only proves that port accepted a connection on the "
                 + "Android-reported VPN network—not service authentication or leak freedom.", 12, MUTED);
@@ -401,6 +405,7 @@ public final class VpnActivity extends Activity {
         visible = true;
         refreshButtons();
         refreshNotificationPermissionUi();
+        VpnRecoveryScheduler.update(this);
         refreshRecoveryStatus();
         tryResumeAutoRecovery();
         if (session != null && session.isConnected()) {
