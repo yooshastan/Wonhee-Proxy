@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <queries>
         <package android:name="com.yooshastan.ultmessenger.foss.beta" />
         <package android:name="com.yooshastan.ultmessenger.foss" />
@@ -34,12 +35,16 @@
             <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
                 android:value="true" />
         </service>
-        <!-- Optional read-only tunnel stats notification; this service never
-             connects, reconnects or changes WireGuard routing. -->
+        <!-- Optional traffic status notification and opt-in recovery monitor. -->
         <service
             android:name=".VpnTrafficNotificationService"
             android:exported="false"
             android:foregroundServiceType="systemExempted" />
+        <!-- Persisted best-effort periodic VPN recovery. Android can defer it in Doze. -->
+        <service
+            android:name=".VpnRecoveryJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true" />
         <!-- Optional user-added Quick Settings shortcut. It only opens the UI. -->
         <service
             android:name=".WonheeQuickSettingsTile"
