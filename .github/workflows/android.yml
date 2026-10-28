@@ -1,9 +1,7 @@
 name: Wonhee Proxy Android Alpha 0.8.7 Preview
 
+# Legacy manual workflow; use build.yml for automatic PR/main validation.
 on:
-  push:
-    branches: [main, 'feature/**']
-  pull_request:
   workflow_dispatch:
 
 permissions:
