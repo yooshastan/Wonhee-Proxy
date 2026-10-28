@@ -124,6 +124,7 @@ final class WireGuardSession {
                 backend.setState(tunnel, Tunnel.State.UP, runtime);
                 if (backend.getState(tunnel) == Tunnel.State.UP) {
                     new VpnRecoveryPreferences(appContext).systemRestoredConnection();
+                    VpnRecoveryScheduler.update(appContext);
                     VpnTrafficNotificationService.startIfPossible(appContext);
                 }
             } catch (Exception | LinkageError ignored) {
@@ -272,6 +273,7 @@ final class WireGuardSession {
                 new VpnRecoveryPreferences(appContext).userRequestedDisconnect();
             }
         }
+        if (!connect) VpnRecoveryScheduler.update(appContext);
         executor.execute(() -> {
             boolean success = false;
             String failure = "VPN operation failed. Check the tunnel, Android VPN permission and gateway.";
@@ -295,6 +297,7 @@ final class WireGuardSession {
                 if (connect) {
                     manualStopRequested = false;
                     new VpnRecoveryPreferences(appContext).userConnected();
+                    VpnRecoveryScheduler.update(appContext);
                     VpnTrafficNotificationService.startIfPossible(appContext);
                 } else {
                     VpnTrafficNotificationService.stop(appContext);
