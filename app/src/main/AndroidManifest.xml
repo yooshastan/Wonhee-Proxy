@@ -40,6 +40,17 @@
             android:name=".VpnTrafficNotificationService"
             android:exported="false"
             android:foregroundServiceType="systemExempted" />
+        <!-- Optional user-added Quick Settings shortcut. It only opens the UI. -->
+        <service
+            android:name=".WonheeQuickSettingsTile"
+            android:exported="true"
+            android:label="Wonhee VPN"
+            android:icon="@drawable/ic_vpn_status"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
         <activity android:name=".MainActivity" android:exported="false" />
     </application>
 </manifest>
