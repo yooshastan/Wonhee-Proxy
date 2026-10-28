@@ -16,7 +16,8 @@ import android.os.SystemClock;
 
 /**
  * Silent foreground notification of WireGuard's local RX/TX counters.
- * It never makes network requests or changes the tunnel's state.
+ * The optional opt-in monitor may also request encrypted-profile restoration
+ * when the WireGuard interface is actually DOWN. It performs no network probes.
  * A VPN can remain connected if Android refuses to start this optional service.
  */
 public final class VpnTrafficNotificationService extends Service {
