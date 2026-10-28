@@ -24,6 +24,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.text.InputType;
 import android.widget.LinearLayout;
@@ -44,7 +45,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Alpha 0.8.8 preview: user-approved VPN-bound home service checks, VPN route observations and encrypted
+ * Alpha 0.8.9 preview: opt-in Always-on VPN interface recovery, VPN route observations and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -61,6 +62,9 @@ public final class VpnActivity extends Activity {
     private final TunnelTrafficHistory trafficHistory = new TunnelTrafficHistory();
     private final TunnelEventHistory connectionEvents = new TunnelEventHistory();
     private WireGuardSession session;
+    private VpnRecoveryPreferences recoveryPrefs;
+    private CheckBox recoveryToggle;
+    private TextView recoveryStatus;
     private SecureTunnelProfileStore profileStore;
     private Config selectedConfig;
     private Config pendingConnection;
@@ -69,6 +73,7 @@ public final class VpnActivity extends Activity {
     private boolean statisticsPending;
     private boolean diagnosticsRunning;
     private boolean homeServiceProbeRunning;
+    private boolean resumeRecoveryPending;
     private Spinner savedPicker;
     private Spinner routingPicker;
     private EditText homeRoutes;
@@ -113,6 +118,7 @@ public final class VpnActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         profileStore = new SecureTunnelProfileStore(this);
+        recoveryPrefs = new VpnRecoveryPreferences(this);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(0xff12101d);
@@ -123,7 +129,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.8 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.9 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -151,6 +157,26 @@ public final class VpnActivity extends Activity {
             }
         });
         label(dashboard, "VPN interface and handshake are different states. A handshake does not prove DNS or full-device leak protection.", 12, MUTED);
+
+        LinearLayout recoveryCard = card(root);
+        label(recoveryCard, "AUTO-RECONNECT (EXPERIMENTAL)", 17, PINK);
+        recoveryToggle = new CheckBox(this);
+        recoveryToggle.setText("Retry if WireGuard interface stops");
+        recoveryToggle.setTextColor(WHITE);
+        recoveryToggle.setChecked(recoveryPrefs.enabled());
+        recoveryCard.addView(recoveryToggle);
+        recoveryStatus = label(recoveryCard, "", 13, MUTED);
+        recoveryToggle.setOnCheckedChangeListener((button, checked) -> {
+            boolean active = session != null && session.isConnected();
+            recoveryPrefs.setEnabled(checked, active);
+            refreshRecoveryStatus();
+        });
+        label(recoveryCard, "Opt-in and requires Android Always-on VPN. While its optional "
+                + "foreground monitor is running, Wonhee retries a genuinely DOWN interface "
+                + "with increasing delays (up to five minutes). It does NOT restart for an "
+                + "old handshake, bypass Android lockdown, or guarantee recovery after "
+                + "Android force-stop or background process termination.", 12, MUTED);
+        refreshRecoveryStatus();
 
         LinearLayout trafficCard = card(root);
         label(trafficCard, "LIVE TUNNEL TRAFFIC", 17, PINK);
@@ -375,6 +401,8 @@ public final class VpnActivity extends Activity {
         visible = true;
         refreshButtons();
         refreshNotificationPermissionUi();
+        refreshRecoveryStatus();
+        tryResumeAutoRecovery();
         if (session != null && session.isConnected()) {
             VpnTrafficNotificationService.startIfPossible(this);
         }
@@ -389,8 +417,45 @@ public final class VpnActivity extends Activity {
         super.onPause();
     }
 
+    private void refreshRecoveryStatus() {
+        if (recoveryStatus == null || recoveryPrefs == null) return;
+        if (!recoveryPrefs.enabled()) {
+            recoveryStatus.setText("OFF. Wonhee will not retry a stopped interface on its own.");
+            return;
+        }
+        if (session == null || !session.isAlwaysOn()) {
+            recoveryStatus.setText("Enabled, but Android Always-on VPN is OFF. Turn on Always-on "
+                    + "in Android VPN settings for unattended recovery. "
+                    + "Lockdown is a separate Android setting.");
+        } else if (session.isConnected()) {
+            recoveryStatus.setText("ARMED. Monitoring the active tunnel; retries occur only "
+                    + "if the interface actually goes DOWN.");
+        } else if (recoveryPrefs.desiredOn() && !recoveryPrefs.manuallyStopped()) {
+            recoveryStatus.setText("Recovery requested. Android may delay background work; "
+                    + "check the system VPN notification if it stays disconnected.");
+        } else {
+            recoveryStatus.setText("Connect once manually to arm recovery. A deliberate "
+                    + "Disconnect always cancels automatic retries.");
+        }
+    }
+
+    private void tryResumeAutoRecovery() {
+        if (resumeRecoveryPending || session == null || session.isBusy()
+                || session.isConnected() || recoveryPrefs == null
+                || !recoveryPrefs.canRetry(session.isAlwaysOn())) return;
+        resumeRecoveryPending = true;
+        session.recoverSavedProfileIfDesired((success, result) -> {
+            resumeRecoveryPending = false;
+            if (isFinishing() || isDestroyed()) return;
+            message.setText(result);
+            refreshRecoveryStatus();
+            refreshButtons();
+        });
+    }
+
     private void renderStatistics(WireGuardSession.StatusSnapshot snapshot) {
         refreshPassiveHealth(snapshot);
+        refreshRecoveryStatus();
         long eventHandshakeAge = snapshot.lastHandshakeEpochMillis <= 0 ? -1L
                 : Math.max(0L, (System.currentTimeMillis()
                         - snapshot.lastHandshakeEpochMillis) / 1000L);
@@ -1143,6 +1208,7 @@ public final class VpnActivity extends Activity {
         if (importButton == null) return;
         boolean active = session != null && session.isConnected();
         boolean busy = session != null && session.isBusy();
+        refreshRecoveryStatus();
         boolean systemAlwaysOn = active && session.isAlwaysOn();
         vpnToggleButton.setText(systemAlwaysOn ? "VPN managed by Android Always-on"
                 : active ? "Turn VPN Off" : "Turn VPN On");
