@@ -60,6 +60,7 @@ final class WireGuardSession {
         @Override public void onStateChange(State state) { }
     };
     private boolean operationPending;
+    private volatile boolean manualStopRequested;
 
     private WireGuardSession(Context context) {
         appContext = context.getApplicationContext();
@@ -108,34 +109,21 @@ final class WireGuardSession {
      * Do not start from the ordinary app launch or after a user chose Off.
      */
     void restoreSavedProfileForAlwaysOn() {
+        if (manualStopRequested || new VpnRecoveryPreferences(appContext).manuallyStopped()) return;
         synchronized (this) {
             if (operationPending) return;
             operationPending = true;
         }
         executor.execute(() -> {
             try {
+                if (manualStopRequested || new VpnRecoveryPreferences(appContext).manuallyStopped()) return;
                 if (backend.getState(tunnel) == Tunnel.State.UP) return;
-                SecureTunnelProfileStore store = new SecureTunnelProfileStore(appContext);
-                List<SecureTunnelProfileStore.Profile> saved = store.load();
-                int selected = store.preferredIndex(saved.size());
-                if (selected < 0) return;
-                SecureTunnelProfileStore.Profile profile = saved.get(selected);
-                byte[] bytes = profile.configuration.getBytes(StandardCharsets.UTF_8);
-                Config original;
-                try {
-                    original = Config.parse(new ByteArrayInputStream(bytes));
-                } finally {
-                    Arrays.fill(bytes, (byte) 0);
-                }
-                if (original.getPeers().isEmpty()
-                        || original.getInterface().getAddresses().isEmpty()) return;
-                Config routed = VpnRouteModes.prepare(original, profile.routeMode,
-                        profile.homeRoutes);
-                Config runtime = VpnDnsOverride.prepare(routed, profile.homeDnsEnabled,
-                        profile.homeDnsServer);
+                Config runtime = loadSavedRuntimeConfig();
+                if (runtime == null) return;
                 if (VpnService.prepare(appContext) != null) return;
                 backend.setState(tunnel, Tunnel.State.UP, runtime);
                 if (backend.getState(tunnel) == Tunnel.State.UP) {
+                    new VpnRecoveryPreferences(appContext).systemRestoredConnection();
                     VpnTrafficNotificationService.startIfPossible(appContext);
                 }
             } catch (Exception | LinkageError ignored) {
@@ -147,6 +135,87 @@ final class WireGuardSession {
                 }
             }
         });
+    }
+
+    /** Retry only when the tunnel is DOWN, opt-in, and Android Always-on remains enabled. */
+    void recoverSavedProfileIfDesired(Completion callback) {
+        VpnRecoveryPreferences prefs = new VpnRecoveryPreferences(appContext);
+        if (manualStopRequested || !prefs.canRetry(isAlwaysOn())) {
+            main.post(() -> callback.finished(false,
+                    "Auto-reconnect is off, manually stopped, or Android Always-on is disabled."));
+            return;
+        }
+        synchronized (this) {
+            if (operationPending) {
+                main.post(() -> callback.finished(false, "A VPN operation is already running."));
+                return;
+            }
+            operationPending = true;
+        }
+        executor.execute(() -> {
+            boolean success = false;
+            String message = "Could not restart the saved WireGuard tunnel.";
+            try {
+                if (!manualStopRequested && prefs.canRetry(isAlwaysOn())) {
+                    if (backend.getState(tunnel) == Tunnel.State.UP) {
+                        success = true;
+                    } else if (VpnService.prepare(appContext) != null) {
+                        prefs.userRequestedDisconnect();
+                        message = "Android VPN permission unavailable. Reconnect manually.";
+                    } else {
+                        Config runtime = loadSavedRuntimeConfig();
+                        if (runtime == null) {
+                            prefs.userRequestedDisconnect();
+                            message = "Saved VPN profile missing. Reconnect manually.";
+                        } else {
+                            backend.setState(tunnel, Tunnel.State.UP, runtime);
+                            success = backend.getState(tunnel) == Tunnel.State.UP;
+                        }
+                    }
+                } else {
+                    message = "Auto-reconnect was disabled while attempting recovery.";
+                }
+            } catch (IllegalArgumentException invalidProfile) {
+                prefs.userRequestedDisconnect();
+                message = "Saved routing or DNS is invalid. Reconnect manually.";
+            } catch (SecurityException permission) {
+                prefs.userRequestedDisconnect();
+                message = "Android denied VPN access. Reconnect manually.";
+            } catch (Exception | LinkageError failure) {
+                // Never echo WireGuard keys, gateway addresses or native exceptions.
+            } finally {
+                synchronized (WireGuardSession.this) {
+                    operationPending = false;
+                }
+            }
+            if (success) VpnTrafficNotificationService.startIfPossible(appContext);
+            final boolean done = success;
+            final String safeMessage = success
+                    ? "WireGuard interface restored. Peer handshake is not yet verified."
+                    : message;
+            main.post(() -> callback.finished(done, safeMessage));
+        });
+    }
+
+    private Config loadSavedRuntimeConfig() throws Exception {
+        SecureTunnelProfileStore store = new SecureTunnelProfileStore(appContext);
+        List<SecureTunnelProfileStore.Profile> saved = store.load();
+        int selected = store.preferredIndex(saved.size());
+        if (selected < 0) return null;
+        SecureTunnelProfileStore.Profile profile = saved.get(selected);
+        byte[] bytes = profile.configuration.getBytes(StandardCharsets.UTF_8);
+        Config original;
+        try {
+            original = Config.parse(new ByteArrayInputStream(bytes));
+        } finally {
+            Arrays.fill(bytes, (byte) 0);
+        }
+        if (original.getPeers().isEmpty()
+                || original.getInterface().getAddresses().isEmpty()) return null;
+        Config routed = VpnRouteModes.prepare(original, profile.routeMode,
+                profile.homeRoutes);
+        return VpnDnsOverride.prepare(routed, profile.homeDnsEnabled,
+                profile.homeDnsServer);
     }
 
     void connect(Config config, Completion completion) {
@@ -198,6 +267,10 @@ final class WireGuardSession {
                 return;
             }
             operationPending = true;
+            if (!connect) {
+                manualStopRequested = true;
+                new VpnRecoveryPreferences(appContext).userRequestedDisconnect();
+            }
         }
         executor.execute(() -> {
             boolean success = false;
@@ -219,8 +292,13 @@ final class WireGuardSession {
             }
             final boolean done = success;
             if (done) {
-                if (connect) VpnTrafficNotificationService.startIfPossible(appContext);
-                else VpnTrafficNotificationService.stop(appContext);
+                if (connect) {
+                    manualStopRequested = false;
+                    new VpnRecoveryPreferences(appContext).userConnected();
+                    VpnTrafficNotificationService.startIfPossible(appContext);
+                } else {
+                    VpnTrafficNotificationService.stop(appContext);
+                }
             }
             final String safeFailure = failure;
             main.post(() -> callback.finished(done, done
