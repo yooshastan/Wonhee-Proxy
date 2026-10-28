@@ -2,7 +2,7 @@ name: Wonhee Proxy Android Alpha 0.8.7 Preview
 
 on:
   push:
-    branches: [main, 'feature/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
