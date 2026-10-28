@@ -1,9 +1,7 @@
-name: Wonhee Proxy Android Alpha 0.8.6 Preview
+name: Wonhee Proxy Android Alpha 0.8.7 Preview
 
+# Legacy manual workflow; use build.yml for automatic PR/main validation.
 on:
-  push:
-    branches: [main, 'feature/**']
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -33,6 +31,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelTrafficRates.java \
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelTrafficHistory.java \
             app/src/main/java/com/yooshastan/wonheeproxy/VpnRouteInspection.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/TunnelEventHistory.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
             core-tests/UltgramPackagesTest.java \
@@ -42,7 +41,8 @@ jobs:
             core-tests/VpnHealthSummaryTest.java \
             core-tests/TunnelTrafficRatesTest.java \
             core-tests/TunnelTrafficHistoryTest.java \
-            core-tests/VpnRouteInspectionTest.java
+            core-tests/VpnRouteInspectionTest.java \
+            core-tests/TunnelEventHistoryTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
           java -cp /tmp/wonhee-classes UltgramPackagesTest
@@ -53,6 +53,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelTrafficRatesTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelTrafficHistoryTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnRouteInspectionTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelEventHistoryTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
@@ -61,7 +62,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.6-preview-debug-apk
+          name: wonhee-proxy-alpha08.7-preview-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -126,7 +127,7 @@ jobs:
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.6-preview-signed-apk
+          name: wonhee-proxy-alpha08.7-preview-signed-apk
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/wonhee-sha256.txt

@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.5 integrated on main; Alpha 0.8.6 traffic/diagnostics development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 integrated on main; Alpha 0.8.7 local diagnostics/shortcut development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -24,6 +24,27 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
    and other private settings before uninstalling an older build.
 
 See [release signing instructions](docs/SIGNING.md).
+
+## Alpha 0.8.7 development preview — local event history and shortcut
+
+- **Recent connection events** is a bounded, in-memory log of state changes
+  observed while the VPN dashboard is open: interface down, statistics
+  unavailable, waiting for a handshake, recent handshake or potentially stale
+  handshake. It stores at most 12 state labels and never records traffic
+  destinations or peer endpoints. It is not a background audit.
+- **Copy redacted support report** is an explicit clipboard action containing
+  only generated connection-health text, the routing *mode* (not CIDRs), and
+  those fixed status events. No imported configuration, keys, endpoints, user
+  hostnames or raw DNS test output is included. The clipboard is accessible
+  to other apps, so inspect before sharing.
+- **Quick Settings shortcut:** Add "Wonhee VPN" through Android's tile editor.
+  Tapping it opens Wonhee's dashboard, but cannot connect, disconnect,
+  bypass VPN approval or change Always-on policy from Quick Settings.
+- WireGuard backend, saved profiles, routes, DNS choices, notifications and
+  Android Always-on behavior are unchanged. This preview is not a kill switch,
+  a secure DNS filter or a verified leak-protection implementation.
+- Preview versionCode 16 / `0.8.7-alpha08.7-preview`. See
+  [manual test plan](docs/ALPHA087_TEST_PLAN.md).
 
 ## Alpha 0.8.6 development preview — traffic chart and route observations
 

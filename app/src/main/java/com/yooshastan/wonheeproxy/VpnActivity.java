@@ -2,6 +2,8 @@ package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -41,7 +43,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Alpha 0.8.6 preview: local traffic history, VPN route observations and encrypted
+ * Alpha 0.8.7 preview: local traffic and connection histories, VPN route observations and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -56,6 +58,7 @@ public final class VpnActivity extends Activity {
     private final Handler pollHandler = new Handler(Looper.getMainLooper());
     private final List<SecureTunnelProfileStore.Profile> profiles = new ArrayList<>();
     private final TunnelTrafficHistory trafficHistory = new TunnelTrafficHistory();
+    private final TunnelEventHistory connectionEvents = new TunnelEventHistory();
     private WireGuardSession session;
     private SecureTunnelProfileStore profileStore;
     private Config selectedConfig;
@@ -78,6 +81,7 @@ public final class VpnActivity extends Activity {
     private TextView trafficSummary;
     private TunnelTrafficGraphView trafficGraph;
     private TextView healthStatus;
+    private TextView connectionEventsText;
     private TextView diagnosticsReport;
     private Button diagnosticsButton;
     private Button vpnToggleButton, importButton, saveButton, deleteButton;
@@ -113,7 +117,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.6 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.7 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -162,6 +166,16 @@ public final class VpnActivity extends Activity {
         label(healthCard, "The test sends an explicit DNS lookup and HTTPS HEAD request only "
                 + "on an Android-reported VPN network, with no normal-network fallback. "
                 + "A successful test is not proof against DNS, IPv6 or traffic leaks.", 12, MUTED);
+
+        LinearLayout eventCard = card(root);
+        label(eventCard, "RECENT CONNECTION EVENTS", 17, PINK);
+        connectionEventsText = label(eventCard,
+                "Waiting for a local VPN status sample...", 13, WHITE);
+        Button copyReport = button(eventCard, "Copy redacted support report");
+        copyReport.setOnClickListener(v -> copyRedactedSupportReport());
+        label(eventCard, "Events are read-only, kept in memory only while this screen exists, "
+                + "and do not record IP addresses, keys or profile contents. "
+                + "The clipboard is visible to other apps; share the report only if you choose.", 12, MUTED);
 
         LinearLayout configCard = card(root);
         label(configCard, "WIREGUARD PROFILES", 17, PINK);
@@ -342,6 +356,14 @@ public final class VpnActivity extends Activity {
 
     private void renderStatistics(WireGuardSession.StatusSnapshot snapshot) {
         refreshPassiveHealth(snapshot);
+        long eventHandshakeAge = snapshot.lastHandshakeEpochMillis <= 0 ? -1L
+                : Math.max(0L, (System.currentTimeMillis()
+                        - snapshot.lastHandshakeEpochMillis) / 1000L);
+        connectionEvents.observe(snapshot.interfaceUp,
+                snapshot.statisticsAvailable, eventHandshakeAge);
+        if (connectionEventsText != null) {
+            connectionEventsText.setText(connectionEvents.render());
+        }
         if (!snapshot.interfaceUp) {
             trafficHistory.clear();
             trafficGraph.setValues(trafficHistory.values());
@@ -413,6 +435,34 @@ public final class VpnActivity extends Activity {
         healthStatus.setText(VpnHealthSummary.render(snapshot.interfaceUp,
                 snapshot.statisticsAvailable, age, dnsPresent,
                 session.isAlwaysOn(), session.isLockdownEnabled()));
+    }
+
+    private void copyRedactedSupportReport() {
+        String routeChoice;
+        int routeMode = routingPicker == null ? -1 : routingPicker.getSelectedItemPosition();
+        if (routeMode == VpnRouteModes.PROFILE) routeChoice = "Imported profile routes";
+        else if (routeMode == VpnRouteModes.HOME) routeChoice = "Home split routes";
+        else if (routeMode == VpnRouteModes.ALL) routeChoice = "Experimental all-internet";
+        else routeChoice = "Not selected";
+
+        // Health text is generated only from booleans and WireGuard handshake state.
+        // Never include imported profile text, editable CIDRs, hostnames, DNS IPs,
+        // network diagnostic raw output, secrets, endpoints or usernames.
+        String report = "Wonhee Proxy Alpha 0.8.7 — local support report\n"
+                + healthStatus.getText().toString()
+                + "\nRoute choice: " + routeChoice
+                + "\nRecent local events:\n" + connectionEvents.render()
+                + "\nNo independent DNS/IPv6 leak or privacy audit was performed.";
+        try {
+            ClipboardManager clipboard = (ClipboardManager)
+                    getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) throw new IllegalStateException("Clipboard unavailable");
+            clipboard.setPrimaryClip(ClipData.newPlainText("Wonhee redacted report", report));
+            message.setText("Redacted local report copied. Review it before sharing. "
+                    + "Other apps may access the clipboard.");
+        } catch (RuntimeException unavailable) {
+            message.setText("Could not copy the local report on this device.");
+        }
     }
 
     private void confirmDiagnostics() {
