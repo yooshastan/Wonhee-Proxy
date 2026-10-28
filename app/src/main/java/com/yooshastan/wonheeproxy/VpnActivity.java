@@ -448,11 +448,11 @@ public final class VpnActivity extends Activity {
         // Health text is generated only from booleans and WireGuard handshake state.
         // Never include imported profile text, editable CIDRs, hostnames, DNS IPs,
         // network diagnostic raw output, secrets, endpoints or usernames.
-        String report = "Wonhee Proxy Alpha 0.8.7 — local support report\\n"
+        String report = "Wonhee Proxy Alpha 0.8.7 — local support report\n"
                 + healthStatus.getText().toString()
-                + "\\nRoute choice: " + routeChoice
-                + "\\nRecent local events:\\n" + connectionEvents.render()
-                + "\\nNo independent DNS/IPv6 leak or privacy audit was performed.";
+                + "\nRoute choice: " + routeChoice
+                + "\nRecent local events:\n" + connectionEvents.render()
+                + "\nNo independent DNS/IPv6 leak or privacy audit was performed.";
         try {
             ClipboardManager clipboard = (ClipboardManager)
                     getSystemService(Context.CLIPBOARD_SERVICE);
