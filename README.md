@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.6 on main; Alpha 0.8.7 awaiting device test; Alpha 0.8.8 private home-service probe development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 on main; Alpha 0.8.7/0.8.8 stacked previews; Alpha 0.8.9 opt-in auto-reconnect in development (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -25,6 +25,29 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
 
 See [release signing instructions](docs/SIGNING.md).
 
+## Alpha 0.8.9 development preview — opt-in VPN auto-reconnect
+
+- New **Retry if WireGuard interface stops** setting, **OFF by default**.
+  Requires Android **Always-on VPN** and a successful manual connection
+  before unattended retry is armed.
+- The foreground tunnel-status notification checks the local interface and,
+  only if it is actually **DOWN**, attempts restoration of the last saved
+  encrypted profile. Backoff grows 5s → 15s → 30s → 60s → 2m → 5m
+  and remains capped at 5m. Handshake age alone never forces reconnection.
+- A persisted 15-minute Android JobScheduler check is a best-effort fallback
+  if the optional notification monitor is stopped. Doze, battery restrictions,
+  process force-stop and Android VPN permission changes may delay or prevent
+  background work. **This is not a guaranteed keepalive.**
+- Tapping **Disconnect** cancels the requested connection and scheduled
+  recovery; reconnect manually to arm it again. Disabling auto-reconnect
+  cancels the periodic background job. Neither path changes the device's
+  Android Always-on/lockdown setting or silently falls back to direct traffic.
+- No external network probes, DNS lookups or credentials are sent by recovery.
+  The VPN may still appear **UP** while its gateway/handshake is stale. This
+  preview does not handle that case.
+- VersionCode 18 / `0.8.9-alpha08.9-preview`. See
+  [Alpha 0.8.9 test plan](docs/ALPHA089_RECOVERY_TEST_PLAN.md).
+
 ## Alpha 0.8.8 development preview — manual home service reachability
 
 - Enter a numeric private IPv4 address and TCP port, or tap **Use Navidrome
@@ -40,6 +63,13 @@ See [release signing instructions](docs/SIGNING.md).
   traffic cannot bypass the VPN. Failed or ambiguous tests are cautious.
 - This is useful when checking home services like a locally reachable
   Navidrome gateway without exposing it to the public internet.
+- **Navidrome troubleshooting:** The port shortcut does *not* configure
+  Navidrome. If the Fedora Podman port is bound to `127.0.0.1:4533`, a phone
+  connecting to `10.77.0.1:4533` over WireGuard will fail. Verify the local
+  listener and explicitly expose or reverse-proxy the service **only on the
+  intended private WireGuard interface**, with suitable host firewall rules.
+  Keep public router forwarding closed. A Tailscale HTTPS hostname is not a
+  numeric IPv4 target for this manual TCP check.
 - Existing WireGuard routing, saved profiles, notifications and proxy
   tools remain unchanged. VersionCode 17 / `0.8.8-alpha08.8-preview`.
 - See [manual test plan](docs/ALPHA088_HOME_SERVICE_TEST_PLAN.md).
