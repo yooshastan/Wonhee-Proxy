@@ -2,12 +2,16 @@ name: Wonhee Proxy Android Alpha 0.8.7 Preview
 
 on:
   push:
-    branches: [main, 'feature/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: wonhee-android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
