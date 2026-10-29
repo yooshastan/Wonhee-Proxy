@@ -3,6 +3,7 @@ Description=Wonhee VPN-only forwarder to localhost Navidrome
 Documentation=https://github.com/yooshastan/Wonhee-Proxy
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -16,7 +17,6 @@ RestrictAddressFamilies=AF_INET AF_UNIX
 ExecStart=/usr/bin/socat TCP-LISTEN:4533,bind=10.77.0.1,reuseaddr,fork TCP:127.0.0.1:4533
 Restart=on-failure
 RestartSec=10s
-StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target
