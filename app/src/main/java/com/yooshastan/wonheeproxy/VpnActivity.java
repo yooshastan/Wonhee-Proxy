@@ -22,6 +22,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -41,7 +42,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Alpha 0.8.6 preview: local traffic history, VPN route observations and encrypted
+ * Alpha 0.8.7 preview: local traffic history, VPN route observations and encrypted
  * connection settings, routing choices and diagnostics. No fail-closed
  * protection is claimed. Telegram proxy tools remain in MainActivity.
  */
@@ -113,7 +114,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.6 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.8.7 preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -294,6 +295,23 @@ public final class VpnActivity extends Activity {
                 + "but Force stop can stop the VPN until you reopen the app.", 13, MUTED);
         Button androidVpnSettings = button(alwaysOnCard, "Open Android VPN settings");
         androidVpnSettings.setOnClickListener(v -> openSystemVpnSettings());
+        CheckBox autoReconnect = new CheckBox(this);
+        autoReconnect.setText("Retry unexpected disconnects (experimental)");
+        autoReconnect.setTextColor(WHITE);
+        autoReconnect.setChecked(VpnReconnectPreferences.enabled(this));
+        alwaysOnCard.addView(autoReconnect);
+        autoReconnect.setOnCheckedChangeListener((button, isChecked) -> {
+            boolean active = session != null && session.isConnected();
+            VpnReconnectPreferences.setEnabled(this, isChecked, active);
+            if (isChecked && active) VpnTrafficNotificationService.startIfPossible(this);
+            message.setText(isChecked
+                    ? "Recovery opted in: up to 3 retries while the notification service runs. Enable Android Always-on for reboot/process recovery."
+                    : "Unexpected-disconnect retries disabled; the current VPN is unchanged.");
+        });
+        label(alwaysOnCard, "Retries only if you selected On and did not deliberately disconnect. "
+                + "The service may stop under Android background restrictions; Always-on VPN "
+                + "provides system-managed restoration. Neither mode guarantees connectivity "
+                + "if Fedora is offline.", 12, MUTED);
         label(alwaysOnCard, "CAUTION: Block connections without VPN may disable all internet "
                 + "access while the VPN is unavailable or while Fedora lacks full-tunnel "
                 + "forwarding, IPv6 routing or working DNS. Leave it off until tested.", 12, MUTED);
@@ -327,6 +345,12 @@ public final class VpnActivity extends Activity {
         refreshButtons();
         refreshNotificationPermissionUi();
         if (session != null && session.isConnected()) {
+            VpnTrafficNotificationService.startIfPossible(this);
+        } else if (session != null && VpnReconnectPreferences.shouldReconnect(this)
+                && !session.isAlwaysOn()) {
+            // Explicitly opted-in recovery after activity/process recreation.
+            // The serialized executor still validates VPN authorization.
+            session.reconnectIfRequested();
             VpnTrafficNotificationService.startIfPossible(this);
         }
         pollHandler.removeCallbacks(poll);
@@ -906,6 +930,7 @@ public final class VpnActivity extends Activity {
         pendingConnection = null;
         message.setText("Starting WireGuard. Interface UP does not prove internet privacy.");
         session.connect(runtime, (success, summary) -> {
+            if (success) VpnReconnectPreferences.userConnected(this);
             if (!isFinishing() && !isDestroyed()) {
                 message.setText(summary);
                 refreshButtons();
@@ -999,6 +1024,7 @@ public final class VpnActivity extends Activity {
 
     private void stopTunnel() {
         if (session == null || session.isBusy()) return;
+        VpnReconnectPreferences.userDisconnected(this);
         pendingConnection = null;
         message.setText("Stopping WireGuard...");
         session.disconnect((success, summary) -> {
