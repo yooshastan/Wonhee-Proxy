@@ -1,9 +1,6 @@
-name: Wonhee Proxy Android Alpha 0.8.6 Preview
+name: Legacy Wonhee Android build (manual only)
 
 on:
-  push:
-    branches: [main, 'feature/**']
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -61,7 +58,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.6-preview-debug-apk
+          name: wonhee-proxy-alpha08.7-legacy-manual-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -126,7 +123,7 @@ jobs:
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.6-preview-signed-apk
+          name: wonhee-proxy-alpha08.7-legacy-manual-signed-apk
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/wonhee-sha256.txt
