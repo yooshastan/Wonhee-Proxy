@@ -1,11 +1,19 @@
 # Wonhee Proxy
 
-**Alpha 0.8.5 integrated on main; Alpha 0.8.6 traffic/diagnostics development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.7 recovery/gateway development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
 WireGuard VPN prototype using the official embeddable WireGuard Android
 tunnel library. It does not host the Telegram proxy on the phone.
+
+## Alpha 0.8.7 preview — opt-in tunnel recovery and private Navidrome service
+
+- **Retry unexpected tunnel shutdowns (experimental)** is a new user-controlled switch. A successful manual Connect records the desired ON state. Explicit Turn VPN Off disables retries before the tunnel stops, and selecting a different VPN revokes Wonhee authorization.
+- While the existing foreground traffic notification service remains alive, up to **three bounded restart attempts** are made for an interface that unexpectedly goes DOWN. Recovery is never triggered by an old handshake alone. Android's **Always-on VPN** setting remains the preferred restart/process-recovery mechanism; Android can restrict background services.
+- There is no promise of overnight recovery if Android force-stops the app, revokes VPN authorization, or the Fedora gateway is offline. This is not a standalone kill switch or proof of no traffic leaks.
+- A restricted `socat` systemd unit and Fedora installation instructions make Navidrome reachable at `10.77.0.1:4533` without exposing the Podman port publicly. Installation must be performed on the Fedora host by the user.
+- **Test preview:** versionCode 16, `0.8.7-alpha08.7-preview`. See [VPN recovery test plan](docs/ALPHA087_RECOVERY_TEST_PLAN.md) and [persistent Navidrome gateway](gateway/WONHEE_NAVIDROME_SYSTEMD.md).
 
 ## Build with Android Studio (Gradle 8.13 pinned)
 

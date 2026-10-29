@@ -32,9 +32,9 @@ The Android package remains `com.yooshastan.wonheeproxy`.
    public identity metadata, **not** the private key. The workflow refuses to
    upload a signed artifact if the fingerprint is missing or different.
 
-4. From GitHub Actions, choose **Wonhee Proxy Android Alpha 0.8.5 Preview → Run
+4. From GitHub Actions, choose **Wonhee Proxy Android Alpha 0.8.7 Preview → Run
    workflow** on a trusted branch. This explicitly generates the separately
-   signed artifact `wonhee-proxy-alpha08.5-preview-signed-apk` plus a SHA-256
+   signed artifact `wonhee-proxy-alpha08.7-preview-signed-apk` plus a SHA-256
    APK checksum file.
    PR/push builds keep using ephemeral debug signing and cannot access release keys.
 5. Before distributing, verify signature SHA-256 fingerprints on two consecutive

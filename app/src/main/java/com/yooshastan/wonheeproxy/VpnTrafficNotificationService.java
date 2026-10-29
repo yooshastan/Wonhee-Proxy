@@ -28,6 +28,8 @@ public final class VpnTrafficNotificationService extends Service {
     private NotificationManager manager;
     private boolean running;
     private TunnelTrafficRates.Sample previous;
+    private int reconnectAttempts;
+    private long nextReconnectAtMs;
 
     static void startIfPossible(Context context) {
         try {
@@ -84,6 +86,8 @@ public final class VpnTrafficNotificationService extends Service {
         }
         running = true;
         previous = null;
+        reconnectAttempts = 0;
+        nextReconnectAtMs = 0L;
         handler.post(this::pollOnce);
         return START_STICKY;
     }
@@ -94,9 +98,38 @@ public final class VpnTrafficNotificationService extends Service {
             WireGuardSession.get(this).readStatistics(snapshot -> {
                 if (!running) return;
                 if (!snapshot.interfaceUp) {
-                    stopSelf();
+                    previous = null;
+                    WireGuardSession session = WireGuardSession.get(this);
+                    boolean optedIn = VpnReconnectPreferences.enabled(this);
+                    boolean desiredUp = VpnReconnectPreferences.shouldReconnect(this);
+                    boolean alwaysOn = session.isAlwaysOn();
+                    long now = SystemClock.elapsedRealtime();
+                    if (VpnReconnectPolicy.canAttempt(optedIn, desiredUp, alwaysOn,
+                            session.isBusy(), false, reconnectAttempts, now, nextReconnectAtMs)) {
+                        reconnectAttempts++;
+                        nextReconnectAtMs = now
+                                + VpnReconnectPolicy.retryDelayMs(reconnectAttempts);
+                        session.reconnectIfRequested();
+                    }
+                    boolean waitingForLastRetry = reconnectAttempts
+                            == VpnReconnectPolicy.MAX_ATTEMPTS && now < nextReconnectAtMs;
+                    if (desiredUp && !alwaysOn
+                            && (reconnectAttempts < VpnReconnectPolicy.MAX_ATTEMPTS
+                            || waitingForLastRetry)) {
+                        try {
+                            manager.notify(NOTIFICATION_ID, makeNotification(
+                                    "VPN disconnected · retry pending",
+                                    "Opt-in recovery is bounded; Android Always-on is recommended."));
+                        } catch (RuntimeException | LinkageError ignored) { }
+                        handler.postDelayed(this::pollOnce, REFRESH_MILLIS);
+                    } else {
+                        // No consent, manual Off, Android-managed Always-on, or retries exhausted.
+                        stopSelf();
+                    }
                     return;
                 }
+                reconnectAttempts = 0;
+                nextReconnectAtMs = 0L;
                 String speed = "Traffic statistics unavailable";
                 String detail = "The VPN interface is active; no traffic audit is running.";
                 if (snapshot.statisticsAvailable) {
@@ -134,7 +167,7 @@ public final class VpnTrafficNotificationService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_vpn_status)
-                .setContentTitle("Wonhee VPN · Interface active")
+                .setContentTitle("Wonhee VPN · Connection status")
                 .setContentText(speed)
                 .setStyle(new Notification.BigTextStyle().bigText(speed + "\n" + detail))
                 .setContentIntent(open)

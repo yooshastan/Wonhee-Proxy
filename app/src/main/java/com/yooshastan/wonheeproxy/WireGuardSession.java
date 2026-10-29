@@ -108,12 +108,25 @@ final class WireGuardSession {
      * Do not start from the ordinary app launch or after a user chose Off.
      */
     void restoreSavedProfileForAlwaysOn() {
+        restoreSavedProfile(false);
+    }
+
+    /** An explicit opt-in retry. Never resurrect an intentional user disconnect. */
+    void reconnectIfRequested() {
+        if (!VpnReconnectPreferences.shouldReconnect(appContext)) return;
+        restoreSavedProfile(true);
+    }
+
+    private void restoreSavedProfile(boolean requireUserOptIn) {
         synchronized (this) {
             if (operationPending) return;
             operationPending = true;
         }
         executor.execute(() -> {
             try {
+                // Re-read the durable state after entering the serialized executor:
+                // a queued retry must not undo a manual Off.
+                if (requireUserOptIn && !VpnReconnectPreferences.shouldReconnect(appContext)) return;
                 if (backend.getState(tunnel) == Tunnel.State.UP) return;
                 SecureTunnelProfileStore store = new SecureTunnelProfileStore(appContext);
                 List<SecureTunnelProfileStore.Profile> saved = store.load();
