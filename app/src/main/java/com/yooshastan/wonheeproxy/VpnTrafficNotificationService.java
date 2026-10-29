@@ -111,8 +111,11 @@ public final class VpnTrafficNotificationService extends Service {
                                 + VpnReconnectPolicy.retryDelayMs(reconnectAttempts);
                         session.reconnectIfRequested();
                     }
+                    boolean waitingForLastRetry = reconnectAttempts
+                            == VpnReconnectPolicy.MAX_ATTEMPTS && now < nextReconnectAtMs;
                     if (desiredUp && !alwaysOn
-                            && reconnectAttempts < VpnReconnectPolicy.MAX_ATTEMPTS) {
+                            && (reconnectAttempts < VpnReconnectPolicy.MAX_ATTEMPTS
+                            || waitingForLastRetry)) {
                         try {
                             manager.notify(NOTIFICATION_ID, makeNotification(
                                     "VPN disconnected · retry pending",
@@ -164,7 +167,7 @@ public final class VpnTrafficNotificationService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_vpn_status)
-                .setContentTitle("Wonhee VPN · Interface active")
+                .setContentTitle("Wonhee VPN · Connection status")
                 .setContentText(speed)
                 .setStyle(new Notification.BigTextStyle().bigText(speed + "\n" + detail))
                 .setContentIntent(open)
