@@ -1,4 +1,4 @@
-name: Wonhee Proxy Android Alpha 0.8.9 Preview
+name: Wonhee Proxy Android Alpha 0.9 Combined Preview
 
 # Legacy manual workflow; use build.yml for automatic PR/main validation.
 on:
@@ -68,14 +68,14 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.9-preview-debug-apk
+          name: wonhee-proxy-alpha09-preview-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
 
   signed-release:
     # Explicit maintainer-only dispatch. Never expose release keys to PR builds.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'yooshastan/Wonhee-Proxy'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -133,7 +133,7 @@ jobs:
       - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha08.9-preview-signed-apk
+          name: wonhee-proxy-alpha09-preview-signed-apk
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/wonhee-sha256.txt
