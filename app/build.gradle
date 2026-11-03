@@ -34,8 +34,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 18
-        versionName '0.8.9-alpha08.9-preview'
+        versionCode 19
+        versionName '0.9.0-alpha09-preview'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
