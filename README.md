@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.6 on main; Alpha 0.8.7/0.8.8 stacked previews; Alpha 0.8.9 opt-in auto-reconnect in development (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 on main; Alpha 0.9 combined development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -24,6 +24,24 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
    and other private settings before uninstalling an older build.
 
 See [release signing instructions](docs/SIGNING.md).
+
+## Alpha 0.9 combined preview — gateway and VPN features
+
+The combined versionCode 19 / `0.9.0-alpha09-preview` stacks the bounded local
+event history and redacted support report (0.8.7), the user-consented
+VPN-bound private TCP service check (0.8.8), and opt-in Android Always-on
+WireGuard interface-down recovery (0.8.9). The separate reconnect design in
+PR #15 has **not** been merged over the 0.8.9 recovery logic.
+
+For Fedora, the new `gateway/systemd/wonhee-navidrome-forward.service` makes
+the private `10.77.0.1:4533` listener persistent while keeping the Navidrome
+container bound to `127.0.0.1:4533`. Read
+[the Fedora gateway guide](gateway/WONHEE_NAVIDROME_SYSTEMD.md) before enabling
+the unit or persistent firewalld rule.
+
+See the [Alpha 0.9 combined test plan](docs/ALPHA090_INTEGRATION_TEST_PLAN.md).
+This is a debug-signed preview for Pixel 8a and Samsung A36 validation; no
+security or overnight-recovery guarantees and no public signed APK yet.
 
 ## Alpha 0.8.9 development preview — opt-in VPN auto-reconnect
 
