@@ -33,6 +33,8 @@ import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.wireguard.config.Config;
+import com.wireguard.config.InetNetwork;
+import com.wireguard.config.Peer;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -51,6 +53,7 @@ import java.util.Locale;
  */
 public final class VpnActivity extends Activity {
     private static final int PICK_CONFIG = 4201;
+    private static final int PICK_EXTRA_PEER = 4204;
     private static final int VPN_PERMISSION = 4202;
     private static final int NOTIFICATION_PERMISSION = 4203;
     private static final int PINK = 0xfffbadd8;
@@ -95,7 +98,7 @@ public final class VpnActivity extends Activity {
     private TextView homeServiceResult;
     private Button homeServiceProbeButton;
     private Button diagnosticsButton;
-    private Button vpnToggleButton, importButton, saveButton, deleteButton;
+    private Button vpnToggleButton, importButton, addPeerButton, saveButton, deleteButton;
     private Button notificationPermissionButton;
     private TextView notificationPermissionStatus;
 
@@ -129,7 +132,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.8.9 preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.9.1 multi-gateway preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -268,6 +271,14 @@ public final class VpnActivity extends Activity {
         configCard.addView(profileName);
         importButton = button(configCard, "Import WireGuard .conf");
         importButton.setOnClickListener(v -> chooseConfig());
+        addPeerButton = button(configCard, "Add private gateway peer to selected VPN");
+        addPeerButton.setOnClickListener(v -> chooseExtraPeer());
+        label(configCard, "For AirVPN + Home: select an AirVPN profile first, then import a file "
+                + "containing ONE [Peer] block for your home gateway with private IPv4 "
+                + "AllowedIPs only. Both gateways must authorize the same client public "
+                + "key; a full home [Interface] config cannot be merged automatically. "
+                + "This creates a new encrypted combined profile and never overwrites "
+                + "the original. Use 'Profile routes (unchanged)' with multiple peers.", 12, MUTED);
         saveButton = button(configCard, "Save profile settings");
         saveButton.setOnClickListener(v -> saveSelected());
         deleteButton = button(configCard, "Delete selected profile");
@@ -663,6 +674,125 @@ public final class VpnActivity extends Activity {
         startActivityForResult(picker, PICK_CONFIG);
     }
 
+    private void chooseExtraPeer() {
+        if (selectedConfig == null) {
+            message.setText("Select an AirVPN or other primary WireGuard profile first.");
+            return;
+        }
+        if (session != null && (session.isConnected() || session.isBusy())) {
+            message.setText("Disconnect before creating a combined profile.");
+            return;
+        }
+        if (selectedConfig.getPeers().size() >= 4) {
+            message.setText("This preview supports up to four gateway peers per combined profile.");
+            return;
+        }
+        if (routingPicker.getSelectedItemPosition() != VpnRouteModes.PROFILE) {
+            message.setText("Select 'Use profile routes (unchanged)' before adding a home peer.");
+            return;
+        }
+        Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("*/*");
+        startActivityForResult(picker, PICK_EXTRA_PEER);
+    }
+
+    private String readPeerDocument(Uri uri) throws Exception {
+        try (InputStream source = getContentResolver().openInputStream(uri)) {
+            if (source == null) throw new IOException("No peer file");
+            ByteArrayOutputStream data = new ByteArrayOutputStream();
+            byte[] chunk = new byte[2048];
+            try {
+                int count;
+                while ((count = source.read(chunk)) != -1) {
+                    if (data.size() + count > 8192) {
+                        throw new IOException("Peer-only file exceeds 8 KiB.");
+                    }
+                    data.write(chunk, 0, count);
+                }
+                byte[] bytes = data.toByteArray();
+                try {
+                    return new String(bytes, StandardCharsets.UTF_8);
+                } finally {
+                    Arrays.fill(bytes, (byte) 0);
+                }
+            } finally {
+                Arrays.fill(chunk, (byte) 0);
+            }
+        }
+    }
+
+    private void preparePrivateGateway(Uri uri) {
+        if (selectedConfig == null || (session != null
+                && (session.isConnected() || session.isBusy()))) {
+            message.setText("Disconnect and select a primary profile before combining peers.");
+            return;
+        }
+        try {
+            Config primary = selectedConfig;
+            List<String> existingAllowed = new ArrayList<>();
+            for (Peer peer : primary.getPeers()) {
+                for (InetNetwork network : peer.getAllowedIps()) {
+                    existingAllowed.add(network.toString());
+                }
+            }
+            String peerOnly = VpnPeerSnippetPolicy.checkedPrivatePeer(
+                    readPeerDocument(uri), existingAllowed);
+            byte[] combinedBytes = (primary.toWgQuickString() + "\n" + peerOnly)
+                    .getBytes(StandardCharsets.UTF_8);
+            final Config combined;
+            try {
+                combined = validated(combinedBytes);
+            } finally {
+                Arrays.fill(combinedBytes, (byte) 0);
+            }
+            if (combined.getPeers().size() != primary.getPeers().size() + 1) {
+                throw new IllegalArgumentException("Duplicate or rejected peer.");
+            }
+            final String newName = availableImportName();
+            new AlertDialog.Builder(this)
+                    .setTitle("Create a separate combined VPN profile?")
+                    .setMessage("Wonhee will add one home [Peer] to your selected WireGuard "
+                            + "interface and save a NEW encrypted profile called \""
+                            + newName + "\". Your existing profile stays unchanged.\n\n"
+                            + "Your home WireGuard server MUST authorize the public key "
+                            + "of the selected primary (for example AirVPN) client identity "
+                            + "and route return traffic to that client's VPN address. "
+                            + "Only private home subnets are allowed for this additional "
+                            + "peer. Use Profile routes; DNS/IPv6 and internet exit behavior "
+                            + "still require actual device testing.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Create combined profile", (dialog, which) -> {
+                        if (session != null && (session.isConnected() || session.isBusy())) {
+                            message.setText("VPN became active. Disconnect before saving.");
+                            return;
+                        }
+                        try {
+                            SecureTunnelProfileStore.Profile saved =
+                                    new SecureTunnelProfileStore.Profile(
+                                            newName, combined.toWgQuickString(),
+                                            VpnRouteModes.PROFILE, "",
+                                            dnsOverrideEnabled(), chosenDnsAddresses());
+                            profileStore.save(saved);
+                            pendingConnection = null;
+                            reloadProfiles(saved.name);
+                            message.setText("Encrypted combined profile saved with "
+                                    + combined.getPeers().size()
+                                    + " peers. Verify both gateways and routing on-device.");
+                        } catch (Exception failure) {
+                            message.setText("Combined profile could not be saved. "
+                                    + "Original profiles remain untouched.");
+                        }
+                        refreshButtons();
+                    }).show();
+        } catch (Exception | LinkageError invalid) {
+            message.setText("Peer import rejected. Select a file with exactly one [Peer] "
+                    + "section, no [Interface] or private key, and one to four "
+                    + "non-overlapping RFC1918 IPv4 AllowedIPs. Keys and parse details "
+                    + "are never logged.");
+        }
+    }
+
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request == PICK_CONFIG) {
@@ -699,6 +829,9 @@ public final class VpnActivity extends Activity {
                 message.setText("Invalid WireGuard .conf. Check its interface, peer and key fields. Secrets and detailed parse errors are not logged.");
             }
             refreshButtons();
+        } else if (request == PICK_EXTRA_PEER) {
+            if (result != RESULT_OK || data == null || data.getData() == null) return;
+            preparePrivateGateway(data.getData());
         } else if (request == VPN_PERMISSION) {
             if (result == RESULT_OK && VpnService.prepare(this) == null) {
                 startTunnel();
@@ -1221,6 +1354,8 @@ public final class VpnActivity extends Activity {
                 && (active || selectedConfig != null));
         diagnosticsButton.setEnabled(active && !busy && !diagnosticsRunning);
         importButton.setEnabled(!active && !busy);
+        addPeerButton.setEnabled(!active && !busy && selectedConfig != null
+                && selectedConfig.getPeers().size() < 4);
         saveButton.setEnabled(!active && !busy && selectedConfig != null);
         deleteButton.setEnabled(!active && !busy && !profiles.isEmpty());
         savedPicker.setEnabled(!active && !busy);
