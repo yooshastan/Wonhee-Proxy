@@ -25,6 +25,20 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
 
 See [release signing instructions](docs/SIGNING.md).
 
+## Experimental rootless multi-tunnel engine (draft only)
+
+Development continues on `experiment/multitunnel-routing-engine`. This
+branch adds an **offline-only packet route selector** and isolated unit tests
+for HOME-vs-AirVPN egress, IPv4/IPv6 decisions, malformed packets, and
+fail-closed route selection if an encrypted session is unavailable. It does
+**not** establish two concurrent WireGuard sessions or add a working
+multi-tunnel toggle. Independent client keys and addresses will require
+a new userspace packet multiplexer plus separate cryptographic WireGuard
+devices under a single Android `VpnService`; the existing single-tunnel
+`GoBackend` remains unchanged. See the
+[engineering plan](docs/MULTITUNNEL_ENGINE_EXPERIMENT.md). No new multi-tunnel
+APK or release is claimed.
+
 ## Alpha 0.9.2 — streamlined WireGuard tunnel manager
 
 - **Your WireGuard tunnels:** a list of named encrypted saved profiles, each with
