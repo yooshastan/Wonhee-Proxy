@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.6 on main; Alpha 0.9 combined development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 on main; Alpha 0.9.1 multi-gateway development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -24,6 +24,30 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
    and other private settings before uninstalling an older build.
 
 See [release signing instructions](docs/SIGNING.md).
+
+## Alpha 0.9.1 preview — multiple WireGuard gateways (AirVPN + home)
+
+The **Add private gateway peer to selected VPN** button supports building a new
+combined encrypted profile that includes the selected primary WireGuard
+interface and an additional private-route `[Peer]`. This lets AirVPN serve as
+the Internet-exit peer while one or more home WireGuard gateways handle
+different **RFC1918 IPv4** routes. The original profile is preserved. Up to
+four peers share **one** WireGuard interface, not separate simultaneous VPN
+apps or unrelated private keys.
+
+The new importer requires a single *peer-only* configuration with a public
+key, reachable UDP endpoint and 1–4 non-overlapping private `AllowedIPs`.
+It rejects `[Interface]`, independent client private keys, public/default
+routes and conflicting non-default subnets. Before it can work, you must
+manually authorize **the primary client's public key** and its assigned tunnel
+address on each home gateway; the gateway needs a working return route.
+Neither the app nor this workflow modifies any server or AirVPN settings.
+The combined profile uses **Profile routes (unchanged)**. DNS and IPv6 exit
+behavior must be checked separately; this is not proof of leak protection.
+
+See [AirVPN + home multi-gateway setup and test plan](docs/ALPHA091_AIRVPN_HOME_MULTI_PEER.md).
+Build: versionCode 20 / `0.9.1-alpha09.1-preview`. The APK is debug-signed for
+device testing; no signed release has been published for this change.
 
 ## Alpha 0.9 combined preview — gateway and VPN features
 
