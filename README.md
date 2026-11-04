@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.6 on main; Alpha 0.9.1 multi-gateway development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 on main; Alpha 0.9.2 tunnel manager development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -24,6 +24,37 @@ Gradle wrapper pins Gradle 8.13; do not override it with a local Gradle 9.6.
    and other private settings before uninstalling an older build.
 
 See [release signing instructions](docs/SIGNING.md).
+
+## Alpha 0.9.2 — streamlined WireGuard tunnel manager
+
+- **Your WireGuard tunnels:** a list of named encrypted saved profiles, each with
+  a **Connect / Disconnect / Switch** action, replacing the dropdown as the
+  primary way to select a tunnel. Switching shows confirmation and disconnects
+  the old tunnel before connecting the next. Android Always-on switches remain
+  blocked until Always-on is disabled.
+- **Import complete WireGuard files:** the Android document picker accepts one
+  or several standard `.conf` files. Names come from the file display name,
+  and duplicate imports create separate numbered profile names without
+  overwriting earlier credentials. Each imported configuration is validated and
+  saved with the existing encrypted Android Keystore profile store.
+- **Safe limits:** up to eight encrypted tunnels, no automatic connection on
+  import, no silent replacement or fallback to a second VPN. An invalid import
+  won't overwrite any existing profile. Advanced peer-only import from 0.9.1
+  remains available but is no longer the primary import path.
+- **Rootless limitation:** Android's official GoBackend maintains one active
+  userspace WireGuard tunnel. Separate AirVPN/Home `[Interface]` identities
+  cannot be active simultaneously with this backend. To access Navidrome
+  privately **and** exit to the internet through AirVPN at once, configure
+  a home gateway/router to run AirVPN upstream; this preview does not make
+  server-side changes or offer a one-button chaining installer.
+- **Test:** Pixel 8a and Samsung A36 profile import, names and duplicates,
+  switching, manual disconnect, Always-on recovery, Navidrome reachability
+  and AirVPN exit. Follow
+  [Alpha 0.9.2 test plan](docs/ALPHA092_TUNNEL_MANAGER_TEST_PLAN.md).
+
+VersionCode 21 / `0.9.2-alpha09.2-preview`; **debug-signed preview**,
+not a production release. Back up encrypted profiles and check APK signing
+compatibility before replacing an installed build.
 
 ## Alpha 0.9.1 preview — multiple WireGuard gateways (AirVPN + home)
 
