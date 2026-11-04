@@ -37,7 +37,7 @@ final class VpnPeerSnippetPolicy {
                     throw new IllegalArgumentException("Provide a single [Peer] section, not a full VPN configuration.");
                 }
                 peerStarted = true;
-                clean.append("[Peer]\\n");
+                clean.append("[Peer]\n");
                 continue;
             }
             if (!peerStarted) throw new IllegalArgumentException("Expected [Peer] section.");
@@ -54,7 +54,7 @@ final class VpnPeerSnippetPolicy {
                 throw new IllegalArgumentException("Missing or repeated peer value.");
             }
             if (key.equals("AllowedIPs")) allowed = parameter;
-            clean.append(key).append(" = ").append(parameter).append('\\n');
+            clean.append(key).append(" = ").append(parameter).append('\n');
         }
         if (!peerStarted || !seenKeys.contains("PublicKey")
                 || !seenKeys.contains("Endpoint") || allowed == null) {
