@@ -1,6 +1,7 @@
 package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
+import android.database.Cursor;
 import android.content.Context;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -14,6 +15,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.VpnService;
 import android.provider.Settings;
+import android.provider.OpenableColumns;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -78,6 +80,7 @@ public final class VpnActivity extends Activity {
     private boolean homeServiceProbeRunning;
     private boolean resumeRecoveryPending;
     private Spinner savedPicker;
+    private LinearLayout tunnelList;
     private Spinner routingPicker;
     private EditText homeRoutes;
     private Spinner dnsPicker;
@@ -132,7 +135,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · Alpha 0.9.1 multi-gateway preview", 15, MUTED);
+        label(root, "WireGuard VPN · Alpha 0.9.2 tunnel manager preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -246,8 +249,16 @@ public final class VpnActivity extends Activity {
                 + "The clipboard is visible to other apps; share the report only if you choose.", 12, MUTED);
 
         LinearLayout configCard = card(root);
-        label(configCard, "WIREGUARD PROFILES", 17, PINK);
+        label(configCard, "YOUR WIREGUARD TUNNELS", 17, PINK);
+        label(configCard, "Import complete WireGuard .conf files, then tap Connect on a saved tunnel. "
+                + "Only one independent tunnel can be active at a time on this unrooted VPN backend.", 12, MUTED);
+        importButton = button(configCard, "Import WireGuard .conf files");
+        importButton.setOnClickListener(v -> chooseConfig());
+        tunnelList = new LinearLayout(this);
+        tunnelList.setOrientation(LinearLayout.VERTICAL);
+        configCard.addView(tunnelList);
         savedPicker = new Spinner(this);
+        savedPicker.setVisibility(View.GONE);
         configCard.addView(savedPicker);
         savedPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -269,16 +280,13 @@ public final class VpnActivity extends Activity {
         profileName.setHintTextColor(MUTED);
         profileName.setHint("Profile name, e.g. Home VPN");
         configCard.addView(profileName);
-        importButton = button(configCard, "Import WireGuard .conf");
-        importButton.setOnClickListener(v -> chooseConfig());
-        addPeerButton = button(configCard, "Add private gateway peer to selected VPN");
+        label(configCard, "ADVANCED SETTINGS FOR SELECTED TUNNEL", 13, PINK);
+        addPeerButton = button(configCard, "Advanced: Add private gateway peer");
         addPeerButton.setOnClickListener(v -> chooseExtraPeer());
-        label(configCard, "For AirVPN + Home: select an AirVPN profile first, then import a file "
-                + "containing ONE [Peer] block for your home gateway with private IPv4 "
-                + "AllowedIPs only. Both gateways must authorize the same client public "
-                + "key; a full home [Interface] config cannot be merged automatically. "
-                + "This creates a new encrypted combined profile and never overwrites "
-                + "the original. Use 'Profile routes (unchanged)' with multiple peers.", 12, MUTED);
+        label(configCard, "Advanced peer import only works when gateways accept the same client "
+                + "identity. Import complete independent AirVPN and Home .conf files as "
+                + "separate tunnels; they cannot simply be combined. For both services "
+                + "at once without root, configure AirVPN upstream on your own gateway.", 12, MUTED);
         saveButton = button(configCard, "Save profile settings");
         saveButton.setOnClickListener(v -> saveSelected());
         deleteButton = button(configCard, "Delete selected profile");
@@ -663,6 +671,109 @@ public final class VpnActivity extends Activity {
         return String.format(Locale.US, "%.1f %s", number, units[index]);
     }
 
+
+    private void refreshTunnelList() {
+        if (tunnelList == null || savedPicker == null) return;
+        tunnelList.removeAllViews();
+        if (profiles.isEmpty()) {
+            label(tunnelList, "No tunnels imported. Choose one or more WireGuard .conf files above.", 13, MUTED);
+            return;
+        }
+        boolean active = session != null && session.isConnected();
+        boolean busy = session != null && session.isBusy();
+        boolean alwaysOn = active && session.isAlwaysOn();
+        int selected = savedPicker.getSelectedItemPosition() - 1;
+        for (int i = 0; i < profiles.size(); i++) {
+            final int profileIndex = i;
+            SecureTunnelProfileStore.Profile saved = profiles.get(i);
+            boolean isSelected = i == selected;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(dp(12), dp(8), dp(12), dp(10));
+            GradientDrawable backdrop = new GradientDrawable();
+            backdrop.setColor(isSelected ? 0xff453146 : 0xff342b3d);
+            backdrop.setCornerRadius(dp(12));
+            row.setBackground(backdrop);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            params.bottomMargin = dp(8);
+            tunnelList.addView(row, params);
+            label(row, saved.name, 17, isSelected ? PINK : WHITE);
+            String routeLabel = saved.routeMode == VpnRouteModes.HOME
+                    ? "Home routes" : saved.routeMode == VpnRouteModes.ALL
+                    ? "All internet (experimental)" : "Imported routes";
+            String stateLabel = isSelected ? (active ? "ACTIVE INTERFACE" : "SELECTED")
+                    : "SAVED";
+            label(row, stateLabel + " · " + routeLabel, 12, MUTED);
+            Button action = button(row, active
+                    ? isSelected ? "Disconnect" : "Switch to this tunnel"
+                    : "Connect");
+            action.setEnabled(!busy && !alwaysOn);
+            action.setOnClickListener(v -> activateSavedTunnel(profileIndex));
+        }
+    }
+
+    private void activateSavedTunnel(int index) {
+        if (session == null || session.isBusy() || index < 0 || index >= profiles.size()) {
+            return;
+        }
+        final SecureTunnelProfileStore.Profile chosen = profiles.get(index);
+        if (!session.isConnected()) {
+            selectTunnelForConnection(index);
+            savedPicker.post(this::confirmConnect);
+            return;
+        }
+        if (session.isAlwaysOn()) {
+            message.setText("Disable Android Always-on VPN before switching tunnels in Wonhee.");
+            return;
+        }
+        if (savedPicker.getSelectedItemPosition() == index + 1) {
+            stopTunnel();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Switch WireGuard tunnel?")
+                .setMessage("Disconnect the current tunnel and connect to \""
+                        + chosen.name + "\"? Traffic may stop during the switch. "
+                        + "This does not run two independent tunnels simultaneously.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Switch", (dialog, which) -> {
+                    if (session.isBusy() || !session.isConnected()) return;
+                    pendingConnection = null;
+                    session.disconnect((success, result) -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (!success) {
+                            message.setText("Could not disconnect the current VPN. "
+                                    + "The selected tunnel was not changed.");
+                            refreshButtons();
+                            return;
+                        }
+                        int currentIndex = -1;
+                        for (int i = 0; i < profiles.size(); i++) {
+                            if (profiles.get(i).name.equalsIgnoreCase(chosen.name)) {
+                                currentIndex = i;
+                                break;
+                            }
+                        }
+                        if (currentIndex < 0) {
+                            message.setText("Tunnel list changed during switching. Choose a tunnel again.");
+                            refreshButtons();
+                            return;
+                        }
+                        selectTunnelForConnection(currentIndex);
+                        savedPicker.post(this::confirmConnect);
+                    });
+                    refreshButtons();
+                }).show();
+    }
+
+    private void selectTunnelForConnection(int index) {
+        if (index < 0 || index >= profiles.size() || session.isConnected()) return;
+        savedPicker.setSelection(index + 1);
+        loadSelected(profiles.get(index));
+    }
+
     private void chooseConfig() {
         if (session != null && session.isConnected()) {
             message.setText("Disconnect before importing or changing profiles.");
@@ -671,6 +782,7 @@ public final class VpnActivity extends Activity {
         Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         picker.addCategory(Intent.CATEGORY_OPENABLE);
         picker.setType("*/*");
+        picker.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         startActivityForResult(picker, PICK_CONFIG);
     }
 
@@ -796,39 +908,8 @@ public final class VpnActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request == PICK_CONFIG) {
-            if (result != RESULT_OK || data == null || data.getData() == null) return;
-            try {
-                Config imported = readConfiguration(data.getData());
-                selectedConfig = imported;
-                pendingConnection = null;
-                routingPicker.setSelection(VpnRouteModes.PROFILE);
-                homeRoutes.setText(VpnRouteModes.suggestedHomeRoutes(imported));
-                dnsPicker.setSelection(VpnDnsPresets.IMPORTED);
-                customDnsAddresses.setText("");
-                String importedName = availableImportName();
-                profileName.setText(importedName);
-                refreshRoutingPreview();
-                try {
-                    SecureTunnelProfileStore.Profile saved =
-                            new SecureTunnelProfileStore.Profile(importedName,
-                                    imported.toWgQuickString(),
-                                    VpnRouteModes.PROFILE,
-                                    homeRoutes.getText().toString());
-                    profileStore.save(saved);
-                    reloadProfiles(saved.name);
-                    message.setText("WireGuard profile imported and saved securely. "
-                            + "You can reconnect after closing or force-stopping the app.");
-                } catch (Exception storageFailure) {
-                    message.setText("Configuration imported, but secure storage FAILED. "
-                            + "Do not force-stop until you correct storage and tap Save settings.");
-                }
-            } catch (Exception | LinkageError invalid) {
-                selectedConfig = null;
-                pendingConnection = null;
-                refreshRoutingPreview();
-                message.setText("Invalid WireGuard .conf. Check its interface, peer and key fields. Secrets and detailed parse errors are not logged.");
-            }
-            refreshButtons();
+            if (result != RESULT_OK || data == null) return;
+            importTunnelDocuments(data);
         } else if (request == PICK_EXTRA_PEER) {
             if (result != RESULT_OK || data == null || data.getData() == null) return;
             preparePrivateGateway(data.getData());
@@ -842,27 +923,86 @@ public final class VpnActivity extends Activity {
         }
     }
 
-    private String availableImportName() {
-        String requested = profileName.getText().toString().trim();
-        if (requested.isEmpty() || requested.length() > 64
-                || requested.chars().anyMatch(c -> Character.isISOControl((char) c))) {
-            requested = "Home WireGuard";
+
+    private void importTunnelDocuments(Intent data) {
+        if (session != null && (session.isConnected() || session.isBusy())) {
+            message.setText("Disconnect before importing additional tunnels.");
+            return;
         }
-        String candidate = requested;
-        for (int suffix = 2; suffix < 100; suffix++) {
-            boolean exists = false;
-            for (SecureTunnelProfileStore.Profile profile : profiles) {
-                if (profile.name.equalsIgnoreCase(candidate)) {
-                    exists = true;
-                    break;
-                }
+        List<Uri> documents = new ArrayList<>();
+        ClipData selected = data.getClipData();
+        if (selected != null) {
+            for (int i = 0; i < selected.getItemCount() && i < 8; i++) {
+                Uri uri = selected.getItemAt(i).getUri();
+                if (uri != null && !documents.contains(uri)) documents.add(uri);
             }
-            if (!exists) return candidate;
-            String tail = " (" + suffix + ")";
-            candidate = requested.substring(0, Math.min(requested.length(), 64 - tail.length()))
-                    + tail;
+        } else if (data.getData() != null) {
+            documents.add(data.getData());
         }
-        throw new IllegalArgumentException("Too many similarly named VPN profiles.");
+        if (documents.isEmpty()) {
+            message.setText("No WireGuard configuration files selected.");
+            return;
+        }
+
+        int imported = 0;
+        int rejected = 0;
+        String latest = null;
+        for (Uri uri : documents) {
+            try {
+                // Validation precedes saving. Existing profiles are never overwritten.
+                Config config = readConfiguration(uri);
+                String candidate = TunnelProfileNaming.fromFilename(displayDocumentName(uri));
+                String newName = TunnelProfileNaming.unique(candidate, existingProfileNames());
+                SecureTunnelProfileStore.Profile profile =
+                        new SecureTunnelProfileStore.Profile(
+                                newName, config.toWgQuickString(),
+                                VpnRouteModes.PROFILE, "");
+                profileStore.save(profile);
+                profiles.add(profile);
+                latest = profile.name;
+                imported++;
+            } catch (Exception | LinkageError invalid) {
+                rejected++;
+                // Never show URI/provider paths, keys or WireGuard parser details.
+            }
+        }
+        if (latest != null) {
+            reloadProfiles(latest);
+        } else {
+            refreshButtons();
+        }
+        message.setText(imported + " WireGuard tunnel(s) imported into encrypted storage. "
+                + (rejected > 0
+                    ? rejected + " file(s) could not be imported (invalid, duplicate, or storage full). "
+                    : "")
+                + (imported > 0 ? "Select a tunnel and tap Connect." : "No stored tunnels changed."));
+    }
+
+    private String displayDocumentName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(
+                uri, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (column >= 0) return cursor.getString(column);
+            }
+        } catch (RuntimeException ignored) {
+            // A provider may omit DISPLAY_NAME; a generic safe name is used.
+        }
+        return "WireGuard tunnel.conf";
+    }
+
+    private List<String> existingProfileNames() {
+        List<String> names = new ArrayList<>();
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            names.add(profile.name);
+        }
+        return names;
+    }
+
+    private String availableImportName() {
+        return TunnelProfileNaming.unique(
+                TunnelProfileNaming.fromFilename(profileName.getText().toString()),
+                existingProfileNames());
     }
 
     private void openSystemVpnSettings() {
@@ -1364,6 +1504,7 @@ public final class VpnActivity extends Activity {
         homeRoutes.setEnabled(!active && !busy);
         dnsPicker.setEnabled(!active && !busy);
         customDnsAddresses.setEnabled(!active && !busy);
+        refreshTunnelList();
     }
 
     private LinearLayout card(LinearLayout parent) {
