@@ -88,6 +88,11 @@ final class VpnConnectionDiagnostics {
         // Local system observations are not proof of egress or leak protection.
         String observation = VpnRouteInspection.render(
                 defaultIpv4, defaultIpv6, configuredDns);
+        VpnRouteProbePolicy.Decision policy = VpnRouteProbePolicy.decide(
+                defaultIpv4, defaultIpv6, configuredDns);
+        if (policy != VpnRouteProbePolicy.Decision.TEST_IPV4_INTERNET) {
+            return observation + "\n\n" + VpnRouteProbePolicy.explanation(policy);
+        }
         return observation + "\n\n" + testVpnBoundReachability(vpnNetwork, configuredDns);
     }
 
