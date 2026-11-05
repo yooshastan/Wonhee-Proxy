@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.9.11.0 Control Center UI
+name: Wonhee Proxy 0.9.11.1 Session Reports
 
 on:
   push:
@@ -104,7 +104,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-09110-control-center-debug-apk
+          name: wonhee-09111-session-report-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

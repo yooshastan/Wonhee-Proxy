@@ -6,10 +6,12 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.print.PrintManager;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
@@ -28,9 +30,12 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.text.DateFormat;
+import java.io.IOException;
+import java.io.OutputStream;
 
 /** Manually started isolated test UI; leaves the existing GoBackend path intact. */
 public final class RootDualKernelActivity extends Activity {
+    private static final int REQUEST_SAVE_SESSION_REPORT = 7911;
     private static final int PINK = 0xfffbadd8;
     private static final int WHITE = 0xfff8f1f9;
     private static final int MUTED = 0xffc4b7c9;
@@ -41,6 +46,9 @@ public final class RootDualKernelActivity extends Activity {
     private final List<SecureTunnelProfileStore.Profile> saved = new ArrayList<>();
     private RootDualKernelSession dual;
     private RootLabPreferences uiPreferences;
+    private RootSessionJournal sessionJournal;
+    private String pendingSessionExport;
+    private TextView sessionSummary;
     private Spinner homeChoice;
     private Spinner airChoice;
     private Spinner internetDnsChoice;
@@ -87,6 +95,8 @@ public final class RootDualKernelActivity extends Activity {
         super.onCreate(savedInstanceState);
         dual = RootDualKernelSession.get(this);
         uiPreferences = new RootLabPreferences(this);
+        sessionJournal = new RootSessionJournal(this);
+        sessionJournal.record("APP", "Control Center opened");
         ScrollView scroll = new ScrollView(this);
         scrollView = scroll;
         scroll.setFillViewport(true);
@@ -148,6 +158,7 @@ public final class RootDualKernelActivity extends Activity {
                 + "before resuming control.", 14, WHITE);
         refreshLiveButton = button(livePanel, "Read live status");
         refreshLiveButton.setOnClickListener(v -> {
+            recordAction("Read live kernel status");
             liveStatus.setText("Reading kernel interface counters...");
             dual.inspectLiveStatus((ok, detail) -> {
                 if (isFinishing()) return;
@@ -235,9 +246,13 @@ public final class RootDualKernelActivity extends Activity {
 
         LinearLayout maintenance = card(pages[2]);
         label(maintenance, "RECOVERY & ROOT TOOLS", 17, PINK);
+        label(maintenance, "Use these only when reconnecting fails or kernel interfaces "
+                + "remain after an app restart. Recovery verifies ownership before cleanup.",
+                12, MUTED);
 
         checkButton = button(maintenance, "Check root tools");
         checkButton.setOnClickListener(v -> {
+            recordAction("Check root and kernel tools");
             status.setText("Checking root access and bundled kernel tools...");
             refreshButtons();
             dual.checkRoot((ok, detail) -> {
@@ -249,6 +264,7 @@ public final class RootDualKernelActivity extends Activity {
         styleButton(startButton, 0xff805177);
         stopButton = button(controls, "Disconnect both tunnels");
         stopButton.setOnClickListener(v -> {
+            recordAction("Disconnect both managed kernel tunnels");
             status.setText("Stopping both Wonhee-owned kernel interfaces...");
             dual.stopPair((ok, detail) -> {
                 if (!isFinishing()) {
@@ -271,6 +287,7 @@ public final class RootDualKernelActivity extends Activity {
                 13, PINK);
         firewallPreflightButton = button(privacy, "Firewall capabilities · read only");
         firewallPreflightButton.setOnClickListener(v -> {
+            recordAction("Read-only firewall capability check");
             status.setText("Checking root firewall tools without installing rules...");
             dual.checkFirewallCapabilities((ok, detail) -> {
                 if (!isFinishing()) { publishResult(detail); refreshButtons(); }
@@ -279,6 +296,7 @@ public final class RootDualKernelActivity extends Activity {
         });
         guardReadinessButton = button(privacy, "Kill-switch readiness · read only");
         guardReadinessButton.setOnClickListener(v -> {
+            recordAction("Read-only kill-switch readiness check");
             status.setText("Checking transport marks, IPv4/IPv6 rules and safe chain ownership...");
             dual.checkGuardReadiness((ok, detail) -> {
                 if (!isFinishing()) { publishResult(detail); refreshButtons(); }
@@ -287,6 +305,7 @@ public final class RootDualKernelActivity extends Activity {
         });
         dnsRouteCheckButton = button(privacy, "Audit Internet DNS routes");
         dnsRouteCheckButton.setOnClickListener(v -> {
+            recordAction("Audit selected Internet DNS routes");
             int selected = airChoice.getSelectedItemPosition();
             if (selected < 0 || selected >= saved.size()) {
                 publishResult("Select an Internet profile before testing its DNS routes.");
@@ -300,6 +319,7 @@ public final class RootDualKernelActivity extends Activity {
         });
         routeAuditButton = button(privacy, "Audit split + public routes");
         routeAuditButton.setOnClickListener(v -> {
+            recordAction("Audit split and public IPv4/IPv6 routes");
             int homeIndex = homeChoice.getSelectedItemPosition();
             int internetIndex = airChoice.getSelectedItemPosition();
             if (homeIndex < 0 || internetIndex < 0 || homeIndex == internetIndex
@@ -315,6 +335,7 @@ public final class RootDualKernelActivity extends Activity {
         });
         interfaceInspectButton = button(privacy, "Inspect kernel interfaces");
         interfaceInspectButton.setOnClickListener(v -> {
+            recordAction("Inspect kernel interface identities");
             status.setText("Checking for existing kernel interfaces without changing them...");
             dual.inspectKernelInterfaces((ok, detail) -> {
                 if (!isFinishing()) { publishResult(detail); refreshButtons(); }
@@ -322,6 +343,9 @@ public final class RootDualKernelActivity extends Activity {
             refreshButtons();
         });
         label(privacy, "HOME SERVICE ROUTE TEST (PRIVATE IPv4)", 14, PINK);
+        label(privacy, "Checks whether a private Home destination is routed through "
+                + "wnhome0. It does not test whether the service's TCP port responds.",
+                12, MUTED);
         homeServiceIp = new EditText(this);
         homeServiceIp.setSingleLine(true);
         homeServiceIp.setInputType(InputType.TYPE_CLASS_TEXT);
@@ -333,6 +357,7 @@ public final class RootDualKernelActivity extends Activity {
         homeRouteButton = button(privacy, "Check Home service route");
         homeRouteButton.setOnClickListener(v -> {
             String target = homeServiceIp.getText().toString();
+            recordAction("Check Home service route for " + target);
             try { uiPreferences.saveHomeServiceIp(target); }
             catch (IllegalArgumentException invalid) {
                 publishResult("Enter a numeric private Home IPv4 address, such as 10.0.0.169.");
@@ -348,7 +373,26 @@ public final class RootDualKernelActivity extends Activity {
         pages[2].removeView(maintenance);
         pages[2].addView(maintenance);
         LinearLayout diagnostics = card(pages[3]);
-        label(diagnostics, "DIAGNOSTICS & SUPPORT", 17, PINK);
+        label(diagnostics, "SESSION HISTORY & SUPPORT", 17, PINK);
+        label(diagnostics, "A local, timestamped history of actions and results. It survives "
+                + "app restarts, keeping up to 160 entries. Export before starting a new session.",
+                12, MUTED);
+        sessionSummary = label(diagnostics, sessionJournal.title(), 14, WHITE);
+        Button saveSession = button(diagnostics, "Save session report (.txt)");
+        saveSession.setOnClickListener(v -> saveSessionReport());
+        Button printSession = button(diagnostics, "Print / Save session as PDF");
+        printSession.setOnClickListener(v -> printSessionReport());
+        Button newSession = button(diagnostics, "Start a new log session");
+        newSession.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Start a new diagnostic session?")
+                .setMessage("This clears the current session history from the app. "
+                        + "Save or print the existing report first if you need it. "
+                        + "Tunnel configurations and the last saved diagnostic are unchanged.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Start new session", (dialog, which) -> {
+                    sessionJournal.newSession();
+                    updateSessionSummary();
+                }).show());
         label(diagnostics, "LAST TEST RESULT (SAVED BETWEEN APP RESTARTS)", 12, MUTED);
         String previous = uiPreferences.lastDiagnostic();
         long previousAt = uiPreferences.lastDiagnosticTime();
@@ -382,6 +426,7 @@ public final class RootDualKernelActivity extends Activity {
         });
         Button forgetResult = button(diagnostics, "Clear saved diagnostic");
         forgetResult.setOnClickListener(v -> {
+            recordAction("Clear last saved diagnostic (session history remains)");
             uiPreferences.clearDiagnostic();
             status.setText("Saved diagnostic cleared. No tunnel configuration changed.");
         });
@@ -389,8 +434,11 @@ public final class RootDualKernelActivity extends Activity {
                 + "A long handshake age can mean an idle tunnel; it is not "
                 + "proof that the connection has failed. Counters are not whole-device "
                 + "traffic or a DNS/leak audit.", 12, MUTED);
-        label(diagnostics, "Copying a result places it on Android's clipboard. It contains "
-                + "no private WireGuard keys, but other apps may read clipboard content.",
+        label(diagnostics, "Copying a result places it on Android's clipboard; "
+                + "other apps may read it. Review its contents before copying or sharing.",
+                12, MUTED);
+        label(diagnostics, "Session reports redact known secret fields but can still contain "
+                + "profile names, peer endpoints and private IP addresses. Review before sharing.",
                 12, MUTED);
         label(pages[3], "Test from cellular: check that 10.0.0.169:4533 opens, "
                 + "that public IPv4/IPv6 egress is AirVPN Europe, and that DNS resolves. "
@@ -560,6 +608,7 @@ public final class RootDualKernelActivity extends Activity {
                         + "it, and no kill switch is installed. Continue?")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save policy", (dialog, which) -> {
+                    recordAction("Save Internet DNS policy for " + selected.name);
                     status.setText("Validating DNS reachability through the Internet AllowedIPs...");
                     dual.saveInternetDnsPolicy(selected, preset, custom, (ok, detail) -> {
                         if (isFinishing()) return;
@@ -608,6 +657,8 @@ public final class RootDualKernelActivity extends Activity {
                         + "This is an experimental connectivity test, not a verified kill switch.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Start test", (dialog, which) -> {
+                    recordAction("Connect Home " + homeProfile.name + " + Internet "
+                            + airProfile.name);
                     status.setText("Starting Home, then AirVPN Europe...");
                     dual.startPair(homeProfile, airProfile, (ok, detail) -> {
                         if (!isFinishing()) { publishResult(detail); refreshButtons(); }
@@ -637,6 +688,7 @@ public final class RootDualKernelActivity extends Activity {
                         + "Start the tunnels again manually after recovery.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Verify and stop", (dialog, which) -> {
+                    recordAction("Recover verified, matching kernel interfaces");
                     status.setText("Checking old kernel identities before any cleanup...");
                     dual.recoverMatchingPair(selectedHome, selectedAir, (ok, detail) -> {
                         if (!isFinishing()) { publishResult(detail); refreshButtons(); }
@@ -666,6 +718,8 @@ public final class RootDualKernelActivity extends Activity {
                         + "NO kernel kill switch is installed. Automatic recovery is OFF.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Restart pair", (dialog, which) -> {
+                    recordAction("Restart Home " + selectedHome.name + " + Internet "
+                            + selectedInternet.name);
                     status.setText("Stopping both managed tunnels before manual restart...");
                     dual.stopPair((stopped, stopDetail) -> {
                         if (isFinishing()) return;
@@ -712,6 +766,7 @@ public final class RootDualKernelActivity extends Activity {
                         + "monitor and manually restart that existing pair.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Verify and resume", (dialog, which) -> {
+                    recordAction("Verify and resume existing kernel pair");
                     status.setText("Verifying existing kernel identities and routes...");
                     dual.verifyAndResumePair(selectedHome, selectedInternet, (ok, detail) -> {
                         if (isFinishing()) return;
@@ -774,6 +829,80 @@ public final class RootDualKernelActivity extends Activity {
         status.setText(result);
         uiPreferences.saveDiagnostic(result);
         updateActionSummary(result);
+        if (sessionJournal != null) {
+            sessionJournal.record("RESULT", result);
+            updateSessionSummary();
+        }
+    }
+
+    private void recordAction(String action) {
+        sessionJournal.record("ACTION", action);
+        updateSessionSummary();
+    }
+
+    private void updateSessionSummary() {
+        if (sessionSummary != null) sessionSummary.setText(sessionJournal.title());
+    }
+
+    private String buildSessionReport() {
+        int homeIndex = homeChoice.getSelectedItemPosition();
+        int internetIndex = airChoice.getSelectedItemPosition();
+        String home = homeIndex >= 0 && homeIndex < saved.size()
+                ? saved.get(homeIndex).name : "none";
+        String internet = internetIndex >= 0 && internetIndex < saved.size()
+                ? saved.get(internetIndex).name : "none";
+        return sessionJournal.report(home, internet, liveStatus.getText().toString(),
+                status.getText().toString());
+    }
+
+    private void saveSessionReport() {
+        recordAction("Save local session report as text");
+        pendingSessionExport = buildSessionReport();
+        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        save.addCategory(Intent.CATEGORY_OPENABLE);
+        save.setType("text/plain");
+        save.putExtra(Intent.EXTRA_TITLE, "wonhee-session-" + sessionJournal.id() + ".txt");
+        try {
+            startActivityForResult(save, REQUEST_SAVE_SESSION_REPORT);
+        } catch (RuntimeException error) {
+            pendingSessionExport = null;
+            publishResult("No system document picker available for session export.");
+        }
+    }
+
+    private void printSessionReport() {
+        recordAction("Open Android Print for session report");
+        PrintManager printManager = (PrintManager) getSystemService(Context.PRINT_SERVICE);
+        if (printManager == null) {
+            publishResult("Android printing is not available on this device.");
+            return;
+        }
+        try {
+            printManager.print("Wonhee session " + sessionJournal.id(),
+                    new RootSessionPrintAdapter(this, "wonhee-session-" + sessionJournal.id(),
+                            buildSessionReport()), null);
+        } catch (RuntimeException error) {
+            publishResult("Could not open Android Print. Use Save session report instead.");
+        }
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_SAVE_SESSION_REPORT) return;
+        String report = pendingSessionExport;
+        pendingSessionExport = null;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null
+                || report == null) return;
+        Uri destination = data.getData();
+        try (OutputStream stream = getContentResolver().openOutputStream(destination, "w")) {
+            if (stream == null) throw new IOException("Document provider returned no stream");
+            stream.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            stream.flush();
+            sessionJournal.record("EXPORT", "Session text report saved to selected document");
+            updateSessionSummary();
+        } catch (IOException | SecurityException error) {
+            publishResult("Could not save the session report. Try another document location.");
+        }
     }
 
     private TextView label(LinearLayout parent, String value, int sp, int color) {
@@ -781,7 +910,7 @@ public final class RootDualKernelActivity extends Activity {
         view.setText(value);
         view.setTextSize(sp);
         view.setTextColor(color);
-        view.setPadding(0, dp(9), 0, dp(9));
+        view.setPadding(0, dp(7), 0, dp(7));
         parent.addView(view);
         return view;
     }
@@ -794,8 +923,8 @@ public final class RootDualKernelActivity extends Activity {
         result.setTextSize(14);
         styleButton(result, 0xff483250);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
-        params.topMargin = dp(8);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+        params.topMargin = dp(6);
         parent.addView(result, params);
         return result;
     }
@@ -817,7 +946,7 @@ public final class RootDualKernelActivity extends Activity {
         result.setBackground(background);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(14);
+        params.topMargin = dp(10);
         parent.addView(result, params);
         return result;
     }
