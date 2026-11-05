@@ -36,6 +36,9 @@ public final class RootMultiKernelActivity extends Activity {
     private Button disconnect;
     private Button preview;
     private Button inspect;
+    private Button audit;
+    private Button apply;
+    private Button remove;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -63,11 +66,12 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Batch A · independent kernel WireGuard tunnels", 14, WHITE);
+        label(page, "Batch B · independent tunnels + optional split-route priority", 14, WHITE);
         label(page, "EXPERIMENTAL: this is separate from the tested Home + AirVPN pair. "
                 + "Stop that pair first. Root changes may interrupt Internet access. "
                 + "Keep USB ADB recovery available. No firewall, kill switch, per-app "
-                + "routing, encrypted DNS or fail-closed protection is enabled here.", 13, PINK);
+                + "routing verification, encrypted DNS or fail-closed protection is "
+                + "automatic here. Routing overrides require separate confirmation.", 13, PINK);
 
         LinearLayout configs = card(page);
         label(configs, "SELECT ACTIVE PROFILES", 18, PINK);
@@ -95,10 +99,43 @@ public final class RootMultiKernelActivity extends Activity {
         inspect = button(controls, "Read live kernel status");
         inspect.setOnClickListener(v -> run("Read multi-tunnel state", true, session::inspect));
 
+        LinearLayout routing = card(page);
+        label(routing, "EXPERIMENTAL ROUTING OVERRIDES", 18, PINK);
+        label(routing, "Batch B addresses the observed Home split route choosing the "
+                + "AirVPN default. Inspect the read-only audit first. The optional fix "
+                + "adds narrowly scoped Wonhee-owned rules ahead of Android's default "
+                + "selection, records a persistent rollback ledger, and verifies root "
+                + "route lookups. It is NOT a leak test or kill switch.", 13, MUTED);
+        audit = button(routing, "Audit effective routes · read only");
+        audit.setOnClickListener(v -> run("Audit UID-0 routes", false, session::auditRouting));
+        apply = button(routing, "Apply split-route correction · experimental");
+        apply.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Install owned routing priority rules?")
+                .setMessage("Only selected, identity-verified running tunnels can be used. "
+                        + "Wonhee will refuse policy-rule collisions and unsafe WireGuard "
+                        + "endpoint marks, save a rollback ledger, then check root routes. "
+                        + "This changes device routing and may interrupt connectivity. "
+                        + "Keep USB ADB recovery ready. No kill switch is installed.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Apply rules", (dialog, which) ->
+                        run("Install split route priority", false, session::applyRouting))
+                .show());
+        remove = button(routing, "Remove Wonhee routing overrides");
+        remove.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Remove Wonhee's routing rules?")
+                .setMessage("The app will remove ONLY exactly matching rules recorded in "
+                        + "its rollback ledger, even after an app restart. Kernel tunnels "
+                        + "remain up. Rules belonging to anything else are not touched.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Remove owned rules", (dialog, which) ->
+                        run("Remove owned routing rules", true, session::removeRouting))
+                .show());
+
         LinearLayout diagnostics = card(page);
         label(diagnostics, "LATEST RESULT", 18, PINK);
-        output = label(diagnostics, "Select profiles and preview routes before connecting. "
-                + "This screen cannot prove which VPN an Android app uses.", 14, WHITE);
+        output = label(diagnostics, "Select profiles, preview and connect, then audit "
+                + "routing. Any correction is a separate opt-in action. Remove owned "
+                + "rules before disconnecting or changing tunnels.", 14, WHITE);
         updateButtons();
     }
 
@@ -207,6 +244,9 @@ public final class RootMultiKernelActivity extends Activity {
         if (disconnect != null) disconnect.setEnabled(ready);
         if (preview != null) preview.setEnabled(ready);
         if (inspect != null) inspect.setEnabled(!session.isBusy());
+        if (audit != null) audit.setEnabled(ready);
+        if (apply != null) apply.setEnabled(ready);
+        if (remove != null) remove.setEnabled(!session.isBusy());
     }
 
     private LinearLayout card(LinearLayout parent) {
