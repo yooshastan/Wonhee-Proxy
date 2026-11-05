@@ -25,3 +25,10 @@ jobs:
       - name: Test independent packet bridges and crypto-device lifecycle
         working-directory: native
         run: go test -race -count=1 ./...
+      - name: Cross-compile native packet engine for Android ARM64
+        working-directory: native
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: go build ./...
