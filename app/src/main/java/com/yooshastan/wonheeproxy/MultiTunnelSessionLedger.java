@@ -8,6 +8,17 @@ package com.yooshastan.wonheeproxy;
 final class MultiTunnelSessionLedger {
     enum Phase { STOPPED, CONNECTING, READY, DEGRADED }
 
+    /** Epoch-bound permission; a restart invalidates packets queued previously. */
+    static final class Permit {
+        final MultiTunnelPacketRouter.Target target;
+        final long epoch;
+
+        private Permit(MultiTunnelPacketRouter.Target target, long epoch) {
+            this.target = target;
+            this.epoch = epoch;
+        }
+    }
+
     private long homeEpoch;
     private long internetEpoch;
     private Phase homePhase = Phase.STOPPED;
@@ -59,6 +70,25 @@ final class MultiTunnelSessionLedger {
     synchronized Phase phase(MultiTunnelPacketRouter.Target session) {
         checkSession(session);
         return session == MultiTunnelPacketRouter.Target.HOME ? homePhase : internetPhase;
+    }
+
+    synchronized boolean isReady(MultiTunnelPacketRouter.Target session) {
+        return phase(session) == Phase.READY;
+    }
+
+    synchronized Permit authorizeOutbound(MultiTunnelPacketRouter router, byte[] packet) {
+        MultiTunnelPacketRouter.Target target = route(router, packet);
+        if (target == MultiTunnelPacketRouter.Target.DROP) return null;
+        return new Permit(target, target == MultiTunnelPacketRouter.Target.HOME
+                ? homeEpoch : internetEpoch);
+    }
+
+    /** Recheck immediately before native transmission; never reuse old permits. */
+    synchronized boolean permits(Permit permit) {
+        if (permit == null || permit.target == MultiTunnelPacketRouter.Target.DROP) return false;
+        return permit.target == MultiTunnelPacketRouter.Target.HOME
+                ? homePhase == Phase.READY && permit.epoch == homeEpoch
+                : internetPhase == Phase.READY && permit.epoch == internetEpoch;
     }
 
     /** A stalled/failed HOME must not be redirected through INTERNET, or vice versa. */

@@ -1,4 +1,4 @@
-name: Wonhee Proxy Android Alpha 0.9.3 Stage 2 Experimental Preview
+name: Wonhee Proxy Android Alpha 0.9.4 Stage 3 Packet Flow Experiment
 
 on:
   push:
@@ -40,6 +40,8 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelProfileNaming.java \
             app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelPacketRouter.java \
             app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelSessionLedger.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelIpv4Rewriter.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelPacketFlow.java \
             app/src/main/java/com/yooshastan/wonheeproxy/VpnRouteProbePolicy.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
@@ -58,6 +60,7 @@ jobs:
             core-tests/TunnelProfileNamingTest.java \
             core-tests/MultiTunnelPacketRouterTest.java \
             core-tests/MultiTunnelSessionLedgerTest.java \
+            core-tests/MultiTunnelPacketFlowTest.java \
             core-tests/VpnRouteProbePolicyTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
@@ -76,6 +79,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelProfileNamingTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.MultiTunnelPacketRouterTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.MultiTunnelSessionLedgerTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.MultiTunnelPacketFlowTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnRouteProbePolicyTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
@@ -85,7 +89,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha093-stage2-debug-apk
+          name: wonhee-proxy-alpha094-stage3-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

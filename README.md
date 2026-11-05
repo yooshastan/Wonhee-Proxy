@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.6 on main; Alpha 0.9.3 stage-2 experimental diagnostics preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 on main; Alpha 0.9.4 stage-3 experimental packet-flow preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
@@ -52,6 +52,17 @@ APK or release is claimed.
   router WireGuard `10.6.0.0/24`, home LAN `10.0.0.0/24`, Fedora Navidrome
   on its private LAN address. No keys or server configurations are modified.
 - Existing recovery logic and the working GoBackend path are unchanged.
+
+### Stage 3 packet-flow engine (offline experimental code)
+
+- Adds IPv4 packet translation for two independently addressed session paths,
+  with IPv4/TCP/UDP checksum updates, verified inbound route ownership, and
+  expiration of queued sends after tunnel restarts.
+- Unit tests reject malformed, fragmented, cross-tunnel, unsupported, and
+  IPv6 traffic at the experimental dataplane boundary. This code is **not**
+  connected to the Android VpnService or to any live WireGuard session.
+- The user-tested single-tunnel GoBackend and recovery paths remain intact.
+  The 0.9.4 debug artifact is a test build, **not** simultaneous AirVPN + Home.
 
 ## Alpha 0.9.2 — streamlined WireGuard tunnel manager
 
