@@ -1,6 +1,10 @@
 package com.yooshastan.wonheeproxy;
 
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -42,6 +46,7 @@ final class RootDualKernelSession {
     private static RootDualKernelSession instance;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final Context application;
     private final File appCacheDir;
     private final RootShell rootShell;
     private final ToolsInstaller tools;
@@ -69,6 +74,7 @@ final class RootDualKernelSession {
 
     private RootDualKernelSession(Context context) {
         Context app = context.getApplicationContext();
+        application = app;
         appCacheDir = app.getCacheDir();
         rootShell = new RootShell(app);
         tools = new ToolsInstaller(app, rootShell);
@@ -244,6 +250,114 @@ final class RootDualKernelSession {
             }
             finish(callback, passed, result);
         });
+    }
+
+    /**
+     * Read-only regression audit for the two expected kernel routing domains.
+     * Android may attach per-socket fwmarks, so these root route observations
+     * must never be presented as proof of app isolation or fail-closed policy.
+     */
+    void auditCurrentRoutes(SecureTunnelProfileStore.Profile homeProfile,
+                            SecureTunnelProfileStore.Profile internetProfile,
+                            Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean passed = false;
+            String result;
+            try {
+                Config homeConfig = parseRuntime(homeProfile);
+                Config internetConfig = parseRuntime(internetProfile);
+                validatePair(homeConfig, internetConfig);
+                prepareRoot();
+
+                boolean ipv4 = routeUses("1.1.1.1", false, europe.getName());
+                boolean ipv6 = routeUses("2606:4700:4700::1111", true, europe.getName());
+                int homeMatched = 0;
+                int homeTotal = 0;
+                for (InetNetwork route : homeConfig.getPeers().get(0).getAllowedIps()) {
+                    homeTotal++;
+                    InetAddress address = route.getAddress();
+                    if (routeUses(address.getHostAddress(),
+                            !(address instanceof Inet4Address), home.getName())) {
+                        homeMatched++;
+                    }
+                }
+
+                String dnsSummary;
+                ConnectivityManager cm = (ConnectivityManager) application.getSystemService(
+                        Context.CONNECTIVITY_SERVICE);
+                Network active = cm == null ? null : cm.getActiveNetwork();
+                LinkProperties props = active == null || cm == null ? null : cm.getLinkProperties(active);
+                if (props == null) {
+                    dnsSummary = "Android active-network DNS: unavailable.";
+                } else {
+                    int dnsMatched = 0;
+                    List<InetAddress> dns = props.getDnsServers();
+                    for (InetAddress server : dns) {
+                        if (routeUses(server.getHostAddress(),
+                                !(server instanceof Inet4Address), europe.getName())) {
+                            dnsMatched++;
+                        }
+                    }
+                    dnsSummary = "Android active-network DNS: " + dnsMatched + "/" + dns.size()
+                            + " server destinations select wnair0 for root route queries.";
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        dnsSummary += " Private DNS: "
+                                + (props.isPrivateDnsActive() ? "reported active" : "not reported active")
+                                + ".";
+                    }
+                }
+                passed = ipv4 && ipv6 && homeMatched == homeTotal && homeTotal > 0;
+                result = "READ-ONLY ROOT ROUTE AUDIT " + (passed ? "PASS" : "NEEDS ATTENTION")
+                        + "\nPublic IPv4 via wnair0: " + (ipv4 ? "YES" : "NO")
+                        + "\nPublic IPv6 via wnair0: " + (ipv6 ? "YES" : "NO")
+                        + "\nHome split routes via wnhome0: " + homeMatched + "/" + homeTotal
+                        + "\n" + dnsSummary
+                        + "\nThis is NOT a packet capture, app-DNS leak test, or kill switch. "
+                        + "Android app fwmarks, encrypted DNS and fallback still require "
+                        + "independent testing. No firewall rules changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Root route audit could not complete. Check selected profile "
+                        + "routes and root access; no firewall settings were modified.";
+            }
+            finish(callback, passed, result);
+        });
+    }
+
+    /** Inspect leftovers after an app crash or reboot, without adopting them. */
+    void inspectKernelInterfaces(Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                prepareRoot();
+                Set<String> existing = backend.getRunningTunnelNames();
+                boolean hasHome = existing.contains(home.getName());
+                boolean hasAir = existing.contains(europe.getName());
+                ok = true;
+                result = "Kernel interface inspection (read only):\nwnhome0: "
+                        + (hasHome ? "PRESENT" : "ABSENT") + "\nwnair0: "
+                        + (hasAir ? "PRESENT" : "ABSENT")
+                        + "\nCurrent process manages pair: " + (managing ? "YES" : "NO")
+                        + "\nA present interface after restart is NOT automatically trusted or "
+                        + "managed. Recover only matching selected profiles, or inspect with adb. "
+                        + "No interfaces were changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not inspect kernel interfaces. Check root access. "
+                        + "No interfaces were changed.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    private boolean routeUses(String numericHost, boolean ipv6, String device) throws Exception {
+        List<String> lines = new ArrayList<>();
+        String family = ipv6 ? "ip -6" : "ip -4";
+        // Host is a numeric address produced by InetAddress or a fixed probe,
+        // not shell syntax from a user-supplied configuration string.
+        if (rootShell.run(lines, family + " route get '" + numericHost + "'") != 0) return false;
+        return RootKernelRouteAudit.routesThrough(lines, device);
     }
 
     void startPair(SecureTunnelProfileStore.Profile homeProfile,

@@ -41,6 +41,8 @@ public final class RootDualKernelActivity extends Activity {
     private Button recoverButton;
     private Button firewallPreflightButton;
     private Button dnsRouteCheckButton;
+    private Button routeAuditButton;
+    private Button interfaceInspectButton;
     private TextView status;
     private TextView liveStatus;
     private boolean visible;
@@ -138,6 +140,29 @@ public final class RootDualKernelActivity extends Activity {
             }
             status.setText("Checking configured DNS destination routes, not actual DNS traffic...");
             dual.checkInternetDnsRoutes(saved.get(selected), (ok, detail) -> {
+                if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
+        routeAuditButton = button(privacy, "AUDIT PUBLIC / HOME ROUTES + ANDROID DNS");
+        routeAuditButton.setOnClickListener(v -> {
+            int homeIndex = homeChoice.getSelectedItemPosition();
+            int internetIndex = airChoice.getSelectedItemPosition();
+            if (homeIndex < 0 || internetIndex < 0 || homeIndex == internetIndex
+                    || homeIndex >= saved.size() || internetIndex >= saved.size()) {
+                status.setText("Select two different saved Home and Internet profiles first.");
+                return;
+            }
+            status.setText("Auditing root route decisions and Android active-network DNS...");
+            dual.auditCurrentRoutes(saved.get(homeIndex), saved.get(internetIndex), (ok, detail) -> {
+                if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
+        interfaceInspectButton = button(privacy, "INSPECT KERNEL INTERFACES AFTER RESTART");
+        interfaceInspectButton.setOnClickListener(v -> {
+            status.setText("Checking for existing kernel interfaces without changing them...");
+            dual.inspectKernelInterfaces((ok, detail) -> {
                 if (!isFinishing()) { status.setText(detail); refreshButtons(); }
             });
             refreshButtons();
@@ -286,6 +311,8 @@ public final class RootDualKernelActivity extends Activity {
         recoverButton.setEnabled(!busy && !managing && saved.size() >= 2);
         firewallPreflightButton.setEnabled(!busy);
         dnsRouteCheckButton.setEnabled(!busy && !saved.isEmpty());
+        routeAuditButton.setEnabled(!busy && saved.size() >= 2);
+        interfaceInspectButton.setEnabled(!busy);
         homeChoice.setEnabled(!busy && !managing);
         airChoice.setEnabled(!busy && !managing);
     }
