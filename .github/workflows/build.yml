@@ -43,6 +43,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelIpv4Rewriter.java \
             app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelPacketFlow.java \
             app/src/main/java/com/yooshastan/wonheeproxy/VpnRouteProbePolicy.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootDualRoutePolicy.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
             core-tests/UltgramPackagesTest.java \
@@ -61,7 +62,8 @@ jobs:
             core-tests/MultiTunnelPacketRouterTest.java \
             core-tests/MultiTunnelSessionLedgerTest.java \
             core-tests/MultiTunnelPacketFlowTest.java \
-            core-tests/VpnRouteProbePolicyTest.java
+            core-tests/VpnRouteProbePolicyTest.java \
+            core-tests/RootDualRoutePolicyTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
           java -cp /tmp/wonhee-classes UltgramPackagesTest
@@ -81,6 +83,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.MultiTunnelSessionLedgerTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.MultiTunnelPacketFlowTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnRouteProbePolicyTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDualRoutePolicyTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
