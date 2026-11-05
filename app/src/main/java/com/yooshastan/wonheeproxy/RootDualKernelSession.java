@@ -7,6 +7,7 @@ import android.net.Network;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import com.wireguard.android.backend.Statistics;
 import com.wireguard.android.backend.Tunnel;
@@ -59,6 +60,8 @@ final class RootDualKernelSession {
     private volatile String lastPreflightStep = "kernel support";
     private Config startedHome;
     private Config startedEurope;
+    private final TunnelTrafficHistory homeTraffic = new TunnelTrafficHistory();
+    private final TunnelTrafficHistory airTraffic = new TunnelTrafficHistory();
 
     private static final class KernelCommandException extends Exception {
         final int exitCode;
@@ -243,6 +246,8 @@ final class RootDualKernelSession {
                 long airMark = airMarkRead
                         ? RootFirewallMark.parse(airMarkOutput) : 0;
                 boolean marks = RootFirewallMark.distinctNonzero(homeMark, airMark);
+                boolean androidProtectMark = RootFirewallMark.sharedAndroidProtectBit(
+                        homeMark, airMark);
                 // Split-only wg-quick interfaces often have no fwmark. A
                 // resolved Home endpoint is a possible future *explicit* UDP
                 // exemption, not evidence that an exemption exists today.
@@ -255,7 +260,8 @@ final class RootDualKernelSession {
                 ready = interfaces && v4 && v6 && mark4 && mark6 && marks && publicRoutes
                         && !reserved4 && !reserved6;
                 boolean homeExemptionCandidate = homeMark == 0 && homeEndpoint && airMark > 0;
-                String verdict = ready ? "PRECHECK PASS"
+                String verdict = androidProtectMark ? "ANDROID SHARED MARK — DO NOT ARM"
+                        : ready ? "PRECHECK PASS"
                         : homeExemptionCandidate ? "HOME ENDPOINT EXEMPTION NEEDED" : "NOT READY";
                 result = "KERNEL GUARD READINESS: " + verdict
                         + "\nBoth kernel interfaces UP: " + (interfaces ? "YES" : "NO")
@@ -268,6 +274,8 @@ final class RootDualKernelSession {
                                 airMarkRead ? "OFF OR INVALID" : "QUERY FAILED")
                         + (airMark > 0 ? " (0x" + Long.toHexString(airMark) + ")" : "")
                         + "\nDistinct nonzero WireGuard transport marks: " + (marks ? "YES" : "NO")
+                        + "\nAndroid shared protectedFromVpn mark (0x20000): "
+                        + (androidProtectMark ? "YES — not a safe sole exemption" : "NO")
                         + "\nHome peer has a resolved numeric UDP endpoint: "
                         + (homeEndpoint ? "YES" : "NO")
                         + "\nPublic IPv4/IPv6 root routes select wnair0: "
@@ -275,6 +283,9 @@ final class RootDualKernelSession {
                         + "\nReserved rule-chain collision: " + (reserved4 || reserved6 ? "YES" : "NO")
                         + "\nA Home split tunnel may correctly have no fwmark. "
                         + "It would need an independently tested endpoint transport exemption."
+                        + (androidProtectMark ? "\nThe shared 0x20000 bit also marks other "
+                            + "Android VPN-protected traffic. Do NOT allow all packets with this "
+                            + "mark through a kill switch." : "")
                         + "\nNO firewall rules installed or modified. A precheck pass does "
                         + "NOT prove the mark exemptions work, DNS isolation, crash cleanup, "
                         + "or fail-closed behavior. Actual enforcement remains disabled.";
@@ -484,6 +495,8 @@ final class RootDualKernelSession {
                     throw new IllegalStateException("both were not active");
                 }
                 started = true;
+                homeTraffic.clear();
+                airTraffic.clear();
                 result = "Both kernel interfaces are UP. Verify fresh handshakes, routing, DNS and IPv6.";
             } catch (IllegalArgumentException invalid) {
                 // Route-policy failures are our own fixed, non-secret strings.
@@ -572,6 +585,8 @@ final class RootDualKernelSession {
                 managing = false;
                 startedHome = null;
                 startedEurope = null;
+                homeTraffic.clear();
+                airTraffic.clear();
             }
             finish(callback, stopped, stopped ? "Both Wonhee kernel interfaces stopped."
                     : "Stop incomplete. Check each kernel interface and retry Stop both.");
@@ -657,6 +672,8 @@ final class RootDualKernelSession {
             String status;
             try {
                 status = summarize("Home", home) + "\n" + summarize("AirVPN Europe", europe);
+                status += "\nPassive tunnel counters only. A handshake does not prove "
+                        + "internet reachability, DNS isolation, or leak prevention.";
             } catch (Exception | LinkageError ignored) {
                 status = "Could not read kernel tunnel status; check Magisk root access.";
             }
@@ -666,16 +683,23 @@ final class RootDualKernelSession {
     }
 
     private String summarize(String label, Tunnel tunnel) throws Exception {
-        if (backend.getState(tunnel) != Tunnel.State.UP) return label + ": DOWN";
+        TunnelTrafficHistory traffic = tunnel == home ? homeTraffic : airTraffic;
+        if (backend.getState(tunnel) != Tunnel.State.UP) {
+            traffic.clear();
+            return RootTunnelHealth.render(label, false, 0, 0, -1, null);
+        }
         Statistics stats = backend.getStatistics(tunnel);
         long recent = 0;
         for (Key peer : stats.peers()) {
             Statistics.PeerStats peerStats = stats.peer(peer);
             if (peerStats != null) recent = Math.max(recent, peerStats.latestHandshakeEpochMillis());
         }
-        return label + ": UP | RX " + stats.totalRx() + " B | TX "
-                + stats.totalTx() + " B | handshake "
-                + (recent > 0 ? "observed" : "not observed");
+        long ageSeconds = recent > 0 ? Math.max(0L,
+                (System.currentTimeMillis() - recent) / 1000L) : -1L;
+        TunnelTrafficRates.Result rates = traffic.add(SystemClock.elapsedRealtime(),
+                stats.totalRx(), stats.totalTx());
+        return RootTunnelHealth.render(label, true, stats.totalRx(), stats.totalTx(),
+                ageSeconds, rates);
     }
 
     private static Config parseRuntime(SecureTunnelProfileStore.Profile profile) throws Exception {

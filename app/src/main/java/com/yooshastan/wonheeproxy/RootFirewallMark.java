@@ -5,6 +5,10 @@ import java.util.Locale;
 
 /** Validates the non-secret WireGuard UDP socket mark reported by wg(8). */
 final class RootFirewallMark {
+    // AOSP netd Fwmark bit 17. This is shared Android traffic metadata,
+    // NOT an identity reserved for WireGuard transport sockets.
+    private static final long ANDROID_PROTECTED_FROM_VPN = 0x20000L;
+
     private RootFirewallMark() { }
 
     static long parse(List<String> output) {
@@ -28,5 +32,10 @@ final class RootFirewallMark {
 
     static boolean distinctNonzero(long home, long internet) {
         return home > 0 && internet > 0 && home != internet;
+    }
+
+    static boolean sharedAndroidProtectBit(long home, long internet) {
+        return home == ANDROID_PROTECTED_FROM_VPN
+                && internet == ANDROID_PROTECTED_FROM_VPN;
     }
 }

@@ -22,6 +22,9 @@ public final class RootFirewallMarkTest {
         check(RootFirewallMark.distinctNonzero(0xc91c0, 0xc6488));
         check(!RootFirewallMark.distinctNonzero(0, 0xc6488));
         check(!RootFirewallMark.distinctNonzero(0xc91c0, 0xc91c0));
+        check(RootFirewallMark.sharedAndroidProtectBit(0x20000, 0x20000));
+        check(!RootFirewallMark.sharedAndroidProtectBit(0xc91c0, 0xc91c0));
+        check(!RootFirewallMark.sharedAndroidProtectBit(0x20000, 0xc6488));
         System.out.println("RootFirewallMarkTest passed");
     }
 }
