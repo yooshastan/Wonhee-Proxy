@@ -439,6 +439,85 @@ final class RootDualKernelSession {
         });
     }
 
+    /** Explicit non-mutating live read; kernel names alone do not establish ownership. */
+    void inspectLiveStatus(Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                prepareRoot();
+                result = summarize("Home", home) + "\n" + summarize("AirVPN Europe", europe)
+                        + "\nREAD-ONLY snapshot. Unmanaged interface identities are NOT "
+                        + "verified here. Use VERIFY + RESUME before restarting them. "
+                        + "Counters are not a leak or connectivity audit.";
+                ok = true;
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not read live kernel status. Check root grant and tools.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    /**
+     * Process restart loses in-memory ownership even when kernel links remain.
+     * Explicitly restore management ONLY after both public identities and
+     * split/default routes match the selected encrypted configurations.
+     */
+    void verifyAndResumePair(SecureTunnelProfileStore.Profile homeProfile,
+                             SecureTunnelProfileStore.Profile internetProfile,
+                             Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                if (managing) throw new IllegalStateException("Already managing a pair");
+                Config verifiedHome = parseRuntime(homeProfile);
+                Config verifiedInternet = parseRuntime(internetProfile);
+                validatePair(verifiedHome, verifiedInternet);
+                prepareRoot();
+                if (backend.getState(home) != Tunnel.State.UP
+                        || backend.getState(europe) != Tunnel.State.UP) {
+                    result = "Cannot resume: both wnhome0 and wnair0 must already be UP. "
+                            + "If only one remains, inspect and recover matching interfaces first.";
+                } else if (!matchesKernelIdentity(home, verifiedHome)
+                        || !matchesKernelIdentity(europe, verifiedInternet)) {
+                    result = "Resume refused: running kernel interface or peer identity "
+                            + "does not match the selected encrypted profiles. No change made.";
+                } else {
+                    boolean homeRoutes = true;
+                    for (InetNetwork route : verifiedHome.getPeers().get(0).getAllowedIps()) {
+                        InetAddress target = route.getAddress();
+                        homeRoutes &= routeUses(target.getHostAddress(),
+                                !(target instanceof Inet4Address), home.getName());
+                    }
+                    boolean internetRoutes = routeUses("1.1.1.1", false, europe.getName())
+                            && routeUses("2606:4700:4700::1111", true, europe.getName());
+                    if (!homeRoutes || !internetRoutes) {
+                        result = "Resume refused: active Home split routes or public "
+                                + "IPv4/IPv6 default routes did not match. No change made.";
+                    } else {
+                        startedHome = verifiedHome;
+                        startedEurope = verifiedInternet;
+                        homeTraffic.clear();
+                        airTraffic.clear();
+                        managing = true;
+                        ok = true;
+                        result = "Both active kernel identities and route decisions match. "
+                                + "Wonhee resumed managing this pair in the current process; "
+                                + "live monitoring and manual restart are now available. "
+                                + "No routes or firewall rules were modified.";
+                    }
+                }
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not securely resume this pair. Verify imported profiles, "
+                        + "root grant, running identities, and routes. No changes made.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
     private boolean routeUses(String numericHost, boolean ipv6, String device) throws Exception {
         List<String> lines = new ArrayList<>();
         String family = ipv6 ? "ip -6" : "ip -4";
@@ -557,6 +636,25 @@ final class RootDualKernelSession {
         worker.execute(() -> {
             if (!managing) {
                 finish(callback, false, "No pair owned by this Wonhee process. No interfaces changed.");
+                return;
+            }
+            // Names can be reused after a crash or another root action.
+            // Verify BOTH identities before changing EITHER interface.
+            try {
+                prepareRoot();
+                if (startedHome == null || startedEurope == null
+                        || (backend.getState(home) == Tunnel.State.UP
+                            && !matchesKernelIdentity(home, startedHome))
+                        || (backend.getState(europe) == Tunnel.State.UP
+                            && !matchesKernelIdentity(europe, startedEurope))) {
+                    finish(callback, false, "Stop refused: current interface identity "
+                            + "does not match the pair this process manages. "
+                            + "Inspect running interfaces; no changes made.");
+                    return;
+                }
+            } catch (Exception | LinkageError ignored) {
+                finish(callback, false, "Stop refused: could not verify both "
+                        + "managed interface identities. No changes made.");
                 return;
             }
             boolean airDown = false;

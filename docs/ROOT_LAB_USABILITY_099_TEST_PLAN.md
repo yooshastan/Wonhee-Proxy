@@ -1,4 +1,4 @@
-# Wonhee Proxy Alpha 0.9.9.0 — profile persistence, monitoring, manual recovery
+# Wonhee Proxy Alpha 0.9.9.1 — profile persistence, visible monitoring, recovery
 
 This release builds on the tested two-kernel-interface baseline without
 changing the WireGuard backend, DNS, routing, Android VpnService, or firewall
@@ -30,13 +30,29 @@ Copying diagnostics to Android's clipboard may make them visible to other apps.
 
 ## Per-tunnel live monitoring
 
-1. Start the two known-good tunnels and wait at least 10 seconds on the root lab.
-2. Check that Home and Internet each show their own RX/TX totals, live throughput
+1. Find the **LIVE HOME + INTERNET STATUS** card near the top of the root lab.
+2. Tap **READ LIVE STATUS (NO CHANGES)** before starting the tunnels. It may
+   request root access, but must not change interface or firewall state.
+3. Start the two known-good tunnels and wait at least 10 seconds on the root lab.
+4. Check that Home and Internet each show their own RX/TX totals, live throughput
    (after two 5-second samples) and time since last WireGuard handshake.
-3. Open Navidrome through Home and a public website through AirVPN. Both counters
+5. Open Navidrome through Home and a public website through AirVPN. Both counters
    should change independently. An idle tunnel may have an old handshake time.
-4. Stop both: the monitoring view should become idle and later starting tunnels
+6. Stop both: the monitoring view should become idle and later starting tunnels
    should begin with fresh speed samples, not old values.
+
+## Re-attach live kernel interfaces after an app restart
+
+1. Start both tunnels and ensure both active handshakes and routes are correct.
+2. Force-stop the root-lab app or install an update without manually tearing
+   down the kernel interfaces; inspect that both kernel links remain UP.
+3. Reopen the app. **READ LIVE STATUS** must show a read-only snapshot even
+   though this process does not yet manage the pair.
+4. Select the exact same saved Home and Internet profiles. Tap **VERIFY + RESUME
+   EXISTING PAIR**, confirm, and check that it resumes management with no
+   interface changes. Live statistics should now refresh automatically.
+5. Pick an intentionally mismatched saved profile and retry on a fresh process:
+   verification must refuse management. Do not run restart against a mismatch.
 
 ## Explicit recovery (no unattended network changes)
 

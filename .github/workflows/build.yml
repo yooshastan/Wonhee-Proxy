@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.9.9.0 Profile and Live Monitoring
+name: Wonhee Proxy 0.9.9.1 Live Status and Resume Fix
 
 on:
   push:
@@ -104,7 +104,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0990-profile-monitoring-debug-apk
+          name: wonhee-0991-live-status-resume-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

@@ -43,6 +43,8 @@ public final class RootDualKernelActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private Button restartButton;
+    private Button resumeButton;
+    private Button refreshLiveButton;
     private Button recoverButton;
     private Button firewallPreflightButton;
     private Button guardReadinessButton;
@@ -86,6 +88,28 @@ public final class RootDualKernelActivity extends Activity {
                 + "during this test. Kernel tunnels are NOT managed by Android VpnService. "
                 + "No kill switch, reboot recovery or DNS-leak guarantee is provided. "
                 + "Do not rely on this test for privacy-sensitive traffic.", 13, PINK);
+
+        // Keep the primary live status above the long diagnostic tool list.
+        LinearLayout livePanel = card(column);
+        label(livePanel, "LIVE HOME + INTERNET STATUS", 17, PINK);
+        label(livePanel, "Individual speed, traffic total and handshake age. Refreshes "
+                + "every 5 seconds while this process manages the pair.", 12, MUTED);
+        liveStatus = label(livePanel, "Tap READ LIVE STATUS to inspect the two kernel "
+                + "interfaces. If they survived an app restart, verify their identities "
+                + "before resuming control.", 14, WHITE);
+        refreshLiveButton = button(livePanel, "READ LIVE STATUS (NO CHANGES)");
+        refreshLiveButton.setOnClickListener(v -> {
+            liveStatus.setText("Reading kernel interface counters...");
+            dual.inspectLiveStatus((ok, detail) -> {
+                if (isFinishing()) return;
+                liveStatus.setText(detail);
+                if (!ok) publishResult(detail);
+                refreshButtons();
+            });
+            refreshButtons();
+        });
+        resumeButton = button(livePanel, "VERIFY + RESUME EXISTING PAIR");
+        resumeButton.setOnClickListener(v -> confirmResume());
 
         LinearLayout profiles = card(column);
         label(profiles, "SELECTED CONFIGURATIONS", 17, PINK);
@@ -135,7 +159,11 @@ public final class RootDualKernelActivity extends Activity {
         stopButton.setOnClickListener(v -> {
             status.setText("Stopping both Wonhee-owned kernel interfaces...");
             dual.stopPair((ok, detail) -> {
-                if (!isFinishing()) { publishResult(detail); refreshButtons(); }
+                if (!isFinishing()) {
+                    publishResult(detail);
+                    if (ok) liveStatus.setText("Both managed kernel tunnels stopped.");
+                    refreshButtons();
+                }
             });
             refreshButtons();
         });
@@ -239,9 +267,8 @@ public final class RootDualKernelActivity extends Activity {
             uiPreferences.clearDiagnostic();
             status.setText("Saved diagnostic cleared. No tunnel configuration changed.");
         });
-        label(diagnostics, "LIVE PAIR STATUS: PER-TUNNEL SPEED + HANDSHAKE AGE (5S)", 12, MUTED);
-        liveStatus = label(diagnostics, "No active session status yet.", 13, WHITE);
-        label(diagnostics, "A long handshake age can mean an idle tunnel; it is not "
+        label(diagnostics, "The live pair dashboard is at the top of this screen. "
+                + "A long handshake age can mean an idle tunnel; it is not "
                 + "proof that the connection has failed. Counters are not whole-device "
                 + "traffic or a DNS/leak audit.", 12, MUTED);
         label(diagnostics, "Copying a result places it on Android's clipboard. It contains "
@@ -409,8 +436,44 @@ public final class RootDualKernelActivity extends Activity {
                             publishResult((started ? "Manual restart completed. "
                                     : "Manual restart failed after stopping old pair. ")
                                     + startDetail);
+                            liveStatus.setText(started ? "Pair restarted. Measuring fresh "
+                                    + "traffic and handshakes..." : "Pair restart failed. "
+                                    + "Read live status to inspect remaining interfaces.");
                             refreshButtons();
                         });
+                        refreshButtons();
+                    });
+                    refreshButtons();
+                }).show();
+    }
+
+    private void confirmResume() {
+        if (dual.isBusy() || dual.isManagingPair()) return;
+        int homeIndex = homeChoice.getSelectedItemPosition();
+        int internetIndex = airChoice.getSelectedItemPosition();
+        if (homeIndex < 0 || internetIndex < 0 || homeIndex == internetIndex
+                || homeIndex >= saved.size() || internetIndex >= saved.size()) {
+            publishResult("Select different Home and Internet profiles first.");
+            return;
+        }
+        SecureTunnelProfileStore.Profile selectedHome = saved.get(homeIndex);
+        SecureTunnelProfileStore.Profile selectedInternet = saved.get(internetIndex);
+        new AlertDialog.Builder(this)
+                .setTitle("Resume control of existing kernel tunnels?")
+                .setMessage("If both interfaces survived an app restart, Wonhee will "
+                        + "verify their WireGuard public identities, peers, and Home/Internet "
+                        + "routes against the profiles you selected. Nothing is modified "
+                        + "by this verification. If every check passes, the app can "
+                        + "monitor and manually restart that existing pair.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Verify and resume", (dialog, which) -> {
+                    status.setText("Verifying existing kernel identities and routes...");
+                    dual.verifyAndResumePair(selectedHome, selectedInternet, (ok, detail) -> {
+                        if (isFinishing()) return;
+                        publishResult(detail);
+                        liveStatus.setText(ok ? "Verified active pair. Measuring live "
+                                + "traffic now..." : "Unable to resume; "
+                                + "tap READ LIVE STATUS for a read-only snapshot.");
                         refreshButtons();
                     });
                     refreshButtons();
@@ -426,6 +489,8 @@ public final class RootDualKernelActivity extends Activity {
         startButton.setEnabled(!busy && !managing && saved.size() >= 2);
         stopButton.setEnabled(!busy && managing);
         restartButton.setEnabled(!busy && managing && saved.size() >= 2);
+        resumeButton.setEnabled(!busy && !managing && saved.size() >= 2);
+        refreshLiveButton.setEnabled(!busy);
         recoverButton.setEnabled(!busy && !managing && saved.size() >= 2);
         firewallPreflightButton.setEnabled(!busy);
         guardReadinessButton.setEnabled(!busy);
