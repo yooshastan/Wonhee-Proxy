@@ -1,6 +1,6 @@
 # Wonhee: rootless multi-tunnel engine experiment
 
-**Status: routing-classifier spike only. NOT a functioning two-VPN APK.**
+**Status: stage-3 offline packet-flow prototype. NOT a functioning two-VPN APK.**
 
 This branch starts the groundwork for simultaneously connecting two **independently
 keyed** WireGuard configurations on an unrooted Pixel 8a or Samsung A36:
@@ -63,17 +63,41 @@ safe to validate on the working ASUS router profile without changing keys.
 unchanged.** The opt-in recovery feature is already implemented in the
 existing app; it does not establish a second independent session.
 
+## Stage 3: IPv4 packet flow (offline-only)
+
+The experimental `MultiTunnelIpv4Rewriter` and `MultiTunnelPacketFlow` now
+prepare outbound packets for each independent client tunnel address, and
+restore inbound replies to the one virtual Android TUN address. They:
+
+- Copy input packets, never change the caller's buffer, and recalculate IPv4
+  header and TCP/UDP pseudoheader checksums after translation.
+- Preserve IPv4 UDP's intentionally disabled checksum (zero) and handle ICMP
+  echo without rewriting its unchanged payload checksum.
+- Reject malformed headers, unexpected virtual/client addresses, fragmented
+  IPv4, unsupported protocols, ICMP errors (which embed IP headers), and IPv6.
+- Check reply source-route ownership: Home-only sources cannot enter from
+  AirVPN, and public Internet replies cannot enter from Home.
+- Attach lifecycle epoch permits to outgoing packets; any stop/reconnect
+  invalidates a previously queued packet before an eventual native send.
+
+The new `MultiTunnelPacketFlowTest` builds real IPv4 TCP, UDP and ICMP
+packet bytes, checks both forward/reverse address changes, recomputed
+checksums, spoofed cross-tunnel replies, malformed packets and stale permits.
+The Android app still uses the unchanged single-tunnel GoBackend; these classes
+are **not** connected to traffic, and no actual encrypted session, native
+packet pump, security audit or on-device dual-tunnel test is claimed.
+
 ## Next engineering work before an on-phone experiment
 
 1. **Native multi-session transport.** Introduce a new experimental backend
    alongside `WireGuardSession`; do not mutate the stable GoBackend path.
    Feed separate virtual packet interfaces to two genuine wireguard-go
    instances while keeping only one Android system TUN and one VpnService.
-2. **Per-session identity and address policy.** Because AirVPN and Home use
-   different client tunnel addresses, handle packet source selection and
-   validated IPv4/IPv6 checksums. Do not assume two independent `[Interface]`
-   keys can be merged into one WireGuard interface. IPv6 needs dedicated
-   treatment rather than unchecked fall-through.
+2. **Complete and test live packet transformation.** The stage-3 offline-only
+   IPv4 rewriter handles source identity and TCP/UDP checksums for simple
+   unfragmented flows. Validate against native wireguard-go I/O, TCP, UDP,
+   ICMP, DNS, MTU, packet fragmentation, IPv6 extension headers, and ICMP
+   errors before allowing an on-device opt-in; IPv6 is currently dropped.
 3. **Socket protection and endpoint routing.** Every underlying UDP socket
    must be protected via `VpnService.protect`, and packets to the two
    WireGuard peer endpoints must not loop back into the VPN. Handle endpoint
@@ -90,7 +114,7 @@ existing app; it does not establish a second independent session.
    the native engine passes basic packet I/O, cancellation and teardown tests.
    Never silently enable an unverified security-critical transport.
 7. **Device validation.** Pixel 8a (GrapheneOS), Samsung A36; AirVPN public
-   egress IP, Navidrome over `10.77.0.1:4533`, Web/DNS IPv4+IPv6,
+   egress IP, Navidrome over `10.0.0.169:4533` via the ASUS Home tunnel, Web/DNS IPv4+IPv6,
    killswitch/lockdown, airplane/Wi-Fi/cellular switches, overnight recovery,
    and repeated process termination. Capture tests at both server and phone.
 
