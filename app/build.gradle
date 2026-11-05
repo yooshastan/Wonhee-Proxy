@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 24
-        versionName '0.9.5-root-dual-lab'
+        versionCode 25
+        versionName '0.9.5.1-root-dual-compat'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
