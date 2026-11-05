@@ -80,6 +80,7 @@ public final class VpnActivity extends Activity {
     private boolean homeServiceProbeRunning;
     private boolean resumeRecoveryPending;
     private Spinner savedPicker;
+    private Spinner rolePicker;
     private LinearLayout tunnelList;
     private Spinner routingPicker;
     private EditText homeRoutes;
@@ -135,7 +136,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · 0.9.5.1 rooted compatibility test", 15, MUTED);
+        label(root, "WireGuard VPN · 0.9.6.0 security capability preview", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -283,6 +284,18 @@ public final class VpnActivity extends Activity {
         profileName.setHintTextColor(MUTED);
         profileName.setHint("Profile name, e.g. Home VPN");
         configCard.addView(profileName);
+        label(configCard, "TUNNEL ROLE (EDITABLE AFTER IMPORT)", 13, PINK);
+        rolePicker = new Spinner(this);
+        ArrayAdapter<String> roleAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, new String[] {
+                    "Other / custom tunnel", "Home / ASUS split tunnel", "Internet exit tunnel"
+                });
+        roleAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        rolePicker.setAdapter(roleAdapter);
+        configCard.addView(rolePicker);
+        label(configCard, "The root lab uses saved roles to suggest profile selection. "
+                + "Choose matching routes and DNS below, then save; the role alone "
+                + "does not alter network routing.", 12, MUTED);
         label(configCard, "ADVANCED SETTINGS FOR SELECTED TUNNEL", 13, PINK);
         addPeerButton = button(configCard, "Advanced: Add private gateway peer");
         addPeerButton.setOnClickListener(v -> chooseExtraPeer());
@@ -950,38 +963,135 @@ public final class VpnActivity extends Activity {
             return;
         }
 
-        int imported = 0;
-        int rejected = 0;
-        String latest = null;
-        for (Uri uri : documents) {
-            try {
-                // Validation precedes saving. Existing profiles are never overwritten.
-                Config config = readConfiguration(uri);
-                String candidate = TunnelProfileNaming.fromFilename(displayDocumentName(uri));
-                String newName = TunnelProfileNaming.unique(candidate, existingProfileNames());
-                SecureTunnelProfileStore.Profile profile =
-                        new SecureTunnelProfileStore.Profile(
-                                newName, config.toWgQuickString(),
-                                VpnRouteModes.PROFILE, "");
-                profileStore.save(profile);
-                profiles.add(profile);
-                latest = profile.name;
-                imported++;
-            } catch (Exception | LinkageError invalid) {
-                rejected++;
-                // Never show URI/provider paths, keys or WireGuard parser details.
+        promptForNextImport(documents, 0, 0, 0, null);
+    }
+
+    /** Ask for a role and routing policy for EACH imported file, including batch selections. */
+    private void promptForNextImport(List<Uri> documents, int index,
+                                     int imported, int skipped, String latest) {
+        if (isFinishing() || isDestroyed()) return;
+        if (index >= documents.size()) {
+            if (latest != null) reloadProfiles(latest);
+            else refreshButtons();
+            message.setText(imported + " profile(s) imported and configured. "
+                    + skipped + " skipped or invalid. "
+                    + "Profiles remain encrypted; routing choices can be edited later.");
+            return;
+        }
+        final Config config;
+        final String newName;
+        try {
+            config = readConfiguration(documents.get(index));
+            String candidate = TunnelProfileNaming.fromFilename(
+                    displayDocumentName(documents.get(index)));
+            newName = TunnelProfileNaming.unique(candidate, existingProfileNames());
+        } catch (Exception | LinkageError invalid) {
+            // Never show configuration, provider URI or parser exception text.
+            promptForNextImport(documents, index + 1, imported, skipped + 1, latest);
+            return;
+        }
+
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(20), dp(8), dp(20), dp(8));
+        TextView explanation = new TextView(this);
+        explanation.setText("File " + (index + 1) + " of " + documents.size()
+                + " · " + newName + "\nChoose how this tunnel will be used. "
+                + "The original keys and imported configuration will be preserved.");
+        fields.addView(explanation);
+
+        Spinner rolePicker = new Spinner(this);
+        String[] roleNames = {
+                "Home / ASUS — split routes",
+                "Internet exit — IPv4 + IPv6 defaults",
+                "Other — preserve imported routes"
+        };
+        ArrayAdapter<String> roleAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, roleNames);
+        rolePicker.setAdapter(roleAdapter);
+        fields.addView(rolePicker);
+        String lowerName = newName.toLowerCase(Locale.ROOT);
+        if (lowerName.contains("air") || lowerName.contains("europe")) rolePicker.setSelection(1);
+        else if (!(lowerName.contains("home") || lowerName.contains("asus")
+                || lowerName.contains("wgs_client"))) rolePicker.setSelection(2);
+
+        TextView routesLabel = new TextView(this);
+        routesLabel.setText("Home CIDRs (used only for Home / ASUS)");
+        fields.addView(routesLabel);
+        EditText customRoutes = new EditText(this);
+        customRoutes.setSingleLine(false);
+        customRoutes.setHint("10.0.0.0/24, 10.6.0.0/24");
+        customRoutes.setText(VpnRouteModes.suggestedHomeRoutes(config));
+        fields.addView(customRoutes);
+        TextView warning = new TextView(this);
+        warning.setText("Internet exit requests both default routes at connection time. "
+                + "Use a provider profile with IPv4 and IPv6 tunnel addresses. "
+                + "Neither choice proves DNS-leak protection or a kill switch.");
+        fields.addView(warning);
+
+        TextView dnsLabel = new TextView(this);
+        dnsLabel.setText("DNS for this profile (does not enforce device-wide DNS)");
+        fields.addView(dnsLabel);
+        Spinner dnsChoice = new Spinner(this);
+        dnsChoice.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, VpnDnsPresets.LABELS));
+        fields.addView(dnsChoice);
+        EditText customDns = new EditText(this);
+        customDns.setSingleLine(true);
+        customDns.setHint("Custom DNS: 1.1.1.1, 1.0.0.1");
+        customDns.setVisibility(View.GONE);
+        fields.addView(customDns);
+        dnsChoice.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view,
+                                                 int position, long id) {
+                customDns.setVisibility(position == VpnDnsPresets.CUSTOM ? View.VISIBLE : View.GONE);
             }
-        }
-        if (latest != null) {
-            reloadProfiles(latest);
-        } else {
-            refreshButtons();
-        }
-        message.setText(imported + " WireGuard tunnel(s) imported into encrypted storage. "
-                + (rejected > 0
-                    ? rejected + " file(s) could not be imported (invalid, duplicate, or storage full). "
-                    : "")
-                + (imported > 0 ? "Select a tunnel and tap Connect." : "No stored tunnels changed."));
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Configure imported tunnel")
+                .setView(fields)
+                .setNegativeButton("Skip file", (d, which) ->
+                        promptForNextImport(documents, index + 1, imported, skipped + 1, latest))
+                .setPositiveButton("Save profile", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    if (session != null && (session.isConnected() || session.isBusy())) {
+                        warning.setText("Disconnect the normal VPN before saving imported profiles.");
+                        return;
+                    }
+                    int selected = rolePicker.getSelectedItemPosition();
+                    int role = selected == 0 ? SecureTunnelProfileStore.Profile.ROLE_HOME
+                            : selected == 1 ? SecureTunnelProfileStore.Profile.ROLE_INTERNET
+                            : SecureTunnelProfileStore.Profile.ROLE_OTHER;
+                    int mode = selected == 0 ? VpnRouteModes.HOME
+                            : selected == 1 ? VpnRouteModes.ALL : VpnRouteModes.PROFILE;
+                    String routes = selected == 0 ? customRoutes.getText().toString().trim() : "";
+                    try {
+                        // Validate the effective routes without modifying the saved raw .conf.
+                        Config routed = VpnRouteModes.prepare(config, mode, routes);
+                        int chosenDns = dnsChoice.getSelectedItemPosition();
+                        boolean dnsOverride = VpnDnsPresets.isOverride(chosenDns);
+                        String dnsAddresses = VpnDnsPresets.addresses(
+                                chosenDns, customDns.getText().toString());
+                        VpnDnsOverride.prepare(routed, dnsOverride, dnsAddresses);
+                        SecureTunnelProfileStore.Profile profile =
+                                new SecureTunnelProfileStore.Profile(
+                                        newName, config.toWgQuickString(), mode, routes,
+                                        dnsOverride, dnsAddresses, role);
+                        profileStore.save(profile);
+                        profiles.add(profile);
+                        dialog.dismiss();
+                        promptForNextImport(documents, index + 1, imported + 1, skipped, newName);
+                    } catch (Exception | LinkageError invalid) {
+                        warning.setText("Cannot save this routing or DNS choice. For Home, enter "
+                                + "split CIDRs without /0. A custom DNS server must be within "
+                                + "the selected tunnel routes. Check profile storage if valid.");
+                    }
+                }));
+        dialog.show();
     }
 
     private String displayDocumentName(Uri uri) {
@@ -1003,6 +1113,11 @@ public final class VpnActivity extends Activity {
             names.add(profile.name);
         }
         return names;
+    }
+
+    private int selectedSavedRole() {
+        return rolePicker == null ? SecureTunnelProfileStore.Profile.ROLE_OTHER
+                : rolePicker.getSelectedItemPosition();
     }
 
     private String availableImportName() {
@@ -1062,6 +1177,7 @@ public final class VpnActivity extends Activity {
             }
             pendingConnection = null;
             profileName.setText(profile.name);
+            rolePicker.setSelection(profile.role);
             routingPicker.setSelection(profile.routeMode);
             homeRoutes.setText(profile.homeRoutes.isEmpty()
                     ? VpnRouteModes.suggestedHomeRoutes(selectedConfig) : profile.homeRoutes);
@@ -1110,7 +1226,7 @@ public final class VpnActivity extends Activity {
             updated = new SecureTunnelProfileStore.Profile(
                     profileName.getText().toString(), selectedConfig.toWgQuickString(),
                     routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString(),
-                    dnsOverrideEnabled(), chosenDnsAddresses());
+                    dnsOverrideEnabled(), chosenDnsAddresses(), selectedSavedRole());
         } catch (IllegalArgumentException invalid) {
             message.setText(invalid.getMessage());
             return;
@@ -1157,8 +1273,9 @@ public final class VpnActivity extends Activity {
         }
         SecureTunnelProfileStore.Profile existing = profiles.get(index);
         if (!existing.name.equals(profileName.getText().toString().trim())
-                || !existing.configuration.equals(selectedConfig.toWgQuickString())) {
-            message.setText("Profile name or configuration has unsaved changes. "
+                || !existing.configuration.equals(selectedConfig.toWgQuickString())
+                || selectedSavedRole() != existing.role) {
+            message.setText("Profile identity, role or configuration has unsaved changes. "
                     + "Use Save profile settings before connecting.");
             return false;
         }
@@ -1169,7 +1286,7 @@ public final class VpnActivity extends Activity {
                             routingPicker.getSelectedItemPosition(),
                             homeRoutes.getText().toString(),
                             dnsOverrideEnabled(),
-                            chosenDnsAddresses());
+                            chosenDnsAddresses(), existing.role);
             profileStore.save(updated);
             profileStore.rememberSelectedIndex(index);
             profiles.set(index, updated);
@@ -1201,6 +1318,7 @@ public final class VpnActivity extends Activity {
                         selectedConfig = null;
                         pendingConnection = null;
                         profileName.setText("");
+                        rolePicker.setSelection(SecureTunnelProfileStore.Profile.ROLE_OTHER);
                         routingPicker.setSelection(VpnRouteModes.PROFILE);
                         homeRoutes.setText("");
                         dnsPicker.setSelection(VpnDnsPresets.IMPORTED);
@@ -1515,6 +1633,7 @@ public final class VpnActivity extends Activity {
         deleteButton.setEnabled(!active && !busy && !rootPairActive && !profiles.isEmpty());
         savedPicker.setEnabled(!active && !busy && !rootPairActive);
         profileName.setEnabled(!active && !busy && !rootPairActive);
+        rolePicker.setEnabled(!active && !busy && !rootPairActive);
         routingPicker.setEnabled(!active && !busy && !rootPairActive);
         homeRoutes.setEnabled(!active && !busy && !rootPairActive);
         dnsPicker.setEnabled(!active && !busy && !rootPairActive);

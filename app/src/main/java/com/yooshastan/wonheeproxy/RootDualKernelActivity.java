@@ -2,6 +2,11 @@ package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -24,6 +29,7 @@ public final class RootDualKernelActivity extends Activity {
     private static final int PINK = 0xfffbadd8;
     private static final int WHITE = 0xfff8f1f9;
     private static final int MUTED = 0xffc4b7c9;
+    private static final int PANEL = 0xff242033;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<SecureTunnelProfileStore.Profile> saved = new ArrayList<>();
     private RootDualKernelSession dual;
@@ -32,13 +38,17 @@ public final class RootDualKernelActivity extends Activity {
     private Button checkButton;
     private Button startButton;
     private Button stopButton;
+    private Button recoverButton;
+    private Button firewallPreflightButton;
+    private Button dnsRouteCheckButton;
     private TextView status;
+    private TextView liveStatus;
     private boolean visible;
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!visible) return;
             if (dual.isManagingPair() && !dual.isBusy()) {
-                dual.readStatus(message -> { if (visible) status.setText(message); });
+                dual.readStatus(message -> { if (visible) liveStatus.setText(message); });
             }
             refreshButtons();
             handler.postDelayed(this, 5000L);
@@ -57,8 +67,9 @@ public final class RootDualKernelActivity extends Activity {
         scroll.addView(column);
         setContentView(scroll);
 
-        label(column, "ROOT DUAL-TUNNEL LAB", 24, PINK);
-        label(column, "Pixel 8a experiment · two kernel WireGuard interfaces", 14, MUTED);
+        label(column, "WONHEE PROXY", 26, PINK);
+        label(column, "MULTI-TUNNEL CONTROL  ·  ROOT PREVIEW", 12, MUTED);
+        label(column, "Pixel 8a experiment · two active kernel WireGuard interfaces", 14, MUTED);
         label(column, "Home stays split-tunnel (10.6.0.0/24, 10.0.0.0/24). "
                 + "AirVPN Europe supplies both IPv4 and IPv6 default routes. "
                 + "Imported keys and saved profiles are not modified.", 14, WHITE);
@@ -67,14 +78,24 @@ public final class RootDualKernelActivity extends Activity {
                 + "No kill switch, reboot recovery or DNS-leak guarantee is provided. "
                 + "Do not rely on this test for privacy-sensitive traffic.", 13, PINK);
 
-        label(column, "Home / ASUS profile", 16, WHITE);
+        LinearLayout profiles = card(column);
+        label(profiles, "SELECTED CONFIGURATIONS", 17, PINK);
+        label(profiles, "Import several .conf files, then choose one Home split tunnel "
+                + "and one internet exit. This preview activates two at a time; "
+                + "additional concurrent tunnels need route validation.", 13, MUTED);
+        Button importButton = button(profiles, "IMPORT / MANAGE .CONF FILES");
+        importButton.setOnClickListener(v -> startActivity(new Intent(this, VpnActivity.class)));
+        label(profiles, "Home / ASUS profile", 16, WHITE);
         homeChoice = new Spinner(this);
-        column.addView(homeChoice);
-        label(column, "AirVPN Europe profile", 16, WHITE);
+        profiles.addView(homeChoice);
+        label(profiles, "Internet / AirVPN profile", 16, WHITE);
         airChoice = new Spinner(this);
-        column.addView(airChoice);
+        profiles.addView(airChoice);
 
-        checkButton = button(column, "Check root + kernel tools");
+        LinearLayout controls = card(column);
+        label(controls, "KERNEL CONNECTION", 17, PINK);
+
+        checkButton = button(controls, "CHECK ROOT + KERNEL TOOLS");
         checkButton.setOnClickListener(v -> {
             status.setText("Checking root access and bundled kernel tools...");
             refreshButtons();
@@ -82,9 +103,9 @@ public final class RootDualKernelActivity extends Activity {
                 if (!isFinishing()) { status.setText(detail); refreshButtons(); }
             });
         });
-        startButton = button(column, "START BOTH KERNEL TUNNELS");
+        startButton = button(controls, "START SELECTED TUNNELS");
         startButton.setOnClickListener(v -> confirmStart());
-        stopButton = button(column, "STOP BOTH KERNEL TUNNELS");
+        stopButton = button(controls, "STOP BOTH KERNEL TUNNELS");
         stopButton.setOnClickListener(v -> {
             status.setText("Stopping both Wonhee-owned kernel interfaces...");
             dual.stopPair((ok, detail) -> {
@@ -92,7 +113,52 @@ public final class RootDualKernelActivity extends Activity {
             });
             refreshButtons();
         });
-        status = label(column, "Ready for root preflight. Nothing has been started.", 14, WHITE);
+        recoverButton = button(controls, "RECOVER MATCHING OLD INTERFACES");
+        recoverButton.setOnClickListener(v -> confirmRecovery());
+        LinearLayout privacy = card(column);
+        label(privacy, "PRIVACY ENFORCEMENT LAB", 17, PINK);
+        label(privacy, "No verified kernel kill switch is installed. The Android Always-on "
+                + "lockdown setting does not protect this root-only test. Before enabling "
+                + "firewall changes, verify IPv4, IPv6, encrypted transport exceptions, "
+                + "DNS behavior, crash recovery and reboot state.", 13, MUTED);
+        firewallPreflightButton = button(privacy, "CHECK FIREWALL CAPABILITIES (READ ONLY)");
+        firewallPreflightButton.setOnClickListener(v -> {
+            status.setText("Checking root firewall tools without installing rules...");
+            dual.checkFirewallCapabilities((ok, detail) -> {
+                if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
+        dnsRouteCheckButton = button(privacy, "CHECK INTERNET DNS ROUTES (READ ONLY)");
+        dnsRouteCheckButton.setOnClickListener(v -> {
+            int selected = airChoice.getSelectedItemPosition();
+            if (selected < 0 || selected >= saved.size()) {
+                status.setText("Select an Internet profile before testing its DNS routes.");
+                return;
+            }
+            status.setText("Checking configured DNS destination routes, not actual DNS traffic...");
+            dual.checkInternetDnsRoutes(saved.get(selected), (ok, detail) -> {
+                if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
+        LinearLayout diagnostics = card(column);
+        label(diagnostics, "CONNECTION DIAGNOSTICS", 17, PINK);
+        label(diagnostics, "LAST TEST RESULT (PRESERVED UNTIL NEXT ACTION)", 12, MUTED);
+        status = label(diagnostics, "Ready for root preflight. Nothing has been started.", 14, WHITE);
+        Button copyResult = button(diagnostics, "COPY LAST TEST RESULT");
+        copyResult.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText(
+                        "Wonhee root diagnostic", status.getText()));
+            }
+        });
+        label(diagnostics, "LIVE KERNEL STATUS (REFRESHES EVERY 5 SECONDS)", 12, MUTED);
+        liveStatus = label(diagnostics, "No active session status yet.", 13, WHITE);
+        label(diagnostics, "Copying a result places it on Android's clipboard. It contains "
+                + "no private WireGuard keys, but other apps may read clipboard content.",
+                12, MUTED);
         label(column, "Test from cellular: check that 10.0.0.169:4533 opens, "
                 + "that public IPv4/IPv6 egress is AirVPN Europe, and that DNS resolves. "
                 + "Check both fresh handshakes, then STOP BOTH. "
@@ -129,14 +195,21 @@ public final class RootDualKernelActivity extends Activity {
         airAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         homeChoice.setAdapter(homeAdapter);
         airChoice.setAdapter(airAdapter);
+        int chosenHome = -1;
+        int chosenInternet = -1;
+        for (int i = 0; i < saved.size(); ++i) {
+            if (saved.get(i).role == SecureTunnelProfileStore.Profile.ROLE_HOME) chosenHome = i;
+            if (saved.get(i).role == SecureTunnelProfileStore.Profile.ROLE_INTERNET) chosenInternet = i;
+        }
         for (int i = 0; i < saved.size(); ++i) {
             String name = saved.get(i).name.toLowerCase(java.util.Locale.ROOT);
-            if (name.contains("home") || name.contains("pixel") || name.contains("asus")) {
-                homeChoice.setSelection(i);
-            } else if (name.contains("air") || name.contains("europe")) {
-                airChoice.setSelection(i);
-            }
+            if (chosenHome < 0 && (name.contains("home") || name.contains("pixel")
+                    || name.contains("asus") || name.contains("wgs_client"))) chosenHome = i;
+            if (chosenInternet < 0 && (name.contains("air") || name.contains("europe")))
+                chosenInternet = i;
         }
+        if (chosenHome >= 0) homeChoice.setSelection(chosenHome);
+        if (chosenInternet >= 0) airChoice.setSelection(chosenInternet);
     }
 
     private void confirmStart() {
@@ -174,6 +247,35 @@ public final class RootDualKernelActivity extends Activity {
                 }).show();
     }
 
+    private void confirmRecovery() {
+        if (dual.isBusy() || dual.isManagingPair()) return;
+        int homeIndex = homeChoice.getSelectedItemPosition();
+        int internetIndex = airChoice.getSelectedItemPosition();
+        if (homeIndex < 0 || internetIndex < 0 || homeIndex == internetIndex
+                || homeIndex >= saved.size() || internetIndex >= saved.size()) {
+            status.setText("Select two distinct saved profiles before recovery.");
+            return;
+        }
+        SecureTunnelProfileStore.Profile selectedHome = saved.get(homeIndex);
+        SecureTunnelProfileStore.Profile selectedAir = saved.get(internetIndex);
+        new AlertDialog.Builder(this)
+                .setTitle("Stop matching orphaned interfaces?")
+                .setMessage("Recovery can disconnect your home and internet tunnels. "
+                        + "Wonhee will verify the interface AND peer public keys against "
+                        + "your selected saved profiles before stopping either interface. "
+                        + "Unknown interfaces will not be changed. There is no verified "
+                        + "kill switch, so ordinary traffic may use cellular afterward. "
+                        + "Start the tunnels again manually after recovery.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Verify and stop", (dialog, which) -> {
+                    status.setText("Checking old kernel identities before any cleanup...");
+                    dual.recoverMatchingPair(selectedHome, selectedAir, (ok, detail) -> {
+                        if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+                    });
+                    refreshButtons();
+                }).show();
+    }
+
     private void refreshButtons() {
         if (startButton == null) return;
         boolean busy = dual.isBusy();
@@ -181,12 +283,16 @@ public final class RootDualKernelActivity extends Activity {
         checkButton.setEnabled(!busy && !managing);
         startButton.setEnabled(!busy && !managing && saved.size() >= 2);
         stopButton.setEnabled(!busy && managing);
+        recoverButton.setEnabled(!busy && !managing && saved.size() >= 2);
+        firewallPreflightButton.setEnabled(!busy);
+        dnsRouteCheckButton.setEnabled(!busy && !saved.isEmpty());
         homeChoice.setEnabled(!busy && !managing);
         airChoice.setEnabled(!busy && !managing);
     }
 
     @Override protected void onResume() {
         super.onResume();
+        if (status != null && !dual.isManagingPair()) reload();
         visible = true;
         handler.removeCallbacks(poll);
         handler.post(poll);
@@ -211,7 +317,31 @@ public final class RootDualKernelActivity extends Activity {
     private Button button(LinearLayout parent, String text) {
         Button result = new Button(this);
         result.setText(text);
-        parent.addView(result);
+        result.setTextColor(WHITE);
+        result.setAllCaps(false);
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(0xff483250);
+        background.setCornerRadius(dp(12));
+        result.setBackground(background);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
+        params.topMargin = dp(8);
+        parent.addView(result, params);
+        return result;
+    }
+
+    private LinearLayout card(LinearLayout parent) {
+        LinearLayout result = new LinearLayout(this);
+        result.setOrientation(LinearLayout.VERTICAL);
+        result.setPadding(dp(16), dp(12), dp(16), dp(16));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(PANEL);
+        background.setCornerRadius(dp(18));
+        result.setBackground(background);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(14);
+        parent.addView(result, params);
         return result;
     }
 
