@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,6 +16,7 @@ import android.print.PrintManager;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -103,10 +105,22 @@ public final class RootDualKernelActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(0xff12101d);
         LinearLayout column = new LinearLayout(this);
-        column.setPadding(dp(18), dp(22), dp(18), dp(24));
+        // Leave enough room to scroll the last control above Android's navigation bar.
+        // API 35+ draws apps edge-to-edge; this also works with 3-button navigation.
+        column.setPadding(dp(18), dp(22), dp(18), dp(80));
         column.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(column);
+        scroll.setClipToPadding(false);
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            int navigationBottom = Build.VERSION.SDK_INT >= 30
+                    ? insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                    : insets.getSystemWindowInsetBottom();
+            column.setPadding(dp(18), dp(22), dp(18),
+                    dp(24) + Math.max(dp(56), navigationBottom));
+            return insets;
+        });
         setContentView(scroll);
+        scroll.requestApplyInsets();
 
         label(column, "WONHEE PROXY", 26, PINK);
         label(column, "Home + Internet · Dual-kernel control", 14, MUTED);
@@ -277,6 +291,8 @@ public final class RootDualKernelActivity extends Activity {
             });
             refreshButtons();
         });
+        restartButton = button(controls, "Restart managed pair");
+        restartButton.setOnClickListener(v -> confirmRestart());
         emergencyButton = button(controls, "EMERGENCY DISCONNECT · verify first");
         styleButton(emergencyButton, 0xff9b4058);
         emergencyButton.setOnClickListener(v -> confirmEmergencyDisconnect());
@@ -284,8 +300,6 @@ public final class RootDualKernelActivity extends Activity {
                 + "Stops only interfaces whose WireGuard public identities match your selected "
                 + "profiles. If a check fails, nothing unknown is removed. "
                 + "This is NOT a kill switch.", 12, MUTED);
-        restartButton = button(controls, "Restart managed pair");
-        restartButton.setOnClickListener(v -> confirmRestart());
         recoverButton = button(maintenance, "Recover verified interfaces");
         recoverButton.setOnClickListener(v -> confirmRecovery());
         LinearLayout privacy = card(pages[2]);
