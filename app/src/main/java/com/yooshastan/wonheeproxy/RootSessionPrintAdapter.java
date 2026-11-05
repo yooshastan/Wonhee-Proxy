@@ -43,7 +43,9 @@ final class RootSessionPrintAdapter extends PrintDocumentAdapter {
                                    Bundle extras) {
         if (cancellation.isCanceled()) { callback.onLayoutCancelled(); return; }
         attributes = newAttributes;
-        try (PrintedPdfDocument preview = new PrintedPdfDocument(context, newAttributes)) {
+        PrintedPdfDocument preview = null;
+        try {
+            preview = new PrintedPdfDocument(context, newAttributes);
             Rect bounds = preview.getPageContentRect();
             wrappedLines = wrapLines(report, Math.max(1, bounds.width()));
             linesPerPage = Math.max(1, (bounds.height() - 12) / 14);
@@ -51,6 +53,8 @@ final class RootSessionPrintAdapter extends PrintDocumentAdapter {
         } catch (RuntimeException error) {
             callback.onLayoutFailed("Could not prepare report pages.");
             return;
+        } finally {
+            if (preview != null) preview.close();
         }
         callback.onLayoutFinished(new PrintDocumentInfo.Builder(name + ".pdf")
                 .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
