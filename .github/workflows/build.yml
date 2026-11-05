@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.9.12.1 Navigation Insets
+name: Wonhee Proxy 0.9.12.2 Unified Disconnect
 
 on:
   push:
@@ -104,7 +104,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-09121-navigation-insets-debug-apk
+          name: wonhee-09122-unified-disconnect-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

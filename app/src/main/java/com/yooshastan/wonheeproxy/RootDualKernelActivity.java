@@ -63,7 +63,6 @@ public final class RootDualKernelActivity extends Activity {
     private Button checkButton;
     private Button startButton;
     private Button stopButton;
-    private Button emergencyButton;
     private Button restartButton;
     private Button resumeButton;
     private Button refreshLiveButton;
@@ -278,28 +277,13 @@ public final class RootDualKernelActivity extends Activity {
         startButton = button(controls, "Connect selected pair");
         startButton.setOnClickListener(v -> confirmStart());
         styleButton(startButton, 0xff805177);
-        stopButton = button(controls, "Disconnect both tunnels");
-        stopButton.setOnClickListener(v -> {
-            recordAction("Disconnect both managed kernel tunnels");
-            status.setText("Stopping both Wonhee-owned kernel interfaces...");
-            dual.stopPair((ok, detail) -> {
-                if (!isFinishing()) {
-                    publishResult(detail);
-                    if (ok) liveStatus.setText("Both managed kernel tunnels stopped.");
-                    refreshButtons();
-                }
-            });
-            refreshButtons();
-        });
+        stopButton = button(controls, "Disconnect tunnels");
+        stopButton.setOnClickListener(v -> confirmDisconnectTunnels());
         restartButton = button(controls, "Restart managed pair");
         restartButton.setOnClickListener(v -> confirmRestart());
-        emergencyButton = button(controls, "EMERGENCY DISCONNECT · verify first");
-        styleButton(emergencyButton, 0xff9b4058);
-        emergencyButton.setOnClickListener(v -> confirmEmergencyDisconnect());
-        label(controls, "Works even after Wonhee loses the managed-session state. "
-                + "Stops only interfaces whose WireGuard public identities match your selected "
-                + "profiles. If a check fails, nothing unknown is removed. "
-                + "This is NOT a kill switch.", 12, MUTED);
+        label(controls, "Disconnect also works for matching tunnels left running "
+                + "after an app restart. Wonhee checks their public identities first. "
+                + "Disconnecting does not block ordinary Wi-Fi or cellular traffic.", 12, MUTED);
         recoverButton = button(maintenance, "Recover verified interfaces");
         recoverButton.setOnClickListener(v -> confirmRecovery());
         LinearLayout privacy = card(pages[2]);
@@ -508,7 +492,7 @@ public final class RootDualKernelActivity extends Activity {
         if (managementSummary == null || dual == null) return;
         managementSummary.setText(dual.isBusy() ? "● Kernel operation in progress"
                 : dual.isManagingPair() ? "● Managing Home + Internet · check live health below"
-                : "○ App control detached · inspect links or use Emergency Disconnect");
+                : "○ No pair managed by this app process · inspect kernel links");
     }
 
     private void updateActionSummary(String result) {
@@ -691,13 +675,12 @@ public final class RootDualKernelActivity extends Activity {
     }
 
     /**
-     * Emergency UI always remains reachable. Stop in-process owned interfaces,
-     * or perform the existing identity-checked orphan cleanup after app restart.
-     * Never blindly delete interfaces or Android-owned policy rules.
+     * One ordinary Disconnect action for both live managed pairs and matching
+     * orphaned kernel interfaces. Never delete unknown links or Android rules.
      */
-    private void confirmEmergencyDisconnect() {
+    private void confirmDisconnectTunnels() {
         if (dual.isBusy()) {
-            publishResult("Emergency stop is waiting for a root operation to finish. "
+            publishResult("A root tunnel operation is still running. "
                     + "Try again in a moment; if unresponsive, use USB ADB to remove "
                     + "wnhome0 and wnair0. No kill switch is active.");
             return;
@@ -706,7 +689,7 @@ public final class RootDualKernelActivity extends Activity {
         int internetIndex = airChoice.getSelectedItemPosition();
         if (homeIndex < 0 || internetIndex < 0 || homeIndex == internetIndex
                 || homeIndex >= saved.size() || internetIndex >= saved.size()) {
-            publishResult("Emergency stop requires the correct saved Home and Internet "
+            publishResult("Disconnect requires the correct saved Home and Internet "
                     + "profiles to verify kernel identities. No interfaces were changed. "
                     + "Use USB ADB if the profiles are unavailable.");
             return;
@@ -714,24 +697,25 @@ public final class RootDualKernelActivity extends Activity {
         SecureTunnelProfileStore.Profile selectedHome = saved.get(homeIndex);
         SecureTunnelProfileStore.Profile selectedInternet = saved.get(internetIndex);
         new AlertDialog.Builder(this)
-                .setTitle("Emergency disconnect Wonhee tunnels?")
+                .setTitle("Disconnect Wonhee tunnels?")
                 .setMessage("Wonhee will verify each present interface's WireGuard public "
                         + "identity against the saved profiles before stopping it. "
-                        + "Unknown interfaces will not be deleted. This is NOT a fail-closed "
-                        + "kill switch: your real Wi-Fi/cellular IP may be exposed afterward. "
+                        + "Unknown interfaces will not be deleted. "
+                        + "Your regular Wi-Fi/cellular connection may be used afterward; "
+                        + "this is not a fail-closed kill switch. "
                         + "Enable Airplane mode first if you need to block ordinary traffic.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Disconnect now", (dialog, which) -> {
-                    recordAction("Emergency disconnect requested for " + selectedHome.name
+                    recordAction("Verified disconnect requested for " + selectedHome.name
                             + " and " + selectedInternet.name);
-                    status.setText("Verifying interface identities before emergency disconnect...");
+                    status.setText("Verifying interface identities before disconnecting...");
                     RootDualKernelSession.Callback completed = (ok, detail) -> {
                         if (isFinishing()) return;
                         // Independently inspect kernel state even when teardown failed.
                         dual.inspectKernelInterfaces((inspected, inspection) -> {
                             if (isFinishing()) return;
-                            publishResult((ok ? "EMERGENCY DISCONNECT FINISHED" :
-                                    "EMERGENCY DISCONNECT NOT CONFIRMED")
+                            publishResult((ok ? "DISCONNECT FINISHED" :
+                                    "DISCONNECT NOT CONFIRMED")
                                     + "\n" + detail + "\n" + inspection
                                     + "\nNo fail-closed firewall is installed. "
                                     + "Do not assume DNS or IPv6 privacy.");
@@ -868,8 +852,7 @@ public final class RootDualKernelActivity extends Activity {
         savePairButton.setEnabled(!busy && !managing && saved.size() >= 2);
         checkButton.setEnabled(!busy && !managing);
         startButton.setEnabled(!busy && !managing && saved.size() >= 2);
-        stopButton.setEnabled(!busy && managing);
-        emergencyButton.setEnabled(true); // Never hide emergency recovery due to lost session ownership.
+        stopButton.setEnabled(true); // Remains available when this process loses tunnel ownership.
         restartButton.setEnabled(!busy && managing && saved.size() >= 2);
         resumeButton.setEnabled(!busy && !managing && saved.size() >= 2);
         refreshLiveButton.setEnabled(!busy);
