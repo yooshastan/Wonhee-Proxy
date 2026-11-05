@@ -255,9 +255,14 @@ final class RootDualKernelSession {
                 boolean homeEndpoint = rootShell.run(homeEndpointOutput,
                         "wg show wnhome0 endpoints") == 0
                         && RootWireGuardEndpoint.hasSingleNumericEndpoint(homeEndpointOutput);
+                List<String> internetEndpointOutput = new ArrayList<>();
+                boolean internetEndpoint = rootShell.run(internetEndpointOutput,
+                        "wg show wnair0 endpoints") == 0
+                        && RootWireGuardEndpoint.hasSingleNumericEndpoint(internetEndpointOutput);
                 boolean publicRoutes = routeUses("1.1.1.1", false, europe.getName())
                         && routeUses("2606:4700:4700::1111", true, europe.getName());
-                ready = interfaces && v4 && v6 && mark4 && mark6 && marks && publicRoutes
+                ready = interfaces && v4 && v6 && mark4 && mark6 && marks
+                        && homeEndpoint && internetEndpoint && publicRoutes
                         && !reserved4 && !reserved6;
                 boolean homeExemptionCandidate = homeMark == 0 && homeEndpoint && airMark > 0;
                 String verdict = androidProtectMark ? "ANDROID SHARED MARK — DO NOT ARM"
@@ -278,11 +283,16 @@ final class RootDualKernelSession {
                         + (androidProtectMark ? "YES — not a safe sole exemption" : "NO")
                         + "\nHome peer has a resolved numeric UDP endpoint: "
                         + (homeEndpoint ? "YES" : "NO")
+                        + "\nInternet peer has a resolved numeric UDP endpoint: "
+                        + (internetEndpoint ? "YES" : "NO")
                         + "\nPublic IPv4/IPv6 root routes select wnair0: "
                         + (publicRoutes ? "YES" : "NO")
                         + "\nReserved rule-chain collision: " + (reserved4 || reserved6 ? "YES" : "NO")
                         + "\nA Home split tunnel may correctly have no fwmark. "
                         + "It would need an independently tested endpoint transport exemption."
+                        + "\nBoth numeric UDP endpoints are only candidates for future "
+                        + "narrow firewall exemptions. Endpoint rotation, Wi-Fi/cellular "
+                        + "handoff and app socket marks still need testing."
                         + (androidProtectMark ? "\nThe shared 0x20000 bit also marks other "
                             + "Android VPN-protected traffic. Do NOT allow all packets with this "
                             + "mark through a kill switch." : "")
@@ -337,6 +347,77 @@ final class RootDualKernelSession {
                 result = "Could not audit configured DNS routes. No settings were changed.";
             }
             finish(callback, passed, result);
+        });
+    }
+
+    /**
+     * Save a per-profile resolver choice in the encrypted profile store.
+     * The imported .conf remains untouched and the active kernel pair is never
+     * changed. Android resolver behavior in root mode is NOT controlled here.
+     */
+    void saveInternetDnsPolicy(SecureTunnelProfileStore.Profile profile,
+                               int preset, String custom, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean savedPolicy = false;
+            String result;
+            try {
+                if (managing) {
+                    result = "Stop the active kernel pair before changing DNS policy. "
+                            + "No settings were saved.";
+                } else {
+                    boolean override = VpnDnsPresets.isOverride(preset);
+                    String dns = VpnDnsPresets.addresses(preset, custom);
+                    SecureTunnelProfileStore.Profile updated = new SecureTunnelProfileStore.Profile(
+                            profile.name, profile.configuration, profile.routeMode,
+                            profile.homeRoutes, override, dns, profile.role);
+                    // Test that numeric DNS addresses are valid and reachable through
+                    // this profile's AllowedIPs before writing any encrypted data.
+                    parseRuntime(updated);
+                    new SecureTunnelProfileStore(application).save(updated);
+                    savedPolicy = true;
+                    result = (override ? "Saved Internet DNS policy for next tunnel start: "
+                            + VpnDnsPresets.LABELS[preset] + ". "
+                            : "Restored imported DNS for the next tunnel start. ")
+                            + "Imported .conf and running interfaces were not modified. "
+                            + "Provider-side filtering, Android app DNS and leak prevention "
+                            + "must be tested independently.";
+                }
+            } catch (Exception | LinkageError ignored) {
+                result = "DNS policy not saved. Check that selected numeric resolver IPs "
+                        + "are valid and included in the Internet profile AllowedIPs. "
+                        + "No running interfaces were changed.";
+            }
+            finish(callback, savedPolicy, result);
+        });
+    }
+
+    /** Read-only route selection for one explicitly validated private home IP. */
+    void checkHomeServiceRoute(String homeIp, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                // Reuse the strict private-IPv4 parser, ignoring the dummy TCP port.
+                PrivateIpv4Target.parse(homeIp, "1");
+                String numericIp = homeIp.trim();
+                prepareRoot();
+                boolean viaHome = routeUses(numericIp, false, home.getName());
+                ok = viaHome;
+                result = "HOME ROUTE CHECK: " + (viaHome ? "EXPECTED ROUTE" : "ROUTE MISMATCH")
+                        + "\nDestination: " + numericIp
+                        + "\nRoot route selects wnhome0: " + (viaHome ? "YES" : "NO")
+                        + "\nThis does NOT test TCP connectivity or whether a specific "
+                        + "Android app uses this route. No routes were changed.";
+            } catch (IllegalArgumentException invalid) {
+                result = "Enter a numeric private IPv4 home service address, "
+                        + "such as 10.0.0.169. No route was changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not query the selected Home service route. "
+                        + "Check root grant and network state; nothing was modified.";
+            }
+            finish(callback, ok, result);
         });
     }
 

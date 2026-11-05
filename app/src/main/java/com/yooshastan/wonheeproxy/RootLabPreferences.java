@@ -11,6 +11,7 @@ final class RootLabPreferences {
     private static final String FILE = "wonhee_root_lab_ui_v1";
     private static final String HOME = "selected_home_profile";
     private static final String INTERNET = "selected_internet_profile";
+    private static final String HOME_SERVICE_IP = "selected_home_service_ip";
     private static final String LAST_RESULT = "last_diagnostic_result";
     private static final String LAST_RESULT_AT = "last_diagnostic_at";
     private static final int MAX_RESULT_LENGTH = 6000;
@@ -31,6 +32,14 @@ final class RootLabPreferences {
 
     String homeName() { return prefs.getString(HOME, ""); }
     String internetName() { return prefs.getString(INTERNET, ""); }
+
+    String homeServiceIp() { return prefs.getString(HOME_SERVICE_IP, "10.0.0.169"); }
+
+    void saveHomeServiceIp(String ip) {
+        // Strictly validate before storing or passing this string to a root route query.
+        PrivateIpv4Target.parse(ip, "1");
+        prefs.edit().putString(HOME_SERVICE_IP, ip.trim()).apply();
+    }
 
     void saveDiagnostic(String redactedResult) {
         if (redactedResult == null) return;

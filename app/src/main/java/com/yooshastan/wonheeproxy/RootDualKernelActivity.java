@@ -10,10 +10,13 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -38,6 +41,12 @@ public final class RootDualKernelActivity extends Activity {
     private RootLabPreferences uiPreferences;
     private Spinner homeChoice;
     private Spinner airChoice;
+    private Spinner internetDnsChoice;
+    private EditText customDnsInput;
+    private TextView dnsPreview;
+    private Button saveDnsButton;
+    private EditText homeServiceIp;
+    private Button homeRouteButton;
     private Button savePairButton;
     private Button checkButton;
     private Button startButton;
@@ -81,9 +90,10 @@ public final class RootDualKernelActivity extends Activity {
         label(column, "WONHEE PROXY", 26, PINK);
         label(column, "MULTI-TUNNEL CONTROL  ·  ROOT PREVIEW", 12, MUTED);
         label(column, "Pixel 8a experiment · two active kernel WireGuard interfaces", 14, MUTED);
-        label(column, "Home stays split-tunnel (10.6.0.0/24, 10.0.0.0/24). "
+        label(column, "Home stays split-tunnel using the selected profile routes. "
                 + "AirVPN Europe supplies both IPv4 and IPv6 default routes. "
-                + "Imported keys and saved profiles are not modified.", 14, WHITE);
+                + "Imported keys and raw .conf files remain unchanged; explicit DNS "
+                + "policy saves can update encrypted profile options.", 14, WHITE);
         label(column, "The usual Wonhee VPN and Android Always-on/lockdown must be off "
                 + "during this test. Kernel tunnels are NOT managed by Android VpnService. "
                 + "No kill switch, reboot recovery or DNS-leak guarantee is provided. "
@@ -141,6 +151,45 @@ public final class RootDualKernelActivity extends Activity {
                 publishResult("The two selected entries need different saved profile names.");
             }
         });
+
+        LinearLayout privacyPolicy = card(column);
+        label(privacyPolicy, "INTERNET DNS + TRACKER RESOLVER", 17, PINK);
+        label(privacyPolicy, "Choose a DNS provider for the selected Internet profile. "
+                + "AdGuard can perform provider-side ad/tracker filtering, but root WireGuard "
+                + "does not itself configure Android VpnService DNS or enforce a leak guard.",
+                12, MUTED);
+        internetDnsChoice = new Spinner(this);
+        ArrayAdapter<String> dnsAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, VpnDnsPresets.LABELS);
+        dnsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        internetDnsChoice.setAdapter(dnsAdapter);
+        privacyPolicy.addView(internetDnsChoice);
+        customDnsInput = new EditText(this);
+        customDnsInput.setSingleLine(true);
+        customDnsInput.setInputType(InputType.TYPE_CLASS_TEXT);
+        customDnsInput.setTextColor(WHITE);
+        customDnsInput.setHintTextColor(MUTED);
+        customDnsInput.setHint("Numeric DNS: 94.140.14.14, 94.140.15.15");
+        privacyPolicy.addView(customDnsInput);
+        dnsPreview = label(privacyPolicy, "Select an Internet profile and DNS policy.", 12, MUTED);
+        internetDnsChoice.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                updateDnsPolicyPreview();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        airChoice.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                loadInternetDnsPolicy();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        saveDnsButton = button(privacyPolicy, "SAVE INTERNET DNS POLICY FOR NEXT START");
+        saveDnsButton.setOnClickListener(v -> confirmSaveInternetDns());
+        label(privacyPolicy, "Saving changes encrypted profile options only. Stop and "
+                + "restart the kernel pair to load those options, then audit root DNS routes "
+                + "and independently test Android DNS and blocking. DoH/DoQ is not enabled.",
+                12, MUTED);
 
         LinearLayout controls = card(column);
         label(controls, "KERNEL CONNECTION", 17, PINK);
@@ -229,6 +278,29 @@ public final class RootDualKernelActivity extends Activity {
             });
             refreshButtons();
         });
+        label(privacy, "HOME SERVICE ROUTE TEST (PRIVATE IPv4)", 14, PINK);
+        homeServiceIp = new EditText(this);
+        homeServiceIp.setSingleLine(true);
+        homeServiceIp.setInputType(InputType.TYPE_CLASS_TEXT);
+        homeServiceIp.setTextColor(WHITE);
+        homeServiceIp.setHintTextColor(MUTED);
+        homeServiceIp.setHint("Home address, e.g. 10.0.0.169");
+        homeServiceIp.setText(uiPreferences.homeServiceIp());
+        privacy.addView(homeServiceIp);
+        homeRouteButton = button(privacy, "CHECK HOME SERVICE ROUTE (READ ONLY)");
+        homeRouteButton.setOnClickListener(v -> {
+            String target = homeServiceIp.getText().toString();
+            try { uiPreferences.saveHomeServiceIp(target); }
+            catch (IllegalArgumentException invalid) {
+                publishResult("Enter a numeric private Home IPv4 address, such as 10.0.0.169.");
+                return;
+            }
+            status.setText("Checking route to selected Home destination...");
+            dual.checkHomeServiceRoute(target, (ok, detail) -> {
+                if (!isFinishing()) { publishResult(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
         LinearLayout diagnostics = card(column);
         label(diagnostics, "CONNECTION DIAGNOSTICS", 17, PINK);
         label(diagnostics, "LAST TEST RESULT (SAVED BETWEEN APP RESTARTS)", 12, MUTED);
@@ -281,6 +353,7 @@ public final class RootDualKernelActivity extends Activity {
                 + "with adb shell su -c 'ip -d link show type wireguard'.", 13, MUTED);
 
         reload();
+        loadInternetDnsPolicy();
         refreshButtons();
     }
 
@@ -334,6 +407,84 @@ public final class RootDualKernelActivity extends Activity {
         }
         if (chosenHome >= 0) homeChoice.setSelection(chosenHome);
         if (chosenInternet >= 0) airChoice.setSelection(chosenInternet);
+    }
+
+    private void loadInternetDnsPolicy() {
+        if (internetDnsChoice == null) return;
+        int index = airChoice.getSelectedItemPosition();
+        if (index < 0 || index >= saved.size()) {
+            dnsPreview.setText("Choose an Internet profile first.");
+            return;
+        }
+        SecureTunnelProfileStore.Profile profile = saved.get(index);
+        int choice = VpnDnsPresets.choiceForSaved(
+                profile.homeDnsEnabled, profile.homeDnsServer);
+        customDnsInput.setText(choice == VpnDnsPresets.CUSTOM ? profile.homeDnsServer : "");
+        internetDnsChoice.setSelection(choice);
+        updateDnsPolicyPreview();
+    }
+
+    private void updateDnsPolicyPreview() {
+        if (dnsPreview == null) return;
+        int choice = internetDnsChoice.getSelectedItemPosition();
+        customDnsInput.setVisibility(choice == VpnDnsPresets.CUSTOM ? View.VISIBLE : View.GONE);
+        if (choice == VpnDnsPresets.ADGUARD) {
+            dnsPreview.setText("Provider-side ad/tracker DNS filtering selected (AdGuard). "
+                    + "Not yet saved or verified; this does not block hardcoded or encrypted "
+                    + "app DNS, nor prove that Android uses this resolver.");
+        } else if (choice == VpnDnsPresets.QUAD9) {
+            dnsPreview.setText("Quad9 malware-focused DNS selected. It is not an ad/tracker "
+                    + "blocklist, and Android DNS routing has not been verified.");
+        } else if (choice == VpnDnsPresets.IMPORTED) {
+            dnsPreview.setText("Using DNS from the imported profile. Resolver filtering "
+                    + "policy and Android DNS routing are not verified.");
+        } else {
+            dnsPreview.setText("DNS override selected for the next tunnel start only. "
+                    + "No in-app encrypted DNS or tracker blocking is installed.");
+        }
+    }
+
+    private void confirmSaveInternetDns() {
+        if (dual.isBusy() || dual.isManagingPair()) {
+            publishResult("Stop the managed kernel pair before changing its DNS profile.");
+            return;
+        }
+        int index = airChoice.getSelectedItemPosition();
+        if (index < 0 || index >= saved.size()) {
+            publishResult("Choose an Internet profile before saving a DNS policy.");
+            return;
+        }
+        SecureTunnelProfileStore.Profile selected = saved.get(index);
+        int preset = internetDnsChoice.getSelectedItemPosition();
+        String custom = customDnsInput.getText().toString();
+        new AlertDialog.Builder(this)
+                .setTitle("Save Internet DNS provider for next start?")
+                .setMessage("The selected DNS policy will be saved with this encrypted "
+                        + "WireGuard profile. Imported keys and .conf text stay unchanged. "
+                        + "Provider-side blocking works only when Android actually sends DNS "
+                        + "queries to that resolver; kernel WireGuard alone does not enforce "
+                        + "it, and no kill switch is installed. Continue?")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save policy", (dialog, which) -> {
+                    status.setText("Validating DNS reachability through the Internet AllowedIPs...");
+                    dual.saveInternetDnsPolicy(selected, preset, custom, (ok, detail) -> {
+                        if (isFinishing()) return;
+                        publishResult(detail);
+                        if (ok) {
+                            String chosenName = selected.name;
+                            reload();
+                            for (int i = 0; i < saved.size(); i++) {
+                                if (saved.get(i).name.equals(chosenName)) {
+                                    airChoice.setSelection(i);
+                                    break;
+                                }
+                            }
+                            loadInternetDnsPolicy();
+                        }
+                        refreshButtons();
+                    });
+                    refreshButtons();
+                }).show();
     }
 
     private void confirmStart() {
@@ -497,13 +648,21 @@ public final class RootDualKernelActivity extends Activity {
         dnsRouteCheckButton.setEnabled(!busy && !saved.isEmpty());
         routeAuditButton.setEnabled(!busy && saved.size() >= 2);
         interfaceInspectButton.setEnabled(!busy);
+        saveDnsButton.setEnabled(!busy && !managing && !saved.isEmpty());
+        internetDnsChoice.setEnabled(!busy && !managing);
+        customDnsInput.setEnabled(!busy && !managing);
+        homeRouteButton.setEnabled(!busy);
+        homeServiceIp.setEnabled(!busy);
         homeChoice.setEnabled(!busy && !managing);
         airChoice.setEnabled(!busy && !managing);
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (status != null && !dual.isManagingPair()) reload();
+        if (status != null && !dual.isManagingPair()) {
+            reload();
+            loadInternetDnsPolicy();
+        }
         visible = true;
         handler.removeCallbacks(poll);
         handler.post(poll);
