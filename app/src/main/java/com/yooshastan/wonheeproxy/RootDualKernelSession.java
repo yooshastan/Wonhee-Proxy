@@ -209,6 +209,59 @@ final class RootDualKernelSession {
         });
     }
 
+    /**
+     * No-write readiness gate for an eventual iptables/ip6tables fail-closed
+     * guard. We must know how both WireGuard UDP transports are exempted before
+     * adding any OUTPUT hooks; otherwise we could break tunnel recovery.
+     */
+    void checkGuardReadiness(Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ready = false;
+            String result;
+            try {
+                prepareRoot();
+                boolean interfaces = backend.getState(home) == Tunnel.State.UP
+                        && backend.getState(europe) == Tunnel.State.UP;
+                boolean v4 = rootShell.run(null, "iptables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean v6 = rootShell.run(null, "ip6tables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean mark4 = rootShell.run(null, "iptables -m mark -h >/dev/null 2>&1") == 0;
+                boolean mark6 = rootShell.run(null, "ip6tables -m mark -h >/dev/null 2>&1") == 0;
+                // Refuse to reuse possibly foreign or orphaned rule chains.
+                boolean reserved4 = rootShell.run(null,
+                        "iptables -w -S WN_GUARD4 >/dev/null 2>&1") == 0;
+                boolean reserved6 = rootShell.run(null,
+                        "ip6tables -w -S WN_GUARD6 >/dev/null 2>&1") == 0;
+                List<String> homeMarkOutput = new ArrayList<>();
+                List<String> airMarkOutput = new ArrayList<>();
+                long homeMark = rootShell.run(homeMarkOutput, "wg show wnhome0 fwmark") == 0
+                        ? RootFirewallMark.parse(homeMarkOutput) : 0;
+                long airMark = rootShell.run(airMarkOutput, "wg show wnair0 fwmark") == 0
+                        ? RootFirewallMark.parse(airMarkOutput) : 0;
+                boolean marks = RootFirewallMark.distinctNonzero(homeMark, airMark);
+                boolean publicRoutes = routeUses("1.1.1.1", false, europe.getName())
+                        && routeUses("2606:4700:4700::1111", true, europe.getName());
+                ready = interfaces && v4 && v6 && mark4 && mark6 && marks && publicRoutes
+                        && !reserved4 && !reserved6;
+                result = "KERNEL GUARD READINESS: " + (ready ? "PRECHECK PASS" : "NOT READY")
+                        + "\nBoth kernel interfaces UP: " + (interfaces ? "YES" : "NO")
+                        + "\nIPv4/IPv6 OUTPUT readable: " + (v4 && v6 ? "YES" : "NO")
+                        + "\nIPv4/IPv6 mark-match userspace support: " + (mark4 && mark6 ? "YES" : "NO")
+                        + "\nDistinct nonzero WireGuard transport marks: " + (marks ? "YES" : "NO")
+                        + "\nPublic IPv4/IPv6 root routes select wnair0: "
+                        + (publicRoutes ? "YES" : "NO")
+                        + "\nReserved rule-chain collision: " + (reserved4 || reserved6 ? "YES" : "NO")
+                        + "\nNO firewall rules installed or modified. A precheck pass does "
+                        + "NOT prove the mark exemptions work, DNS isolation, crash cleanup, "
+                        + "or fail-closed behavior. Actual enforcement remains disabled.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Kernel guard readiness could not be checked. "
+                        + "No firewall rules were changed.";
+            }
+            finish(callback, ready, result);
+        });
+    }
+
     /** Profile DNS route audit only; Android/DoH/DoQ resolver behavior is NOT covered. */
     void checkInternetDnsRoutes(SecureTunnelProfileStore.Profile internetProfile,
                                 Callback callback) {

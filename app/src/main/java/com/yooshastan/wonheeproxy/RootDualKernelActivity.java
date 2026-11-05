@@ -40,6 +40,7 @@ public final class RootDualKernelActivity extends Activity {
     private Button stopButton;
     private Button recoverButton;
     private Button firewallPreflightButton;
+    private Button guardReadinessButton;
     private Button dnsRouteCheckButton;
     private Button routeAuditButton;
     private Button interfaceInspectButton;
@@ -127,6 +128,14 @@ public final class RootDualKernelActivity extends Activity {
         firewallPreflightButton.setOnClickListener(v -> {
             status.setText("Checking root firewall tools without installing rules...");
             dual.checkFirewallCapabilities((ok, detail) -> {
+                if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
+        guardReadinessButton = button(privacy, "CHECK KILL-SWITCH ARMING READINESS (READ ONLY)");
+        guardReadinessButton.setOnClickListener(v -> {
+            status.setText("Checking transport marks, IPv4/IPv6 rules and safe chain ownership...");
+            dual.checkGuardReadiness((ok, detail) -> {
                 if (!isFinishing()) { status.setText(detail); refreshButtons(); }
             });
             refreshButtons();
@@ -310,6 +319,7 @@ public final class RootDualKernelActivity extends Activity {
         stopButton.setEnabled(!busy && managing);
         recoverButton.setEnabled(!busy && !managing && saved.size() >= 2);
         firewallPreflightButton.setEnabled(!busy);
+        guardReadinessButton.setEnabled(!busy);
         dnsRouteCheckButton.setEnabled(!busy && !saved.isEmpty());
         routeAuditButton.setEnabled(!busy && saved.size() >= 2);
         interfaceInspectButton.setEnabled(!busy);
