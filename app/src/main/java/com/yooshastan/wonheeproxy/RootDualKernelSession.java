@@ -263,8 +263,10 @@ final class RootDualKernelSession {
                         + "\nIPv4/IPv6 mark-match userspace support: " + (mark4 && mark6 ? "YES" : "NO")
                         + "\nHome transport mark: " + (homeMark > 0 ? "SET" :
                                 homeMarkRead ? "OFF OR INVALID" : "QUERY FAILED")
+                        + (homeMark > 0 ? " (0x" + Long.toHexString(homeMark) + ")" : "")
                         + "\nAirVPN transport mark: " + (airMark > 0 ? "SET" :
                                 airMarkRead ? "OFF OR INVALID" : "QUERY FAILED")
+                        + (airMark > 0 ? " (0x" + Long.toHexString(airMark) + ")" : "")
                         + "\nDistinct nonzero WireGuard transport marks: " + (marks ? "YES" : "NO")
                         + "\nHome peer has a resolved numeric UDP endpoint: "
                         + (homeEndpoint ? "YES" : "NO")

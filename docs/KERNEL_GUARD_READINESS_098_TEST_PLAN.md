@@ -1,4 +1,4 @@
-# Wonhee Proxy 0.9.8.1 — kernel guard arming precheck
+# Wonhee Proxy 0.9.8.2 — kernel guard arming precheck
 
 The Pixel 8a root capability report confirmed IPv4 `iptables`, IPv6
 `ip6tables`, and policy routing. `nft` is unavailable and is not required for
@@ -10,7 +10,9 @@ this experiment. Tool availability is **not** proof of fail-closed networking.
 2. Ensure both peers show fresh handshakes and Home/Navidrome remains reachable.
 3. Tap **CHECK KILL-SWITCH ARMING READINESS (READ ONLY)**.
 4. Copy and share the result. No `.conf`, private keys or tunnel credentials
-   are needed. The result now distinguishes Home and AirVPN marks and reports
+   are needed. The result now shows the non-secret numeric Home and AirVPN
+   socket marks directly, so no ADB execution of app-private tools is needed.
+   It distinguishes Home and AirVPN marks and reports
    whether Home has a numeric peer UDP endpoint without revealing its address.
    Both filter backends, public root routes and reserved chain names are also
    checked.
