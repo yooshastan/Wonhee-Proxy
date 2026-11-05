@@ -1,0 +1,27 @@
+name: Wonhee Native Dual-WireGuard Session Experiment
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-session-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.5'
+          cache: false
+      - name: Verify pinned upstream and module package
+        working-directory: native
+        run: |
+          go mod tidy
+          go list -m golang.zx2c4.com/wireguard
+      - name: Test independent packet bridges and crypto-device lifecycle
+        working-directory: native
+        run: go test -race -count=1 ./...
