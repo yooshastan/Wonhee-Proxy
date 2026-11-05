@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.9.5.1 Root Dual-Kernel Compatibility
+name: Wonhee Proxy 0.9.6.0 Security Capability Preview
 
 on:
   push:
@@ -92,7 +92,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-root-dual-kernel-0951-debug-apk
+          name: wonhee-0960-security-preflight-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

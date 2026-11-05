@@ -17,6 +17,8 @@ import com.wireguard.crypto.Key;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -163,6 +165,84 @@ final class RootDualKernelSession {
                         + ". Routing not yet tested."
                     : "Root preflight failed at: " + lastPreflightStep
                         + ". Check the Magisk grant and bundled tools.");
+        });
+    }
+
+    /** Read-only checks for possible firewall backends; never installs a kill-switch rule. */
+    void checkFirewallCapabilities(Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            String result;
+            boolean ready = false;
+            try {
+                prepareRoot();
+                boolean ipv4 = rootShell.run(null,
+                        "iptables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean ipv6 = rootShell.run(null,
+                        "ip6tables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean nft = rootShell.run(null,
+                        "nft list ruleset >/dev/null 2>&1") == 0;
+                boolean rules = rootShell.run(null,
+                        "ip -4 rule show >/dev/null 2>&1") == 0
+                        && rootShell.run(null,
+                        "ip -6 rule show >/dev/null 2>&1") == 0;
+                ready = ipv4 && ipv6 && rules;
+                result = "Read-only firewall capability check: IPv4 iptables "
+                        + (ipv4 ? "available" : "unavailable") + ", IPv6 ip6tables "
+                        + (ipv6 ? "available" : "unavailable") + ", nft "
+                        + (nft ? "available" : "unavailable") + ", policy routing "
+                        + (rules ? "available" : "unavailable") + ". "
+                        + "NO kill-switch rules installed. Capabilities alone do not prove "
+                        + "fail-closed behavior; app crash, endpoint UDP, DNS, and reboot "
+                        + "still need device-specific validation.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Firewall capability check failed at root preflight or tool inspection. "
+                        + "No firewall rules were changed.";
+            }
+            finish(callback, ready, result);
+        });
+    }
+
+    /** Profile DNS route audit only; Android/DoH/DoQ resolver behavior is NOT covered. */
+    void checkInternetDnsRoutes(SecureTunnelProfileStore.Profile internetProfile,
+                                Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean passed = false;
+            String result;
+            try {
+                Config config = parseRuntime(internetProfile);
+                Set<InetAddress> servers = config.getInterface().getDnsServers();
+                if (servers.isEmpty()) {
+                    result = "Internet profile has no DNS servers. Choose imported or "
+                            + "custom DNS in profile settings. Android DNS is not verified.";
+                } else {
+                    prepareRoot();
+                    int matched = 0;
+                    for (InetAddress server : servers) {
+                        String host = server.getHostAddress(); // Numeric from parsed config.
+                        String cmd = (server instanceof Inet4Address ? "ip -4" : "ip -6")
+                                + " route get '" + host + "'";
+                        List<String> output = new ArrayList<>();
+                        if (rootShell.run(output, cmd) != 0) continue;
+                        for (String line : output) {
+                            if (line.contains(" dev " + europe.getName() + " ")
+                                    || line.endsWith(" dev " + europe.getName())) {
+                                matched++;
+                                break;
+                            }
+                        }
+                    }
+                    passed = matched == servers.size();
+                    result = matched + "/" + servers.size()
+                            + " configured Internet DNS routes select wnair0 for root "
+                            + "lookups. This does NOT prove Android app DNS, encrypted DNS, "
+                            + "or leak prevention; independent traffic testing is required.";
+                }
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not audit configured DNS routes. No settings were changed.";
+            }
+            finish(callback, passed, result);
         });
     }
 

@@ -36,6 +36,8 @@ public final class RootDualKernelActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private Button recoverButton;
+    private Button firewallPreflightButton;
+    private Button dnsRouteCheckButton;
     private TextView status;
     private boolean visible;
     private final Runnable poll = new Runnable() {
@@ -109,6 +111,33 @@ public final class RootDualKernelActivity extends Activity {
         });
         recoverButton = button(controls, "RECOVER MATCHING OLD INTERFACES");
         recoverButton.setOnClickListener(v -> confirmRecovery());
+        LinearLayout privacy = card(column);
+        label(privacy, "PRIVACY ENFORCEMENT LAB", 17, PINK);
+        label(privacy, "No verified kernel kill switch is installed. The Android Always-on "
+                + "lockdown setting does not protect this root-only test. Before enabling "
+                + "firewall changes, verify IPv4, IPv6, encrypted transport exceptions, "
+                + "DNS behavior, crash recovery and reboot state.", 13, MUTED);
+        firewallPreflightButton = button(privacy, "CHECK FIREWALL CAPABILITIES (READ ONLY)");
+        firewallPreflightButton.setOnClickListener(v -> {
+            status.setText("Checking root firewall tools without installing rules...");
+            dual.checkFirewallCapabilities((ok, detail) -> {
+                if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
+        dnsRouteCheckButton = button(privacy, "CHECK INTERNET DNS ROUTES (READ ONLY)");
+        dnsRouteCheckButton.setOnClickListener(v -> {
+            int selected = airChoice.getSelectedItemPosition();
+            if (selected < 0 || selected >= saved.size()) {
+                status.setText("Select an Internet profile before testing its DNS routes.");
+                return;
+            }
+            status.setText("Checking configured DNS destination routes, not actual DNS traffic...");
+            dual.checkInternetDnsRoutes(saved.get(selected), (ok, detail) -> {
+                if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+            });
+            refreshButtons();
+        });
         LinearLayout diagnostics = card(column);
         label(diagnostics, "CONNECTION DIAGNOSTICS", 17, PINK);
         status = label(diagnostics, "Ready for root preflight. Nothing has been started.", 14, WHITE);
@@ -237,6 +266,8 @@ public final class RootDualKernelActivity extends Activity {
         startButton.setEnabled(!busy && !managing && saved.size() >= 2);
         stopButton.setEnabled(!busy && managing);
         recoverButton.setEnabled(!busy && !managing && saved.size() >= 2);
+        firewallPreflightButton.setEnabled(!busy);
+        dnsRouteCheckButton.setEnabled(!busy && !saved.isEmpty());
         homeChoice.setEnabled(!busy && !managing);
         airChoice.setEnabled(!busy && !managing);
     }
