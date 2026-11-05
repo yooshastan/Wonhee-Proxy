@@ -39,6 +39,20 @@ devices under a single Android `VpnService`; the existing single-tunnel
 [engineering plan](docs/MULTITUNNEL_ENGINE_EXPERIMENT.md). No new multi-tunnel
 APK or release is claimed.
 
+### Stage 2 experimental diagnostics (draft)
+
+- Adds independent HOME and INTERNET session lifecycle bookkeeping in an
+  **offline-only control-plane prototype**. Two WireGuard sessions are NOT
+  running simultaneously yet, and no user-facing multi-tunnel switch exists.
+- Existing single-tunnel UI now distinguishes HOME-only split routes from
+  internet-default routes before making any public example.com DNS/HTTPS test.
+- The opt-in private service TCP check reports one connect duration, not
+  ping round-trip time, throughput, or a privacy audit.
+- Uses the verified ASUS RT-AX86U Home baseline as a test configuration:
+  router WireGuard `10.6.0.0/24`, home LAN `10.0.0.0/24`, Fedora Navidrome
+  on its private LAN address. No keys or server configurations are modified.
+- Existing recovery logic and the working GoBackend path are unchanged.
+
 ## Alpha 0.9.2 — streamlined WireGuard tunnel manager
 
 - **Your WireGuard tunnels:** a list of named encrypted saved profiles, each with
