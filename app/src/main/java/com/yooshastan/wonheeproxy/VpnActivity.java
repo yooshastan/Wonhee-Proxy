@@ -252,9 +252,11 @@ public final class VpnActivity extends Activity {
         LinearLayout configCard = card(root);
         label(configCard, "YOUR WIREGUARD TUNNELS", 17, PINK);
         label(configCard, "Import complete WireGuard .conf files, then tap Connect on a saved tunnel. "
-                + "Only one independent tunnel can be active at a time on this unrooted VPN backend.", 12, MUTED);
+                + "The regular Android VPN backend runs one tunnel. Rooted devices can test two independent kernel tunnels in Root Dual-Tunnel Lab.", 12, MUTED);
         importButton = button(configCard, "Import WireGuard .conf files");
         importButton.setOnClickListener(v -> chooseConfig());
+        Button rootDualLab = button(configCard, "Experimental: Root dual-tunnel lab");
+        rootDualLab.setOnClickListener(v -> startActivity(new Intent(this, RootDualKernelActivity.class)));
         tunnelList = new LinearLayout(this);
         tunnelList.setOrientation(LinearLayout.VERTICAL);
         configCard.addView(tunnelList);
@@ -718,7 +720,8 @@ public final class VpnActivity extends Activity {
     }
 
     private void activateSavedTunnel(int index) {
-        if (session == null || session.isBusy() || index < 0 || index >= profiles.size()) {
+        if (session == null || session.isBusy() || RootDualKernelSession.get(this).isManagingPair()
+                || index < 0 || index >= profiles.size()) {
             return;
         }
         final SecureTunnelProfileStore.Profile chosen = profiles.get(index);
@@ -1305,6 +1308,10 @@ public final class VpnActivity extends Activity {
     }
 
     private void confirmConnect() {
+        if (RootDualKernelSession.get(this).isManagingPair()) {
+            message.setText("Stop both rooted kernel tunnels before connecting the standard VPN.");
+            return;
+        }
         if (session == null || selectedConfig == null) {
             message.setText("Choose or import a VPN profile first.");
             return;
@@ -1369,6 +1376,10 @@ public final class VpnActivity extends Activity {
     }
 
     private void startTunnel() {
+        if (RootDualKernelSession.get(this).isManagingPair()) {
+            message.setText("Stop rooted kernel tunnels before starting the standard VPN.");
+            return;
+        }
         if (session == null || pendingConnection == null) {
             message.setText("Connection preparation expired. Press Connect again.");
             return;
@@ -1489,24 +1500,25 @@ public final class VpnActivity extends Activity {
         if (importButton == null) return;
         boolean active = session != null && session.isConnected();
         boolean busy = session != null && session.isBusy();
+        boolean rootPairActive = RootDualKernelSession.get(this).isManagingPair();
         refreshRecoveryStatus();
         boolean systemAlwaysOn = active && session.isAlwaysOn();
         vpnToggleButton.setText(systemAlwaysOn ? "VPN managed by Android Always-on"
                 : active ? "Turn VPN Off" : "Turn VPN On");
-        vpnToggleButton.setEnabled(!busy && !systemAlwaysOn
+        vpnToggleButton.setEnabled(!busy && !rootPairActive && !systemAlwaysOn
                 && (active || selectedConfig != null));
         diagnosticsButton.setEnabled(active && !busy && !diagnosticsRunning);
-        importButton.setEnabled(!active && !busy);
-        addPeerButton.setEnabled(!active && !busy && selectedConfig != null
+        importButton.setEnabled(!active && !busy && !rootPairActive);
+        addPeerButton.setEnabled(!active && !busy && !rootPairActive && selectedConfig != null
                 && selectedConfig.getPeers().size() < 4);
-        saveButton.setEnabled(!active && !busy && selectedConfig != null);
-        deleteButton.setEnabled(!active && !busy && !profiles.isEmpty());
-        savedPicker.setEnabled(!active && !busy);
-        profileName.setEnabled(!active && !busy);
-        routingPicker.setEnabled(!active && !busy);
-        homeRoutes.setEnabled(!active && !busy);
-        dnsPicker.setEnabled(!active && !busy);
-        customDnsAddresses.setEnabled(!active && !busy);
+        saveButton.setEnabled(!active && !busy && !rootPairActive && selectedConfig != null);
+        deleteButton.setEnabled(!active && !busy && !rootPairActive && !profiles.isEmpty());
+        savedPicker.setEnabled(!active && !busy && !rootPairActive);
+        profileName.setEnabled(!active && !busy && !rootPairActive);
+        routingPicker.setEnabled(!active && !busy && !rootPairActive);
+        homeRoutes.setEnabled(!active && !busy && !rootPairActive);
+        dnsPicker.setEnabled(!active && !busy && !rootPairActive);
+        customDnsAddresses.setEnabled(!active && !busy && !rootPairActive);
         refreshTunnelList();
     }
 
