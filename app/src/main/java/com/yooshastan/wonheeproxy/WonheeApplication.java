@@ -13,7 +13,9 @@ public final class WonheeApplication extends Application {
         super.onCreate();
         GoBackend.setAlwaysOnCallback(() -> {
             try {
-                WireGuardSession.get(this).restoreSavedProfileForAlwaysOn();
+                if (!RootDualKernelSession.get(this).isManagingPair()) {
+                    WireGuardSession.get(this).restoreSavedProfileForAlwaysOn();
+                }
             } catch (RuntimeException | LinkageError unavailable) {
                 // Never log a saved WireGuard configuration or private key.
                 // Android lockdown, when enabled, blocks traffic if VPN is down.
