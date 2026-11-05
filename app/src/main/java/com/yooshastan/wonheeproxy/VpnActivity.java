@@ -199,24 +199,26 @@ public final class VpnActivity extends Activity {
         LinearLayout healthCard = card(root);
         label(healthCard, "CONNECTION HEALTH", 17, PINK);
         healthStatus = label(healthCard, "Waiting for local VPN status...", 14, WHITE);
-        diagnosticsButton = button(healthCard, "Run DNS & HTTPS test (example.com)");
+        diagnosticsButton = button(healthCard, "Inspect VPN routes and test internet when routed");
         diagnosticsButton.setOnClickListener(v -> confirmDiagnostics());
         diagnosticsReport = label(healthCard, "No active network test has been run.", 13, MUTED);
-        label(healthCard, "The test sends an explicit DNS lookup and HTTPS HEAD request only "
-                + "on an Android-reported VPN network, with no normal-network fallback. "
-                + "A successful test is not proof against DNS, IPv6 or traffic leaks.", 12, MUTED);
+        label(healthCard, "For HOME/split routes, inspect the VPN route and skip public internet "
+                + "requests. For VPN IPv4 default routes with DNS, test example.com using "
+                + "the Android-reported VPN network only. No normal-network fallback; "
+                + "results cannot prove DNS, IPv6 or traffic-leak safety.", 12, MUTED);
 
         LinearLayout homeServiceCard = card(root);
         label(homeServiceCard, "HOME SERVICE PORT CHECK (MANUAL)", 17, PINK);
-        label(homeServiceCard, "Test one private IPv4 TCP destination through your "
-                + "Android-reported WireGuard VPN network. Enter a home service IP "
-                + "(for example 10.77.0.1) and port. Nothing is saved or tested automatically.", 13, MUTED);
+        label(homeServiceCard, "Test a private IPv4 service through the Android-reported "
+                + "WireGuard VPN. For a router-hosted WireGuard server, use the LAN "
+                + "IP of the service host (e.g. 192.168.1.10), not an old laptop "
+                + "VPN address. Nothing is saved or tested automatically.", 13, MUTED);
         homeServiceIp = new EditText(this);
         homeServiceIp.setSingleLine(true);
         homeServiceIp.setInputType(InputType.TYPE_CLASS_PHONE);
         homeServiceIp.setTextColor(WHITE);
         homeServiceIp.setHintTextColor(MUTED);
-        homeServiceIp.setHint("Private IPv4, e.g. 10.77.0.1");
+        homeServiceIp.setHint("Private IPv4, e.g. 192.168.1.10");
         homeServiceCard.addView(homeServiceIp);
         homeServicePort = new EditText(this);
         homeServicePort.setSingleLine(true);
@@ -230,13 +232,12 @@ public final class VpnActivity extends Activity {
         homeServiceProbeButton = button(homeServiceCard, "Test home service through VPN");
         homeServiceProbeButton.setOnClickListener(v -> confirmHomeServiceProbe());
         homeServiceResult = label(homeServiceCard, "No private service check performed.", 13, MUTED);
-        label(homeServiceCard, "This is a TCP port check, NOT Navidrome setup. If your Fedora "
-                + "container publishes only 127.0.0.1:4533, the phone cannot reach it "
-                + "at 10.77.0.1:4533 without a separate protected listener/proxy. "
-                + "Strict numeric RFC1918 IPv4 only; no DNS lookup, automatic "
-                + "retry, direct-network fallback, saved destination or credentials. "
-                + "A TCP success only proves that port accepted a connection on the "
-                + "Android-reported VPN network—not service authentication or leak freedom.", 12, MUTED);
+        label(homeServiceCard, "This is one TCP connect-time measurement, not a speed test. "
+                + "Services bound only to 127.0.0.1 require a restricted LAN listener "
+                + "or proxy before a router VPN client can reach them. Strict RFC1918 "
+                + "IPv4 only; no DNS lookup, automatic retry, direct-network fallback, "
+                + "saved destination or credentials. Success does not prove service "
+                + "authentication or leak freedom.", 12, MUTED);
 
         LinearLayout eventCard = card(root);
         label(eventCard, "RECENT CONNECTION EVENTS", 17, PINK);
@@ -635,10 +636,12 @@ public final class VpnActivity extends Activity {
             return;
         }
         new AlertDialog.Builder(this)
-                .setTitle("Test connection through Android VPN?")
-                .setMessage("Wonhee will resolve example.com and send one HTTPS HEAD request "
-                        + "through the Android-reported VPN network. No WireGuard keys or "
-                        + "proxy credentials are sent. This tests reachability, not leak freedom.")
+                .setTitle("Inspect VPN routing and reachability?")
+                .setMessage("Wonhee first checks Android VPN routes. It skips public network "
+                        + "requests on HOME-only split tunnels. Only if an IPv4 VPN default "
+                        + "route and VPN DNS exist will it resolve example.com and send one "
+                        + "VPN-bound HTTPS HEAD request. No keys or proxy credentials are sent; "
+                        + "the result cannot prove leak freedom.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Run test", (dialog, which) -> runDiagnostics())
                 .show();
@@ -647,7 +650,7 @@ public final class VpnActivity extends Activity {
     private void runDiagnostics() {
         if (diagnosticsRunning || session == null || !session.isConnected()) return;
         diagnosticsRunning = true;
-        diagnosticsReport.setText("Testing VPN-bound DNS and HTTPS on example.com...");
+        diagnosticsReport.setText("Inspecting VPN routes; checking public HTTPS only if routed...");
         refreshButtons();
         VpnConnectionDiagnostics.run(this, report -> {
             diagnosticsRunning = false;
