@@ -1,4 +1,4 @@
-# Wonhee 0.9.5 rooted Pixel dual-kernel test
+# Wonhee 0.9.5.1 rooted Pixel dual-kernel compatibility test
 
 This branch provides the **first manual, explicitly opted-in rooted dual-WireGuard APK**. It uses the official WireGuard Android library's `WgQuickBackend`, *not* the previous two disconnected Go memory TUNs. The original stable Android `GoBackend` path remains available in the regular VPN screen.
 
@@ -9,7 +9,7 @@ This branch provides the **first manual, explicitly opted-in rooted dual-WireGua
 - Temporarily disconnect any other active VPN and disable its Android Always-on/lockdown only if you accept the risk of traffic escaping through the normal network during this experiment. The kernel engine **does not implement** Android VpnService kill switch, fail-closed rules, reboot recovery, or DNS/IPv6 leak protection.
 - In the lab app, import the ASUS Home profile and AirVPN Europe profile. Keep each profile's independent WireGuard keys, endpoint, and Address.
 - ASUS Home must have only split `AllowedIPs`, e.g. `10.6.0.0/24, 10.0.0.0/24`. AirVPN Europe must have both IPv4 and IPv6 default routes (`0.0.0.0/0, ::/0`); the lab refuses otherwise.
-- Tap **Experimental: Root dual-tunnel lab**, choose Home and AirVPN Europe, **Check root + kernel tools**, then **Start both**. The engine starts Home first, AirVPN second. It checks that both interfaces are UP; it tries to undo partial starts.
+- Tap **Experimental: Root dual-tunnel lab**, choose Home and AirVPN Europe, **Check root + kernel tools**, then **Start both**. If a command fails, report the safe failure stage and numeric exit code, not private configuration text.\n- When `/sys/module/wireguard/version` is absent but the WireGuard module exists, the test uses the library's bundled `wg-quick` command directly, skipping the upstream backend's version-file gate. A missing version file is only one possible failure cause. The engine starts Home first, AirVPN second. It checks that both interfaces are UP; it tries to undo partial starts.
 
 ## Verify while both are UP
 
