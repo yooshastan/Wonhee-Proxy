@@ -636,6 +636,13 @@ final class RootDualKernelSession {
                     result = "Wonhee test interface already exists. Stop it before another test.";
                     throw new IllegalStateException("existing tunnel");
                 }
+                for (String name : existing) {
+                    if (name.startsWith("wnm")) {
+                        result = "An experimental multi-tunnel interface is active. "
+                                + "Disconnect it in Multi-Tunnel Lab before starting the legacy pair.";
+                        throw new IllegalStateException("multi-kernel interface active");
+                    }
+                }
                 ownsAttempt = true;
 
                 stage = "HOME wg-quick up";
@@ -674,7 +681,8 @@ final class RootDualKernelSession {
                         + ". No private configuration was included in this message.";
             } catch (Exception | LinkageError ignored) {
                 // No logging of private keys, tunnel configs, DNS or peer endpoints.
-                if ("interface collision check".equals(stage)) {
+                if ("interface collision check".equals(stage)
+                        && !result.startsWith("An experimental multi-tunnel interface")) {
                     result = "Existing kernel interface detected. Use Recover matching "
                             + "interfaces after confirming the selected profiles. "
                             + "Unknown interfaces will not be changed.";
