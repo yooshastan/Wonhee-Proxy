@@ -135,7 +135,7 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · 0.9.5 rooted dual-kernel test", 15, MUTED);
+        label(root, "WireGuard VPN · 0.9.5.1 rooted compatibility test", 15, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
