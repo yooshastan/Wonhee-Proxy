@@ -2,6 +2,9 @@ package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -39,12 +42,13 @@ public final class RootDualKernelActivity extends Activity {
     private Button firewallPreflightButton;
     private Button dnsRouteCheckButton;
     private TextView status;
+    private TextView liveStatus;
     private boolean visible;
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!visible) return;
             if (dual.isManagingPair() && !dual.isBusy()) {
-                dual.readStatus(message -> { if (visible) status.setText(message); });
+                dual.readStatus(message -> { if (visible) liveStatus.setText(message); });
             }
             refreshButtons();
             handler.postDelayed(this, 5000L);
@@ -140,7 +144,21 @@ public final class RootDualKernelActivity extends Activity {
         });
         LinearLayout diagnostics = card(column);
         label(diagnostics, "CONNECTION DIAGNOSTICS", 17, PINK);
+        label(diagnostics, "LAST TEST RESULT (PRESERVED UNTIL NEXT ACTION)", 12, MUTED);
         status = label(diagnostics, "Ready for root preflight. Nothing has been started.", 14, WHITE);
+        Button copyResult = button(diagnostics, "COPY LAST TEST RESULT");
+        copyResult.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText(
+                        "Wonhee root diagnostic", status.getText()));
+            }
+        });
+        label(diagnostics, "LIVE KERNEL STATUS (REFRESHES EVERY 5 SECONDS)", 12, MUTED);
+        liveStatus = label(diagnostics, "No active session status yet.", 13, WHITE);
+        label(diagnostics, "Copying a result places it on Android's clipboard. It contains "
+                + "no private WireGuard keys, but other apps may read clipboard content.",
+                12, MUTED);
         label(column, "Test from cellular: check that 10.0.0.169:4533 opens, "
                 + "that public IPv4/IPv6 egress is AirVPN Europe, and that DNS resolves. "
                 + "Check both fresh handshakes, then STOP BOTH. "
