@@ -21,6 +21,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // Side-by-side experiment; never replace the user's signed stable app.
+            applicationIdSuffix '.rootlab'
+        }
         release {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.wonheeRelease
@@ -34,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 23
-        versionName '0.9.4-stage3-experiment'
+        versionCode 25
+        versionName '0.9.5.1-root-dual-compat'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
