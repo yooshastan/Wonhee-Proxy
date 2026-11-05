@@ -1,4 +1,4 @@
-name: Wonhee Proxy Android Alpha 0.9.4 Stage 3 Packet Flow Experiment
+name: Wonhee Proxy 0.9.5 Root Dual-Kernel Pixel Lab
 
 on:
   push:
@@ -92,7 +92,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha094-stage3-debug-apk
+          name: wonhee-root-dual-kernel-095-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
