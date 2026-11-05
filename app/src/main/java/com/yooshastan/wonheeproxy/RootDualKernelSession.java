@@ -215,8 +215,16 @@ final class RootDualKernelSession {
                 started = true;
                 result = "Both kernel interfaces are UP. Verify fresh handshakes, routing, DNS and IPv6.";
             } catch (IllegalArgumentException invalid) {
-                result = "Failed at " + stage + ". Check that Home has only split routes "
-                        + "and AirVPN has IPv4+IPv6 defaults; verify addresses and DNS.";
+                // Route-policy failures are our own fixed, non-secret strings.
+                // Preserve their actionable reason instead of hiding it behind
+                // a generic message. Parsing errors can contain configuration
+                // details and must remain redacted.
+                if ("route validation".equals(stage)) {
+                    result = "Route validation failed: " + invalid.getMessage();
+                } else {
+                    result = "Failed at " + stage + ". Check the selected profile "
+                            + "and its routing/DNS options; private configuration is hidden.";
+                }
             } catch (KernelCommandException command) {
                 result = "Failed at " + stage + ": wg-quick exit code " + command.exitCode
                         + ". No private configuration was included in this message.";
