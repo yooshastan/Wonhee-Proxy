@@ -87,6 +87,29 @@ final class MultiTunnelPacketRouter {
         return Target.DROP;
     }
 
+    /**
+     * Select the only session allowed to deliver this IPv4 reply, based on
+     * its original source address. The packet rewriter later validates all
+     * headers, checksums and the recipient's tunnel address before delivery.
+     * No guess or fallback is allowed for IPv6 until native IPv6 translation
+     * is implemented.
+     */
+    Target expectedReplySource(byte[] packet) {
+        if (packet == null || packet.length < 20
+                || (packet[0] & 0xf0) != 0x40) return Target.DROP;
+        int headerLength = (packet[0] & 0x0f) * 4;
+        int totalLength = (packet[2] & 0xff) * 256 + (packet[3] & 0xff);
+        if (headerLength < 20 || headerLength > packet.length
+                || totalLength != packet.length || totalLength < headerLength) {
+            return Target.DROP;
+        }
+        long source = ipv4(packet, 12);
+        for (Ipv4Range range : homeRoutes) {
+            if (range.contains(source)) return Target.HOME;
+        }
+        return Target.INTERNET;
+    }
+
     private static long ipv4(byte[] bytes, int offset) {
         return ((long) (bytes[offset] & 0xff) << 24)
                 | ((long) (bytes[offset + 1] & 0xff) << 16)
