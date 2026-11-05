@@ -37,6 +37,8 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/VpnPeerSnippetPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelProfileNaming.java \
             app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelPacketRouter.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelSessionLedger.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/VpnRouteProbePolicy.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
             core-tests/UltgramPackagesTest.java \
@@ -52,7 +54,9 @@ jobs:
             core-tests/VpnRecoveryBackoffTest.java \
             core-tests/VpnPeerSnippetPolicyTest.java \
             core-tests/TunnelProfileNamingTest.java \
-            core-tests/MultiTunnelPacketRouterTest.java
+            core-tests/MultiTunnelPacketRouterTest.java \
+            core-tests/MultiTunnelSessionLedgerTest.java \
+            core-tests/VpnRouteProbePolicyTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
           java -cp /tmp/wonhee-classes UltgramPackagesTest
@@ -69,6 +73,8 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnPeerSnippetPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelProfileNamingTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.MultiTunnelPacketRouterTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.MultiTunnelSessionLedgerTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnRouteProbePolicyTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
