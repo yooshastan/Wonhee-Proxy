@@ -2,6 +2,9 @@ package dualwg
 
 import (
 	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
+	"fmt"
 	"errors"
 	"io"
 	"testing"
@@ -28,6 +31,40 @@ func TestTwoIndependentCryptoDevices(t *testing.T) {
 	home.Close()
 	if err := home.Tun.Inject([]byte{1}); !errors.Is(err, ErrClosed) { t.Fatalf("post-close inject: %v", err) }
 	if _, err := home.Tun.Read(bufs, sizes, 0); !errors.Is(err, io.EOF) { t.Fatalf("post-close read: %v", err) }
+}
+
+func TestTwoIndependentEphemeralKeys(t *testing.T) {
+	home, err := NewInactiveSession("home", 1280, 4)
+	if err != nil { t.Fatal(err) }
+	defer home.Close()
+	exit, err := NewInactiveSession("airvpn", 1280, 4)
+	if err != nil { t.Fatal(err) }
+	defer exit.Close()
+	curve := ecdh.X25519()
+	homeKey, err := curve.GenerateKey(rand.Reader)
+	if err != nil { t.Fatal(err) }
+	exitKey, err := curve.GenerateKey(rand.Reader)
+	if err != nil { t.Fatal(err) }
+	homePeer, err := curve.GenerateKey(rand.Reader)
+	if err != nil { t.Fatal(err) }
+	exitPeer, err := curve.GenerateKey(rand.Reader)
+	if err != nil { t.Fatal(err) }
+	// All test keys are ephemeral. No real user config or credential is used.
+	for _, p := range []struct{s *Session; own, remote *ecdh.PrivateKey; route string}{
+		{home, homeKey, homePeer, "10.0.0.0/24"},
+		{exit, exitKey, exitPeer, "0.0.0.0/0"},
+	} {
+		config := fmt.Sprintf("private_key=%x\nreplace_peers=true\npublic_key=%x\nallowed_ip=%s\n",
+			p.own.Bytes(), p.remote.PublicKey().Bytes(), p.route)
+		if err := p.s.Configure(config); err != nil { t.Fatal("ephemeral profile configure failed") }
+	}
+	// Separate WireGuard devices retain distinct independent key material and
+	// cannot share the HOME identity even though both were configured in-process.
+	if bytes.Equal(homeKey.Bytes(), exitKey.Bytes()) { t.Fatal("independent test keys collided") }
+	home.Close()
+	if err := home.Configure("not-a-profile"); !errors.Is(err, ErrClosed) {
+		t.Fatal("closed session accepted config")
+	}
 }
 
 func TestQueueIsolationAndBackpressure(t *testing.T) {
