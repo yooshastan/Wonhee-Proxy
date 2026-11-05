@@ -6,6 +6,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -63,14 +64,17 @@ final class VpnHomeServiceProbe {
 
         // Construct from numeric bytes: InetAddress.getByName/Android DNS is never called.
         InetAddress destination = InetAddress.getByAddress(target.addressBytes());
+        long started = SystemClock.elapsedRealtime();
         try (Socket socket = soleVpn.getSocketFactory().createSocket()) {
             socket.connect(new InetSocketAddress(destination, target.port), 4000);
+            long duration = Math.max(0L, SystemClock.elapsedRealtime() - started);
             return "PASS: TCP port accepted a connection through the Android-reported VPN "
-                    + "network. This does not verify service authentication, DNS privacy, "
-                    + "IPv6 routing, or leak freedom.";
+                    + "network in " + duration + " ms (one TCP connect, not ping RTT). "
+                    + "This does not verify service authentication, DNS privacy, "
+                    + "IPv6 routing, performance or leak freedom.";
         } catch (IOException failed) {
             return "FAILED: TCP connection through the VPN did not succeed. "
-                    + "Check service listening address, Fedora firewall, WireGuard "
+                    +  "Check service listening address, gateway firewall, WireGuard "
                     + "AllowedIPs and LAN forwarding. No other network was used.";
         }
     }
