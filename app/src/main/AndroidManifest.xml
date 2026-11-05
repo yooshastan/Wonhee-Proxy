@@ -19,6 +19,7 @@
         android:icon="@drawable/ic_wonhee_proxy"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
+        <activity android:name=".RootDualKernelActivity" android:exported="false" />
         <activity android:name=".VpnActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
