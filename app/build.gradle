@@ -21,6 +21,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // Side-by-side experiment; never replace the user's signed stable app.
+            applicationIdSuffix '.rootlab'
+        }
         release {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.wonheeRelease
