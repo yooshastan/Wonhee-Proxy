@@ -234,23 +234,45 @@ final class RootDualKernelSession {
                         "ip6tables -w -S WN_GUARD6 >/dev/null 2>&1") == 0;
                 List<String> homeMarkOutput = new ArrayList<>();
                 List<String> airMarkOutput = new ArrayList<>();
-                long homeMark = rootShell.run(homeMarkOutput, "wg show wnhome0 fwmark") == 0
+                boolean homeMarkRead = rootShell.run(homeMarkOutput,
+                        "wg show wnhome0 fwmark") == 0;
+                boolean airMarkRead = rootShell.run(airMarkOutput,
+                        "wg show wnair0 fwmark") == 0;
+                long homeMark = homeMarkRead
                         ? RootFirewallMark.parse(homeMarkOutput) : 0;
-                long airMark = rootShell.run(airMarkOutput, "wg show wnair0 fwmark") == 0
+                long airMark = airMarkRead
                         ? RootFirewallMark.parse(airMarkOutput) : 0;
                 boolean marks = RootFirewallMark.distinctNonzero(homeMark, airMark);
+                // Split-only wg-quick interfaces often have no fwmark. A
+                // resolved Home endpoint is a possible future *explicit* UDP
+                // exemption, not evidence that an exemption exists today.
+                List<String> homeEndpointOutput = new ArrayList<>();
+                boolean homeEndpoint = rootShell.run(homeEndpointOutput,
+                        "wg show wnhome0 endpoints") == 0
+                        && RootWireGuardEndpoint.hasSingleNumericEndpoint(homeEndpointOutput);
                 boolean publicRoutes = routeUses("1.1.1.1", false, europe.getName())
                         && routeUses("2606:4700:4700::1111", true, europe.getName());
                 ready = interfaces && v4 && v6 && mark4 && mark6 && marks && publicRoutes
                         && !reserved4 && !reserved6;
-                result = "KERNEL GUARD READINESS: " + (ready ? "PRECHECK PASS" : "NOT READY")
+                boolean homeExemptionCandidate = homeMark == 0 && homeEndpoint && airMark > 0;
+                String verdict = ready ? "PRECHECK PASS"
+                        : homeExemptionCandidate ? "HOME ENDPOINT EXEMPTION NEEDED" : "NOT READY";
+                result = "KERNEL GUARD READINESS: " + verdict
                         + "\nBoth kernel interfaces UP: " + (interfaces ? "YES" : "NO")
                         + "\nIPv4/IPv6 OUTPUT readable: " + (v4 && v6 ? "YES" : "NO")
                         + "\nIPv4/IPv6 mark-match userspace support: " + (mark4 && mark6 ? "YES" : "NO")
+                        + "\nHome transport mark: " + (homeMark > 0 ? "SET" :
+                                homeMarkRead ? "OFF OR INVALID" : "QUERY FAILED")
+                        + "\nAirVPN transport mark: " + (airMark > 0 ? "SET" :
+                                airMarkRead ? "OFF OR INVALID" : "QUERY FAILED")
                         + "\nDistinct nonzero WireGuard transport marks: " + (marks ? "YES" : "NO")
+                        + "\nHome peer has a resolved numeric UDP endpoint: "
+                        + (homeEndpoint ? "YES" : "NO")
                         + "\nPublic IPv4/IPv6 root routes select wnair0: "
                         + (publicRoutes ? "YES" : "NO")
                         + "\nReserved rule-chain collision: " + (reserved4 || reserved6 ? "YES" : "NO")
+                        + "\nA Home split tunnel may correctly have no fwmark. "
+                        + "It would need an independently tested endpoint transport exemption."
                         + "\nNO firewall rules installed or modified. A precheck pass does "
                         + "NOT prove the mark exemptions work, DNS isolation, crash cleanup, "
                         + "or fail-closed behavior. Actual enforcement remains disabled.";

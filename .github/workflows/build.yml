@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.9.8.0 Kernel Guard Readiness Preview
+name: Wonhee Proxy 0.9.8.1 Split Home Transport Diagnostic
 
 on:
   push:
@@ -46,6 +46,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootDualRoutePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootKernelRouteAudit.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootFirewallMark.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootWireGuardEndpoint.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
             core-tests/UltgramPackagesTest.java \
@@ -67,7 +68,8 @@ jobs:
             core-tests/VpnRouteProbePolicyTest.java \
             core-tests/RootDualRoutePolicyTest.java \
             core-tests/RootKernelRouteAuditTest.java \
-            core-tests/RootFirewallMarkTest.java
+            core-tests/RootFirewallMarkTest.java \
+            core-tests/RootWireGuardEndpointTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
           java -cp /tmp/wonhee-classes UltgramPackagesTest
@@ -90,6 +92,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDualRoutePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootKernelRouteAuditTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootFirewallMarkTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootWireGuardEndpointTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
@@ -98,7 +101,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0980-kernel-guard-readiness-debug-apk
+          name: wonhee-0981-split-home-transport-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
