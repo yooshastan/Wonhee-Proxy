@@ -1,6 +1,7 @@
 package dualwg
 
 import (
+	"errors"
 	"sync"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -15,6 +16,23 @@ type Session struct {
 	device *device.Device
 	mu     sync.Mutex
 	closed bool
+}
+
+// Configure loads one wireguard-go userspace-format profile into its own
+// crypto device. The Android parser will supply toWgUserspaceString() from
+// each independently sealed profile. Do not log or return the raw settings.
+// Sessions remain DOWN; socket protection is not yet implemented.
+func (s *Session) Configure(userspaceSettings string) error {
+	if s == nil || len(userspaceSettings) < 1 || len(userspaceSettings) > 65536 {
+		return ErrBadArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed { return ErrClosed }
+	if err := s.device.IpcSet(userspaceSettings); err != nil {
+		return errors.New("WireGuard profile rejected")
+	}
+	return nil
 }
 
 func NewInactiveSession(name string, mtu, queueDepth int) (*Session, error) {
