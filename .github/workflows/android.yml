@@ -1,4 +1,4 @@
-name: Wonhee Proxy Android Alpha 0.9.2 Tunnel Manager Preview
+name: Wonhee Proxy Android Alpha 0.9.3 Stage 2 Experimental Preview
 
 # Legacy manual workflow; use build.yml for automatic PR/main validation.
 on:
@@ -83,7 +83,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-proxy-alpha092-preview-debug-apk
+          name: wonhee-proxy-alpha093-stage2-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
