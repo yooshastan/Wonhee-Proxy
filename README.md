@@ -1,6 +1,6 @@
 # Wonhee Proxy
 
-**Alpha 0.8.6 on main; Alpha 0.9.2 tunnel manager development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
+**Alpha 0.8.6 on main; Alpha 0.9.3 stage-2 experimental diagnostics preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
 endpoints for Ultgram. Alpha 0.4 added a **user-initiated**
