@@ -38,12 +38,16 @@ final class SecureTunnelProfileStore {
     private final SharedPreferences prefs;
 
     static final class Profile {
+        static final int ROLE_OTHER = 0;
+        static final int ROLE_HOME = 1;
+        static final int ROLE_INTERNET = 2;
         final String name;
         final String configuration;
         final int routeMode;
         final String homeRoutes;
         final boolean homeDnsEnabled;
         final String homeDnsServer;
+        final int role;
 
         Profile(String name, String configuration) {
             this(name, configuration, VpnRouteModes.PROFILE, "");
@@ -55,12 +59,22 @@ final class SecureTunnelProfileStore {
 
         Profile(String name, String configuration, int routeMode, String homeRoutes,
                 boolean homeDnsEnabled, String homeDnsServer) {
+            this(name, configuration, routeMode, homeRoutes, homeDnsEnabled, homeDnsServer,
+                    ROLE_OTHER);
+        }
+
+        Profile(String name, String configuration, int routeMode, String homeRoutes,
+                boolean homeDnsEnabled, String homeDnsServer, int role) {
             this.name = name == null ? "" : name.trim();
             this.configuration = configuration == null ? "" : configuration;
             this.routeMode = routeMode;
             this.homeRoutes = homeRoutes == null ? "" : homeRoutes.trim();
             this.homeDnsEnabled = homeDnsEnabled;
             this.homeDnsServer = homeDnsServer == null ? "" : homeDnsServer.trim();
+            if (role < ROLE_OTHER || role > ROLE_INTERNET) {
+                throw new IllegalArgumentException("Invalid tunnel role.");
+            }
+            this.role = role;
             if (this.homeDnsServer.length() > 120) {
                 throw new IllegalArgumentException("DNS addresses exceed 120 characters.");
             }
@@ -88,6 +102,7 @@ final class SecureTunnelProfileStore {
             result.put("homeRoutes", homeRoutes);
             result.put("homeDnsEnabled", homeDnsEnabled);
             result.put("homeDnsServer", homeDnsServer);
+            result.put("role", role);
             return result;
         }
 
@@ -97,7 +112,8 @@ final class SecureTunnelProfileStore {
                     value.optInt("routeMode", VpnRouteModes.PROFILE),
                     value.optString("homeRoutes", ""),
                     value.optBoolean("homeDnsEnabled", false),
-                    value.optString("homeDnsServer", ""));
+                    value.optString("homeDnsServer", ""),
+                    value.optInt("role", ROLE_OTHER));
         }
     }
 

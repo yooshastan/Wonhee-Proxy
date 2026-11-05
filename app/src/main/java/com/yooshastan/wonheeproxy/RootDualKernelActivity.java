@@ -145,14 +145,21 @@ public final class RootDualKernelActivity extends Activity {
         airAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         homeChoice.setAdapter(homeAdapter);
         airChoice.setAdapter(airAdapter);
+        int chosenHome = -1;
+        int chosenInternet = -1;
+        for (int i = 0; i < saved.size(); ++i) {
+            if (saved.get(i).role == SecureTunnelProfileStore.Profile.ROLE_HOME) chosenHome = i;
+            if (saved.get(i).role == SecureTunnelProfileStore.Profile.ROLE_INTERNET) chosenInternet = i;
+        }
         for (int i = 0; i < saved.size(); ++i) {
             String name = saved.get(i).name.toLowerCase(java.util.Locale.ROOT);
-            if (name.contains("home") || name.contains("pixel") || name.contains("asus")) {
-                homeChoice.setSelection(i);
-            } else if (name.contains("air") || name.contains("europe")) {
-                airChoice.setSelection(i);
-            }
+            if (chosenHome < 0 && (name.contains("home") || name.contains("pixel")
+                    || name.contains("asus") || name.contains("wgs_client"))) chosenHome = i;
+            if (chosenInternet < 0 && (name.contains("air") || name.contains("europe")))
+                chosenInternet = i;
         }
+        if (chosenHome >= 0) homeChoice.setSelection(chosenHome);
+        if (chosenInternet >= 0) airChoice.setSelection(chosenInternet);
     }
 
     private void confirmStart() {
