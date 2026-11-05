@@ -253,10 +253,11 @@ public final class VpnActivity extends Activity {
         LinearLayout configCard = card(root);
         label(configCard, "YOUR WIREGUARD TUNNELS", 17, PINK);
         label(configCard, "Import complete WireGuard .conf files, then tap Connect on a saved tunnel. "
-                + "The regular Android VPN backend runs one tunnel. Rooted devices can test two independent kernel tunnels in Root Dual-Tunnel Lab.", 12, MUTED);
+                + "The regular Android VPN backend runs one tunnel. Rooted devices can "
+                + "manage two independent kernel tunnels in the experimental control center.", 12, MUTED);
         importButton = button(configCard, "Import WireGuard .conf files");
         importButton.setOnClickListener(v -> chooseConfig());
-        Button rootDualLab = button(configCard, "Experimental: Root dual-tunnel lab");
+        Button rootDualLab = button(configCard, "Open root control center · 2 tunnels");
         rootDualLab.setOnClickListener(v -> startActivity(new Intent(this, RootDualKernelActivity.class)));
         tunnelList = new LinearLayout(this);
         tunnelList.setOrientation(LinearLayout.VERTICAL);

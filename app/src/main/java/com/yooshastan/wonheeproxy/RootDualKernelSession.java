@@ -1,8 +1,13 @@
 package com.yooshastan.wonheeproxy;
 
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import com.wireguard.android.backend.Statistics;
 import com.wireguard.android.backend.Tunnel;
@@ -42,6 +47,7 @@ final class RootDualKernelSession {
     private static RootDualKernelSession instance;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final Context application;
     private final File appCacheDir;
     private final RootShell rootShell;
     private final ToolsInstaller tools;
@@ -54,6 +60,8 @@ final class RootDualKernelSession {
     private volatile String lastPreflightStep = "kernel support";
     private Config startedHome;
     private Config startedEurope;
+    private final TunnelTrafficHistory homeTraffic = new TunnelTrafficHistory();
+    private final TunnelTrafficHistory airTraffic = new TunnelTrafficHistory();
 
     private static final class KernelCommandException extends Exception {
         final int exitCode;
@@ -69,6 +77,7 @@ final class RootDualKernelSession {
 
     private RootDualKernelSession(Context context) {
         Context app = context.getApplicationContext();
+        application = app;
         appCacheDir = app.getCacheDir();
         rootShell = new RootShell(app);
         tools = new ToolsInstaller(app, rootShell);
@@ -203,6 +212,101 @@ final class RootDualKernelSession {
         });
     }
 
+    /**
+     * No-write readiness gate for an eventual iptables/ip6tables fail-closed
+     * guard. We must know how both WireGuard UDP transports are exempted before
+     * adding any OUTPUT hooks; otherwise we could break tunnel recovery.
+     */
+    void checkGuardReadiness(Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ready = false;
+            String result;
+            try {
+                prepareRoot();
+                boolean interfaces = backend.getState(home) == Tunnel.State.UP
+                        && backend.getState(europe) == Tunnel.State.UP;
+                boolean v4 = rootShell.run(null, "iptables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean v6 = rootShell.run(null, "ip6tables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean mark4 = rootShell.run(null, "iptables -m mark -h >/dev/null 2>&1") == 0;
+                boolean mark6 = rootShell.run(null, "ip6tables -m mark -h >/dev/null 2>&1") == 0;
+                // Refuse to reuse possibly foreign or orphaned rule chains.
+                boolean reserved4 = rootShell.run(null,
+                        "iptables -w -S WN_GUARD4 >/dev/null 2>&1") == 0;
+                boolean reserved6 = rootShell.run(null,
+                        "ip6tables -w -S WN_GUARD6 >/dev/null 2>&1") == 0;
+                List<String> homeMarkOutput = new ArrayList<>();
+                List<String> airMarkOutput = new ArrayList<>();
+                boolean homeMarkRead = rootShell.run(homeMarkOutput,
+                        "wg show wnhome0 fwmark") == 0;
+                boolean airMarkRead = rootShell.run(airMarkOutput,
+                        "wg show wnair0 fwmark") == 0;
+                long homeMark = homeMarkRead
+                        ? RootFirewallMark.parse(homeMarkOutput) : 0;
+                long airMark = airMarkRead
+                        ? RootFirewallMark.parse(airMarkOutput) : 0;
+                boolean marks = RootFirewallMark.distinctNonzero(homeMark, airMark);
+                boolean androidProtectMark = RootFirewallMark.sharedAndroidProtectBit(
+                        homeMark, airMark);
+                // Split-only wg-quick interfaces often have no fwmark. A
+                // resolved Home endpoint is a possible future *explicit* UDP
+                // exemption, not evidence that an exemption exists today.
+                List<String> homeEndpointOutput = new ArrayList<>();
+                boolean homeEndpoint = rootShell.run(homeEndpointOutput,
+                        "wg show wnhome0 endpoints") == 0
+                        && RootWireGuardEndpoint.hasSingleNumericEndpoint(homeEndpointOutput);
+                List<String> internetEndpointOutput = new ArrayList<>();
+                boolean internetEndpoint = rootShell.run(internetEndpointOutput,
+                        "wg show wnair0 endpoints") == 0
+                        && RootWireGuardEndpoint.hasSingleNumericEndpoint(internetEndpointOutput);
+                boolean publicRoutes = routeUses("1.1.1.1", false, europe.getName())
+                        && routeUses("2606:4700:4700::1111", true, europe.getName());
+                ready = interfaces && v4 && v6 && mark4 && mark6 && marks
+                        && homeEndpoint && internetEndpoint && publicRoutes
+                        && !reserved4 && !reserved6;
+                boolean homeExemptionCandidate = homeMark == 0 && homeEndpoint && airMark > 0;
+                String verdict = androidProtectMark ? "ANDROID SHARED MARK — DO NOT ARM"
+                        : ready ? "PRECHECK PASS"
+                        : homeExemptionCandidate ? "HOME ENDPOINT EXEMPTION NEEDED" : "NOT READY";
+                result = "KERNEL GUARD READINESS: " + verdict
+                        + "\nBoth kernel interfaces UP: " + (interfaces ? "YES" : "NO")
+                        + "\nIPv4/IPv6 OUTPUT readable: " + (v4 && v6 ? "YES" : "NO")
+                        + "\nIPv4/IPv6 mark-match userspace support: " + (mark4 && mark6 ? "YES" : "NO")
+                        + "\nHome transport mark: " + (homeMark > 0 ? "SET" :
+                                homeMarkRead ? "OFF OR INVALID" : "QUERY FAILED")
+                        + (homeMark > 0 ? " (0x" + Long.toHexString(homeMark) + ")" : "")
+                        + "\nAirVPN transport mark: " + (airMark > 0 ? "SET" :
+                                airMarkRead ? "OFF OR INVALID" : "QUERY FAILED")
+                        + (airMark > 0 ? " (0x" + Long.toHexString(airMark) + ")" : "")
+                        + "\nDistinct nonzero WireGuard transport marks: " + (marks ? "YES" : "NO")
+                        + "\nAndroid shared protectedFromVpn mark (0x20000): "
+                        + (androidProtectMark ? "YES — not a safe sole exemption" : "NO")
+                        + "\nHome peer has a resolved numeric UDP endpoint: "
+                        + (homeEndpoint ? "YES" : "NO")
+                        + "\nInternet peer has a resolved numeric UDP endpoint: "
+                        + (internetEndpoint ? "YES" : "NO")
+                        + "\nPublic IPv4/IPv6 root routes select wnair0: "
+                        + (publicRoutes ? "YES" : "NO")
+                        + "\nReserved rule-chain collision: " + (reserved4 || reserved6 ? "YES" : "NO")
+                        + "\nA Home split tunnel may correctly have no fwmark. "
+                        + "It would need an independently tested endpoint transport exemption."
+                        + "\nBoth numeric UDP endpoints are only candidates for future "
+                        + "narrow firewall exemptions. Endpoint rotation, Wi-Fi/cellular "
+                        + "handoff and app socket marks still need testing."
+                        + (androidProtectMark ? "\nThe shared 0x20000 bit also marks other "
+                            + "Android VPN-protected traffic. Do NOT allow all packets with this "
+                            + "mark through a kill switch." : "")
+                        + "\nNO firewall rules installed or modified. A precheck pass does "
+                        + "NOT prove the mark exemptions work, DNS isolation, crash cleanup, "
+                        + "or fail-closed behavior. Actual enforcement remains disabled.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Kernel guard readiness could not be checked. "
+                        + "No firewall rules were changed.";
+            }
+            finish(callback, ready, result);
+        });
+    }
+
     /** Profile DNS route audit only; Android/DoH/DoQ resolver behavior is NOT covered. */
     void checkInternetDnsRoutes(SecureTunnelProfileStore.Profile internetProfile,
                                 Callback callback) {
@@ -244,6 +348,264 @@ final class RootDualKernelSession {
             }
             finish(callback, passed, result);
         });
+    }
+
+    /**
+     * Save a per-profile resolver choice in the encrypted profile store.
+     * The imported .conf remains untouched and the active kernel pair is never
+     * changed. Android resolver behavior in root mode is NOT controlled here.
+     */
+    void saveInternetDnsPolicy(SecureTunnelProfileStore.Profile profile,
+                               int preset, String custom, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean savedPolicy = false;
+            String result;
+            try {
+                if (managing) {
+                    result = "Stop the active kernel pair before changing DNS policy. "
+                            + "No settings were saved.";
+                } else {
+                    boolean override = VpnDnsPresets.isOverride(preset);
+                    String dns = VpnDnsPresets.addresses(preset, custom);
+                    SecureTunnelProfileStore.Profile updated = new SecureTunnelProfileStore.Profile(
+                            profile.name, profile.configuration, profile.routeMode,
+                            profile.homeRoutes, override, dns, profile.role);
+                    // Test that numeric DNS addresses are valid and reachable through
+                    // this profile's AllowedIPs before writing any encrypted data.
+                    parseRuntime(updated);
+                    new SecureTunnelProfileStore(application).save(updated);
+                    savedPolicy = true;
+                    result = (override ? "Saved Internet DNS policy for next tunnel start: "
+                            + VpnDnsPresets.LABELS[preset] + ". "
+                            : "Restored imported DNS for the next tunnel start. ")
+                            + "Imported .conf and running interfaces were not modified. "
+                            + "Provider-side filtering, Android app DNS and leak prevention "
+                            + "must be tested independently.";
+                }
+            } catch (Exception | LinkageError ignored) {
+                result = "DNS policy not saved. Check that selected numeric resolver IPs "
+                        + "are valid and included in the Internet profile AllowedIPs. "
+                        + "No running interfaces were changed.";
+            }
+            finish(callback, savedPolicy, result);
+        });
+    }
+
+    /** Read-only route selection for one explicitly validated private home IP. */
+    void checkHomeServiceRoute(String homeIp, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                // Reuse the strict private-IPv4 parser, ignoring the dummy TCP port.
+                PrivateIpv4Target.parse(homeIp, "1");
+                String numericIp = homeIp.trim();
+                prepareRoot();
+                boolean viaHome = routeUses(numericIp, false, home.getName());
+                ok = viaHome;
+                result = "HOME ROUTE CHECK: " + (viaHome ? "EXPECTED ROUTE" : "ROUTE MISMATCH")
+                        + "\nDestination: " + numericIp
+                        + "\nRoot route selects wnhome0: " + (viaHome ? "YES" : "NO")
+                        + "\nThis does NOT test TCP connectivity or whether a specific "
+                        + "Android app uses this route. No routes were changed.";
+            } catch (IllegalArgumentException invalid) {
+                result = "Enter a numeric private IPv4 home service address, "
+                        + "such as 10.0.0.169. No route was changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not query the selected Home service route. "
+                        + "Check root grant and network state; nothing was modified.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    /**
+     * Read-only regression audit for the two expected kernel routing domains.
+     * Android may attach per-socket fwmarks, so these root route observations
+     * must never be presented as proof of app isolation or fail-closed policy.
+     */
+    void auditCurrentRoutes(SecureTunnelProfileStore.Profile homeProfile,
+                            SecureTunnelProfileStore.Profile internetProfile,
+                            Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean passed = false;
+            String result;
+            try {
+                Config homeConfig = parseRuntime(homeProfile);
+                Config internetConfig = parseRuntime(internetProfile);
+                validatePair(homeConfig, internetConfig);
+                prepareRoot();
+
+                boolean ipv4 = routeUses("1.1.1.1", false, europe.getName());
+                boolean ipv6 = routeUses("2606:4700:4700::1111", true, europe.getName());
+                int homeMatched = 0;
+                int homeTotal = 0;
+                for (InetNetwork route : homeConfig.getPeers().get(0).getAllowedIps()) {
+                    homeTotal++;
+                    InetAddress address = route.getAddress();
+                    if (routeUses(address.getHostAddress(),
+                            !(address instanceof Inet4Address), home.getName())) {
+                        homeMatched++;
+                    }
+                }
+
+                String dnsSummary;
+                ConnectivityManager cm = (ConnectivityManager) application.getSystemService(
+                        Context.CONNECTIVITY_SERVICE);
+                Network active = cm == null ? null : cm.getActiveNetwork();
+                LinkProperties props = active == null || cm == null ? null : cm.getLinkProperties(active);
+                if (props == null) {
+                    dnsSummary = "Android active-network DNS: unavailable.";
+                } else {
+                    int dnsMatched = 0;
+                    List<InetAddress> dns = props.getDnsServers();
+                    for (InetAddress server : dns) {
+                        if (routeUses(server.getHostAddress(),
+                                !(server instanceof Inet4Address), europe.getName())) {
+                            dnsMatched++;
+                        }
+                    }
+                    dnsSummary = "Android active-network DNS: " + dnsMatched + "/" + dns.size()
+                            + " server destinations select wnair0 for root route queries.";
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        dnsSummary += " Private DNS: "
+                                + (props.isPrivateDnsActive() ? "reported active" : "not reported active")
+                                + ".";
+                    }
+                }
+                passed = ipv4 && ipv6 && homeMatched == homeTotal && homeTotal > 0;
+                result = "READ-ONLY ROOT ROUTE AUDIT " + (passed ? "PASS" : "NEEDS ATTENTION")
+                        + "\nPublic IPv4 via wnair0: " + (ipv4 ? "YES" : "NO")
+                        + "\nPublic IPv6 via wnair0: " + (ipv6 ? "YES" : "NO")
+                        + "\nHome split routes via wnhome0: " + homeMatched + "/" + homeTotal
+                        + "\n" + dnsSummary
+                        + "\nThis is NOT a packet capture, app-DNS leak test, or kill switch. "
+                        + "Android app fwmarks, encrypted DNS and fallback still require "
+                        + "independent testing. No firewall rules changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Root route audit could not complete. Check selected profile "
+                        + "routes and root access; no firewall settings were modified.";
+            }
+            finish(callback, passed, result);
+        });
+    }
+
+    /** Inspect leftovers after an app crash or reboot, without adopting them. */
+    void inspectKernelInterfaces(Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                prepareRoot();
+                Set<String> existing = backend.getRunningTunnelNames();
+                boolean hasHome = existing.contains(home.getName());
+                boolean hasAir = existing.contains(europe.getName());
+                ok = true;
+                result = "Kernel interface inspection (read only):\nwnhome0: "
+                        + (hasHome ? "PRESENT" : "ABSENT") + "\nwnair0: "
+                        + (hasAir ? "PRESENT" : "ABSENT")
+                        + "\nCurrent process manages pair: " + (managing ? "YES" : "NO")
+                        + "\nA present interface after restart is NOT automatically trusted or "
+                        + "managed. Recover only matching selected profiles, or inspect with adb. "
+                        + "No interfaces were changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not inspect kernel interfaces. Check root access. "
+                        + "No interfaces were changed.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    /** Explicit non-mutating live read; kernel names alone do not establish ownership. */
+    void inspectLiveStatus(Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                prepareRoot();
+                result = summarize("Home", home) + "\n" + summarize("AirVPN Europe", europe)
+                        + "\nREAD-ONLY snapshot. Unmanaged interface identities are NOT "
+                        + "verified here. Use VERIFY + RESUME before restarting them. "
+                        + "Counters are not a leak or connectivity audit.";
+                ok = true;
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not read live kernel status. Check root grant and tools.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    /**
+     * Process restart loses in-memory ownership even when kernel links remain.
+     * Explicitly restore management ONLY after both public identities and
+     * split/default routes match the selected encrypted configurations.
+     */
+    void verifyAndResumePair(SecureTunnelProfileStore.Profile homeProfile,
+                             SecureTunnelProfileStore.Profile internetProfile,
+                             Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                if (managing) throw new IllegalStateException("Already managing a pair");
+                Config verifiedHome = parseRuntime(homeProfile);
+                Config verifiedInternet = parseRuntime(internetProfile);
+                validatePair(verifiedHome, verifiedInternet);
+                prepareRoot();
+                if (backend.getState(home) != Tunnel.State.UP
+                        || backend.getState(europe) != Tunnel.State.UP) {
+                    result = "Cannot resume: both wnhome0 and wnair0 must already be UP. "
+                            + "If only one remains, inspect and recover matching interfaces first.";
+                } else if (!matchesKernelIdentity(home, verifiedHome)
+                        || !matchesKernelIdentity(europe, verifiedInternet)) {
+                    result = "Resume refused: running kernel interface or peer identity "
+                            + "does not match the selected encrypted profiles. No change made.";
+                } else {
+                    boolean homeRoutes = true;
+                    for (InetNetwork route : verifiedHome.getPeers().get(0).getAllowedIps()) {
+                        InetAddress target = route.getAddress();
+                        homeRoutes &= routeUses(target.getHostAddress(),
+                                !(target instanceof Inet4Address), home.getName());
+                    }
+                    boolean internetRoutes = routeUses("1.1.1.1", false, europe.getName())
+                            && routeUses("2606:4700:4700::1111", true, europe.getName());
+                    if (!homeRoutes || !internetRoutes) {
+                        result = "Resume refused: active Home split routes or public "
+                                + "IPv4/IPv6 default routes did not match. No change made.";
+                    } else {
+                        startedHome = verifiedHome;
+                        startedEurope = verifiedInternet;
+                        homeTraffic.clear();
+                        airTraffic.clear();
+                        managing = true;
+                        ok = true;
+                        result = "Both active kernel identities and route decisions match. "
+                                + "Wonhee resumed managing this pair in the current process; "
+                                + "live monitoring and manual restart are now available. "
+                                + "No routes or firewall rules were modified.";
+                    }
+                }
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not securely resume this pair. Verify imported profiles, "
+                        + "root grant, running identities, and routes. No changes made.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    private boolean routeUses(String numericHost, boolean ipv6, String device) throws Exception {
+        List<String> lines = new ArrayList<>();
+        String family = ipv6 ? "ip -6" : "ip -4";
+        // Host is a numeric address produced by InetAddress or a fixed probe,
+        // not shell syntax from a user-supplied configuration string.
+        if (rootShell.run(lines, family + " route get '" + numericHost + "'") != 0) return false;
+        return RootKernelRouteAudit.routesThrough(lines, device);
     }
 
     void startPair(SecureTunnelProfileStore.Profile homeProfile,
@@ -293,6 +655,8 @@ final class RootDualKernelSession {
                     throw new IllegalStateException("both were not active");
                 }
                 started = true;
+                homeTraffic.clear();
+                airTraffic.clear();
                 result = "Both kernel interfaces are UP. Verify fresh handshakes, routing, DNS and IPv6.";
             } catch (IllegalArgumentException invalid) {
                 // Route-policy failures are our own fixed, non-secret strings.
@@ -355,6 +719,25 @@ final class RootDualKernelSession {
                 finish(callback, false, "No pair owned by this Wonhee process. No interfaces changed.");
                 return;
             }
+            // Names can be reused after a crash or another root action.
+            // Verify BOTH identities before changing EITHER interface.
+            try {
+                prepareRoot();
+                if (startedHome == null || startedEurope == null
+                        || (backend.getState(home) == Tunnel.State.UP
+                            && !matchesKernelIdentity(home, startedHome))
+                        || (backend.getState(europe) == Tunnel.State.UP
+                            && !matchesKernelIdentity(europe, startedEurope))) {
+                    finish(callback, false, "Stop refused: current interface identity "
+                            + "does not match the pair this process manages. "
+                            + "Inspect running interfaces; no changes made.");
+                    return;
+                }
+            } catch (Exception | LinkageError ignored) {
+                finish(callback, false, "Stop refused: could not verify both "
+                        + "managed interface identities. No changes made.");
+                return;
+            }
             boolean airDown = false;
             boolean homeDown = false;
             try {
@@ -381,6 +764,8 @@ final class RootDualKernelSession {
                 managing = false;
                 startedHome = null;
                 startedEurope = null;
+                homeTraffic.clear();
+                airTraffic.clear();
             }
             finish(callback, stopped, stopped ? "Both Wonhee kernel interfaces stopped."
                     : "Stop incomplete. Check each kernel interface and retry Stop both.");
@@ -466,6 +851,8 @@ final class RootDualKernelSession {
             String status;
             try {
                 status = summarize("Home", home) + "\n" + summarize("AirVPN Europe", europe);
+                status += "\nPassive tunnel counters only. A handshake does not prove "
+                        + "internet reachability, DNS isolation, or leak prevention.";
             } catch (Exception | LinkageError ignored) {
                 status = "Could not read kernel tunnel status; check Magisk root access.";
             }
@@ -475,16 +862,23 @@ final class RootDualKernelSession {
     }
 
     private String summarize(String label, Tunnel tunnel) throws Exception {
-        if (backend.getState(tunnel) != Tunnel.State.UP) return label + ": DOWN";
+        TunnelTrafficHistory traffic = tunnel == home ? homeTraffic : airTraffic;
+        if (backend.getState(tunnel) != Tunnel.State.UP) {
+            traffic.clear();
+            return RootTunnelHealth.render(label, false, 0, 0, -1, null);
+        }
         Statistics stats = backend.getStatistics(tunnel);
         long recent = 0;
         for (Key peer : stats.peers()) {
             Statistics.PeerStats peerStats = stats.peer(peer);
             if (peerStats != null) recent = Math.max(recent, peerStats.latestHandshakeEpochMillis());
         }
-        return label + ": UP | RX " + stats.totalRx() + " B | TX "
-                + stats.totalTx() + " B | handshake "
-                + (recent > 0 ? "observed" : "not observed");
+        long ageSeconds = recent > 0 ? Math.max(0L,
+                (System.currentTimeMillis() - recent) / 1000L) : -1L;
+        TunnelTrafficRates.Result rates = traffic.add(SystemClock.elapsedRealtime(),
+                stats.totalRx(), stats.totalTx());
+        return RootTunnelHealth.render(label, true, stats.totalRx(), stats.totalTx(),
+                ageSeconds, rates);
     }
 
     private static Config parseRuntime(SecureTunnelProfileStore.Profile profile) throws Exception {

@@ -1,0 +1,58 @@
+package com.yooshastan.wonheeproxy;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+/**
+ * Stores only root lab UI selections and redacted diagnostic text.
+ * WireGuard configuration and keys remain in the encrypted profile store.
+ */
+final class RootLabPreferences {
+    private static final String FILE = "wonhee_root_lab_ui_v1";
+    private static final String HOME = "selected_home_profile";
+    private static final String INTERNET = "selected_internet_profile";
+    private static final String HOME_SERVICE_IP = "selected_home_service_ip";
+    private static final String LAST_RESULT = "last_diagnostic_result";
+    private static final String LAST_RESULT_AT = "last_diagnostic_at";
+    private static final int MAX_RESULT_LENGTH = 6000;
+
+    private final SharedPreferences prefs;
+
+    RootLabPreferences(Context context) {
+        prefs = context.getApplicationContext().getSharedPreferences(FILE, Context.MODE_PRIVATE);
+    }
+
+    void savePair(String homeName, String internetName) {
+        if (homeName == null || internetName == null || homeName.isEmpty()
+                || internetName.isEmpty() || homeName.equals(internetName)) {
+            throw new IllegalArgumentException("Choose two different named profiles.");
+        }
+        prefs.edit().putString(HOME, homeName).putString(INTERNET, internetName).apply();
+    }
+
+    String homeName() { return prefs.getString(HOME, ""); }
+    String internetName() { return prefs.getString(INTERNET, ""); }
+
+    String homeServiceIp() { return prefs.getString(HOME_SERVICE_IP, "10.0.0.169"); }
+
+    void saveHomeServiceIp(String ip) {
+        // Strictly validate before storing or passing this string to a root route query.
+        PrivateIpv4Target.parse(ip, "1");
+        prefs.edit().putString(HOME_SERVICE_IP, ip.trim()).apply();
+    }
+
+    void saveDiagnostic(String redactedResult) {
+        if (redactedResult == null) return;
+        String bounded = redactedResult.length() > MAX_RESULT_LENGTH
+                ? redactedResult.substring(0, MAX_RESULT_LENGTH) : redactedResult;
+        prefs.edit().putString(LAST_RESULT, bounded)
+                .putLong(LAST_RESULT_AT, System.currentTimeMillis()).apply();
+    }
+
+    String lastDiagnostic() { return prefs.getString(LAST_RESULT, ""); }
+    long lastDiagnosticTime() { return prefs.getLong(LAST_RESULT_AT, 0L); }
+
+    void clearDiagnostic() {
+        prefs.edit().remove(LAST_RESULT).remove(LAST_RESULT_AT).apply();
+    }
+}
