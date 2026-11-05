@@ -35,6 +35,7 @@ public final class RootDualKernelActivity extends Activity {
     private Button checkButton;
     private Button startButton;
     private Button stopButton;
+    private Button recoverButton;
     private TextView status;
     private boolean visible;
     private final Runnable poll = new Runnable() {
@@ -106,6 +107,8 @@ public final class RootDualKernelActivity extends Activity {
             });
             refreshButtons();
         });
+        recoverButton = button(controls, "RECOVER MATCHING OLD INTERFACES");
+        recoverButton.setOnClickListener(v -> confirmRecovery());
         LinearLayout diagnostics = card(column);
         label(diagnostics, "CONNECTION DIAGNOSTICS", 17, PINK);
         status = label(diagnostics, "Ready for root preflight. Nothing has been started.", 14, WHITE);
@@ -197,6 +200,35 @@ public final class RootDualKernelActivity extends Activity {
                 }).show();
     }
 
+    private void confirmRecovery() {
+        if (dual.isBusy() || dual.isManagingPair()) return;
+        int homeIndex = homeChoice.getSelectedItemPosition();
+        int internetIndex = airChoice.getSelectedItemPosition();
+        if (homeIndex < 0 || internetIndex < 0 || homeIndex == internetIndex
+                || homeIndex >= saved.size() || internetIndex >= saved.size()) {
+            status.setText("Select two distinct saved profiles before recovery.");
+            return;
+        }
+        SecureTunnelProfileStore.Profile selectedHome = saved.get(homeIndex);
+        SecureTunnelProfileStore.Profile selectedAir = saved.get(internetIndex);
+        new AlertDialog.Builder(this)
+                .setTitle("Stop matching orphaned interfaces?")
+                .setMessage("Recovery can disconnect your home and internet tunnels. "
+                        + "Wonhee will verify the interface AND peer public keys against "
+                        + "your selected saved profiles before stopping either interface. "
+                        + "Unknown interfaces will not be changed. There is no verified "
+                        + "kill switch, so ordinary traffic may use cellular afterward. "
+                        + "Start the tunnels again manually after recovery.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Verify and stop", (dialog, which) -> {
+                    status.setText("Checking old kernel identities before any cleanup...");
+                    dual.recoverMatchingPair(selectedHome, selectedAir, (ok, detail) -> {
+                        if (!isFinishing()) { status.setText(detail); refreshButtons(); }
+                    });
+                    refreshButtons();
+                }).show();
+    }
+
     private void refreshButtons() {
         if (startButton == null) return;
         boolean busy = dual.isBusy();
@@ -204,6 +236,7 @@ public final class RootDualKernelActivity extends Activity {
         checkButton.setEnabled(!busy && !managing);
         startButton.setEnabled(!busy && !managing && saved.size() >= 2);
         stopButton.setEnabled(!busy && managing);
+        recoverButton.setEnabled(!busy && !managing && saved.size() >= 2);
         homeChoice.setEnabled(!busy && !managing);
         airChoice.setEnabled(!busy && !managing);
     }

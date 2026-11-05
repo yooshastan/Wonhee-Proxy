@@ -230,9 +230,15 @@ final class RootDualKernelSession {
                         + ". No private configuration was included in this message.";
             } catch (Exception | LinkageError ignored) {
                 // No logging of private keys, tunnel configs, DNS or peer endpoints.
-                result = "Failed at " + stage + ("root preflight".equals(stage)
-                        ? " (step: " + lastPreflightStep + ")" : "")
-                        + ". Report this stage; no keys are needed.";
+                if ("interface collision check".equals(stage)) {
+                    result = "Existing kernel interface detected. Use Recover matching "
+                            + "interfaces after confirming the selected profiles. "
+                            + "Unknown interfaces will not be changed.";
+                } else {
+                    result = "Failed at " + stage + ("root preflight".equals(stage)
+                            ? " (step: " + lastPreflightStep + ")" : "")
+                            + ". Report this stage; no keys are needed.";
+                }
             } finally {
                 if (!started) {
                     // Best-effort transactional rollback: never intentionally leave only HOME up.
@@ -299,6 +305,75 @@ final class RootDualKernelSession {
             finish(callback, stopped, stopped ? "Both Wonhee kernel interfaces stopped."
                     : "Stop incomplete. Check each kernel interface and retry Stop both.");
         });
+    }
+
+    /**
+     * Explicit recovery only: never adopt an orphan or silently restart it.
+     * Check BOTH the interface and peer public keys against the selected
+     * encrypted profiles before changing either existing interface.
+     */
+    void recoverMatchingPair(SecureTunnelProfileStore.Profile homeProfile,
+                             SecureTunnelProfileStore.Profile airProfile, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean success = false;
+            String result = "Recovery refused; no unknown tunnel should be changed.";
+            try {
+                if (managing) throw new IllegalStateException("Use Stop both for active session");
+                Config expectedHome = parseRuntime(homeProfile);
+                Config expectedAir = parseRuntime(airProfile);
+                validatePair(expectedHome, expectedAir);
+                prepareRoot();
+                Set<String> existing = backend.getRunningTunnelNames();
+                boolean hasHome = existing.contains(home.getName());
+                boolean hasAir = existing.contains(europe.getName());
+                if (!hasHome && !hasAir) {
+                    success = true;
+                    result = "No existing Wonhee test interfaces remain. Start selected tunnels.";
+                } else {
+                    // Check all present interfaces BEFORE stopping any one of them.
+                    if (hasHome && !matchesKernelIdentity(home, expectedHome)) {
+                        throw new IllegalStateException("Home interface identity mismatch");
+                    }
+                    if (hasAir && !matchesKernelIdentity(europe, expectedAir)) {
+                        throw new IllegalStateException("Internet interface identity mismatch");
+                    }
+                    if (hasAir) setKernelState(europe, Tunnel.State.DOWN, expectedAir);
+                    if (hasHome) setKernelState(home, Tunnel.State.DOWN, expectedHome);
+                    success = backend.getState(home) == Tunnel.State.DOWN
+                            && backend.getState(europe) == Tunnel.State.DOWN;
+                    result = success ? "Matching old interfaces stopped. Start selected tunnels "
+                            + "when ready; test connectivity again afterward."
+                            : "Recovery incomplete. Recheck kernel interfaces before restarting.";
+                }
+            } catch (Exception | LinkageError ignored) {
+                result = "Recovery refused or incomplete: selected profiles did not match "
+                        + "existing kernel identities, or root cleanup failed. "
+                        + "Check interfaces before retrying; no keys are needed.";
+            } finally {
+                finish(callback, success, result);
+            }
+        });
+    }
+
+    private boolean matchesKernelIdentity(Tunnel tunnel, Config expected) throws Exception {
+        String actualInterface = readKernelPublicValue(tunnel, "public-key");
+        String actualPeer = readKernelPublicValue(tunnel, "peers");
+        return expected.getInterface().getKeyPair().getPublicKey().toBase64()
+                    .equals(actualInterface)
+                && expected.getPeers().size() == 1
+                && expected.getPeers().get(0).getPublicKey().toBase64()
+                    .equals(actualPeer);
+    }
+
+    private String readKernelPublicValue(Tunnel tunnel, String field) throws Exception {
+        // Both tunnel names and fields come exclusively from constants above.
+        List<String> output = new ArrayList<>();
+        if (rootShell.run(output, "wg show " + tunnel.getName() + " " + field) != 0
+                || output.size() != 1) {
+            throw new IllegalStateException("Unable to verify kernel interface identity");
+        }
+        return output.get(0).trim();
     }
 
     void readStatus(StatusCallback callback) {
