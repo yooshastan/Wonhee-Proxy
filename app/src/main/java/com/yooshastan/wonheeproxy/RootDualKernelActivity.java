@@ -193,6 +193,12 @@ public final class RootDualKernelActivity extends Activity {
                 + "additional concurrent tunnels need route validation.", 13, MUTED);
         Button importButton = button(profiles, "Import / manage profiles");
         importButton.setOnClickListener(v -> startActivity(new Intent(this, VpnActivity.class)));
+        Button multiButton = button(profiles, "Open experimental multi-tunnel lab");
+        multiButton.setOnClickListener(v -> startActivity(
+                new Intent(this, RootMultiKernelActivity.class)));
+        label(profiles, "Batch A preview: independently control multiple root WireGuard "
+                + "interfaces with route preflight. The original Home + Internet pair "
+                + "continues to work here; disconnect it before using the lab.", 12, MUTED);
         label(profiles, "Home / ASUS profile", 16, WHITE);
         homeChoice = new Spinner(this);
         profiles.addView(homeChoice);
