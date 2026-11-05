@@ -15,6 +15,8 @@ import com.wireguard.config.Peer;
 import com.wireguard.crypto.Key;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -38,6 +40,7 @@ final class RootDualKernelSession {
     private static RootDualKernelSession instance;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final File appCacheDir;
     private final RootShell rootShell;
     private final ToolsInstaller tools;
     private final WgQuickBackend backend;
@@ -45,8 +48,15 @@ final class RootDualKernelSession {
     private final Tunnel europe = new NamedTunnel("wnair0");
     private volatile boolean busy;
     private volatile boolean managing;
+    private volatile boolean missingKernelVersionNode;
+    private volatile String lastPreflightStep = "kernel support";
     private Config startedHome;
     private Config startedEurope;
+
+    private static final class KernelCommandException extends Exception {
+        final int exitCode;
+        KernelCommandException(int exitCode) { this.exitCode = exitCode; }
+    }
 
     private static final class NamedTunnel implements Tunnel {
         private final String name;
@@ -57,6 +67,7 @@ final class RootDualKernelSession {
 
     private RootDualKernelSession(Context context) {
         Context app = context.getApplicationContext();
+        appCacheDir = app.getCacheDir();
         rootShell = new RootShell(app);
         tools = new ToolsInstaller(app, rootShell);
         backend = new WgQuickBackend(app, rootShell, tools);
@@ -88,12 +99,53 @@ final class RootDualKernelSession {
     }
 
     private void prepareRoot() throws Exception {
+        lastPreflightStep = "kernel support";
         if (!WgQuickBackend.hasKernelSupport()) {
             throw new IllegalStateException("Kernel WireGuard support was not detected.");
         }
+        lastPreflightStep = "Magisk root grant";
         rootShell.start(); // Magisk must explicitly grant Wonhee root access.
+        lastPreflightStep = "bundled WireGuard tools";
         tools.ensureToolsAvailable();
+        // Some Android builds provide WireGuard built into the kernel without
+        // /sys/module/wireguard/version. The upstream WgQuickBackend insists on
+        // `cat .../version && wg-quick up`; if the version file is absent,
+        // invoke the same bundled wg-quick directly instead of failing early.
+        missingKernelVersionNode = rootShell.run(null,
+                "test -r /sys/module/wireguard/version") != 0;
+        lastPreflightStep = "wg executable";
+        if (rootShell.run(null, "wg --version >/dev/null 2>&1") != 0) {
+            throw new IllegalStateException("Bundled wg executable could not run.");
+        }
+        lastPreflightStep = "ready";
     }
+
+    /** Use upstream kernel backend when possible; bypass only its version-file gate. */
+    private void setKernelState(Tunnel tunnel, Tunnel.State state, Config config) throws Exception {
+        if (!missingKernelVersionNode) {
+            backend.setState(tunnel, state, config);
+            return;
+        }
+        if (config == null) throw new IllegalStateException("Missing test configuration.");
+        File configFile = new File(new File(appCacheDir, "tmp"),
+                tunnel.getName() + ".conf");
+        // The app-private cache parent is mode 0700; the temporary file is
+        // removed after the root command, whether that command succeeds or not.
+        try {
+            try (FileOutputStream stream = new FileOutputStream(configFile, false)) {
+                stream.write(config.toWgQuickString().getBytes(StandardCharsets.UTF_8));
+            }
+            final String operation = state == Tunnel.State.UP ? "up" : "down";
+            final String path = configFile.getAbsolutePath();
+            if (path.contains("'")) throw new IllegalStateException("Unsafe file path.");
+            int result = rootShell.run(null, "wg-quick " + operation + " '" + path + "'");
+            if (result != 0) throw new KernelCommandException(result);
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            configFile.delete();
+        }
+    }
+
 
     void checkRoot(Callback callback) {
         if (!begin(callback)) return;
@@ -106,8 +158,11 @@ final class RootDualKernelSession {
                 // Never return exception text: root commands can contain config data.
             }
             finish(callback, ok, ok
-                    ? "Kernel backend and WireGuard tools ready. This does not test routing."
-                    : "Kernel tools or root unavailable. Grant Wonhee root in Magisk and retry.");
+                    ? "Root and tools ready; kernel mode: "
+                        + (missingKernelVersionNode ? "built-in compatibility" : "upstream wg-quick")
+                        + ". Routing not yet tested."
+                    : "Root preflight failed at: " + lastPreflightStep
+                        + ". Check the Magisk grant and bundled tools.");
         });
     }
 
@@ -119,56 +174,74 @@ final class RootDualKernelSession {
             String result = "Could not start both kernel interfaces. Check Magisk and the profiles.";
             boolean homeRaised = false;
             boolean airRaised = false;
+            boolean ownsAttempt = false;
             Config localHome = null;
             Config localAir = null;
+            String stage = "profile parsing";
             try {
                 if (managing) throw new IllegalStateException("pair already managed");
                 localHome = parseRuntime(homeProfile);
                 localAir = parseRuntime(airProfile);
+                stage = "route validation";
                 validatePair(localHome, localAir);
+                stage = "root preflight";
                 prepareRoot();
 
                 // Refuse to take over kernel interfaces left by another process.
+                stage = "interface collision check";
                 Set<String> existing = backend.getRunningTunnelNames();
                 if (existing.contains(home.getName()) || existing.contains(europe.getName())) {
                     result = "Wonhee test interface already exists. Stop it before another test.";
                     throw new IllegalStateException("existing tunnel");
                 }
+                ownsAttempt = true;
 
-                backend.setState(home, Tunnel.State.UP, localHome);
+                stage = "HOME wg-quick up";
+                setKernelState(home, Tunnel.State.UP, localHome);
                 homeRaised = true;
+                stage = "HOME interface verification";
                 if (backend.getState(home) != Tunnel.State.UP) throw new IllegalStateException("home did not start");
                 startedHome = localHome;
                 managing = true;
 
+                stage = "AIRVPN wg-quick up";
                 startedEurope = localAir;
-                backend.setState(europe, Tunnel.State.UP, localAir);
+                setKernelState(europe, Tunnel.State.UP, localAir);
                 airRaised = true;
+                stage = "both interfaces verification";
                 if (backend.getState(europe) != Tunnel.State.UP || backend.getState(home) != Tunnel.State.UP) {
                     throw new IllegalStateException("both were not active");
                 }
                 started = true;
                 result = "Both kernel interfaces are UP. Verify fresh handshakes, routing, DNS and IPv6.";
             } catch (IllegalArgumentException invalid) {
-                result = "Invalid pair: Home needs split routes; AirVPN needs both defaults. "
-                        + "Check profile addresses and DNS.";
+                result = "Failed at " + stage + ". Check that Home has only split routes "
+                        + "and AirVPN has IPv4+IPv6 defaults; verify addresses and DNS.";
+            } catch (KernelCommandException command) {
+                result = "Failed at " + stage + ": wg-quick exit code " + command.exitCode
+                        + ". No private configuration was included in this message.";
             } catch (Exception | LinkageError ignored) {
                 // No logging of private keys, tunnel configs, DNS or peer endpoints.
+                result = "Failed at " + stage + ("root preflight".equals(stage)
+                        ? " (step: " + lastPreflightStep + ")" : "")
+                        + ". Report this stage; no keys are needed.";
             } finally {
                 if (!started) {
                     // Best-effort transactional rollback: never intentionally leave only HOME up.
                     try {
-                        if (airRaised || backend.getState(europe) == Tunnel.State.UP) {
-                            backend.setState(europe, Tunnel.State.DOWN, localAir);
+                        if (ownsAttempt && localAir != null &&
+                                (airRaised || backend.getState(europe) == Tunnel.State.UP)) {
+                            setKernelState(europe, Tunnel.State.DOWN, localAir);
                         }
                     } catch (Exception | LinkageError ignored) { }
                     try {
-                        if (homeRaised || (managing && backend.getState(home) == Tunnel.State.UP)) {
-                            backend.setState(home, Tunnel.State.DOWN, localHome);
+                        if (ownsAttempt && localHome != null &&
+                                (homeRaised || backend.getState(home) == Tunnel.State.UP)) {
+                            setKernelState(home, Tunnel.State.DOWN, localHome);
                         }
                     } catch (Exception | LinkageError ignored) { }
                     try {
-                        boolean leftover = managing &&
+                        boolean leftover = ownsAttempt &&
                                 (backend.getState(home) == Tunnel.State.UP ||
                                  backend.getState(europe) == Tunnel.State.UP);
                         managing = leftover;
@@ -193,18 +266,18 @@ final class RootDualKernelSession {
             try {
                 prepareRoot();
                 if (backend.getState(europe) == Tunnel.State.UP) {
-                    backend.setState(europe, Tunnel.State.DOWN, startedEurope);
+                    setKernelState(europe, Tunnel.State.DOWN, startedEurope);
                 }
                 airDown = backend.getState(europe) == Tunnel.State.DOWN;
                 if (backend.getState(home) == Tunnel.State.UP) {
-                    backend.setState(home, Tunnel.State.DOWN, startedHome);
+                    setKernelState(home, Tunnel.State.DOWN, startedHome);
                 }
                 homeDown = backend.getState(home) == Tunnel.State.DOWN;
             } catch (Exception | LinkageError ignored) {
                 // Try the other interface even if stopping Air failed.
                 try {
                     if (backend.getState(home) == Tunnel.State.UP) {
-                        backend.setState(home, Tunnel.State.DOWN, startedHome);
+                        setKernelState(home, Tunnel.State.DOWN, startedHome);
                     }
                     homeDown = backend.getState(home) == Tunnel.State.DOWN;
                 } catch (Exception | LinkageError alsoIgnored) { }
