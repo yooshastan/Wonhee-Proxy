@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -109,10 +110,22 @@ public final class RootDualKernelActivity extends Activity {
         List<String> names = new ArrayList<>();
         for (SecureTunnelProfileStore.Profile p : saved) names.add(p.name);
         ArrayAdapter<String> homeAdapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, names);
+                this, android.R.layout.simple_spinner_item, names) {
+            @Override public View getView(int position, View convertView, ViewGroup parent) {
+                TextView text = (TextView) super.getView(position, convertView, parent);
+                text.setTextColor(WHITE);
+                return text;
+            }
+        };
         homeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         ArrayAdapter<String> airAdapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, new ArrayList<>(names));
+                this, android.R.layout.simple_spinner_item, new ArrayList<>(names)) {
+            @Override public View getView(int position, View convertView, ViewGroup parent) {
+                TextView text = (TextView) super.getView(position, convertView, parent);
+                text.setTextColor(WHITE);
+                return text;
+            }
+        };
         airAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         homeChoice.setAdapter(homeAdapter);
         airChoice.setAdapter(airAdapter);
