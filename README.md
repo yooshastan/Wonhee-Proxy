@@ -1,5 +1,7 @@
 # Wonhee Proxy
 
+**Product roadmap:** [Agreed Batch A–I schedule](docs/PRODUCT_BATCH_ROADMAP_A_I.md). This is the feature schedule, distinct from similarly lettered diagnostic iterations; preserve it through any rebrand.
+
 **Alpha 0.8.5 integrated on main; Alpha 0.8.6 traffic/diagnostics development preview (not a signed release)** · User-selectable WireGuard routing modes, encrypted VPN profiles and Ultgram proxy companion.
 
 Wonhee helps you protect a home WireGuard connection and configure trusted MTProto/SOCKS5
