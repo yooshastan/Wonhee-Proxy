@@ -2,6 +2,10 @@ package com.yooshastan.wonheeproxy;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -34,6 +38,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Opt-in, rooted multi-tunnel experiment. Existing wnhome0/wnair0 control and
@@ -543,6 +549,7 @@ final class RootMultiKernelSession {
                         .append(mode == null || mode.isEmpty() ? "UNREPORTED" :
                                 mode.matches("[a-z_]{1,32}") ? mode : "CUSTOM/UNVERIFIED")
                         .append(" (setting only, no DNS traffic observed)\n");
+                appendActiveDnsNetwork(report, entries);
                 for (int family : new int[] {4, 6}) {
                     report.append("Configured public IPv").append(family).append(" default: ")
                             .append(RootProtectionPolicy.hasInternetDefault(entries, family)
@@ -561,6 +568,201 @@ final class RootMultiKernelSession {
                         + "and root tools. No routing or firewall settings changed.";
             }
             finish(callback, inspected, result);
+        });
+    }
+
+    /** Active Android network DNS metadata only, with IPs and hostnames redacted. */
+    private void appendActiveDnsNetwork(StringBuilder report,
+                                        List<RootMultiTunnelPlan.Entry> entries) {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) appContext.getSystemService(
+                    Context.CONNECTIVITY_SERVICE);
+            Network active = cm == null ? null : cm.getActiveNetwork();
+            LinkProperties properties = active == null ? null : cm.getLinkProperties(active);
+            if (properties == null) {
+                report.append("Active Android network DNS: UNAVAILABLE\n");
+                return;
+            }
+            if (Build.VERSION.SDK_INT >= 28) {
+                report.append("Active network Private DNS: ")
+                        .append(properties.isPrivateDnsActive() ? "ACTIVE" : "NOT REPORTED ACTIVE")
+                        .append(properties.getPrivateDnsServerName() == null
+                                ? "; provider hostname: NOT REPORTED"
+                                : "; provider hostname: PRESENT (redacted)")
+                        .append('\n');
+            }
+            List<InetAddress> activeDns = properties.getDnsServers();
+            report.append("Active Android network DNS destinations: ")
+                    .append(activeDns.size()).append(" (addresses redacted)\n");
+            for (InetAddress resolver : activeDns) {
+                int family = resolver.getAddress().length == 4 ? 4 : 6;
+                String ip = resolver.getHostAddress();
+                String expected = RootProtectionPolicy.expectedDevice(entries, ip);
+                String actual;
+                try { actual = routeDevice(family, ip); }
+                catch (Exception | LinkageError failed) { actual = ""; }
+                report.append("  IPv").append(family).append(" resolver root route: ")
+                        .append(actual.isEmpty() ? "UNAVAILABLE" : actual)
+                        .append(expected.isEmpty() ? " · NOT SELECTED BY PROFILES"
+                                : expected.equals(actual) ? " · EXPECTED DEVICE MATCH"
+                                : " · DIFFERENT FROM PROFILE EXPECTATION")
+                        .append('\n');
+            }
+            report.append("These are active LinkProperties and UID-0 lookup results, "
+                    + "not observed Android resolver packets.\n");
+        } catch (RuntimeException | LinkageError ignored) {
+            report.append("Active Android network DNS: UNAVAILABLE\n");
+        }
+    }
+
+    /** Explicit opt-in: four-second filtered TCP summaries per tunnel. */
+    void observeTcpPacketPaths(List<SecureTunnelProfileStore.Profile> profiles,
+                               String rawTarget, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean completed = false;
+            String result;
+            ExecutorService captureWorker = Executors.newSingleThreadExecutor();
+            try {
+                RootTcpProbeTarget target = RootTcpProbeTarget.parse(rawTarget);
+                List<Active> selected = loadAll(profiles);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                RootMultiTunnelPlan.validate(entries);
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                for (Active active : selected) {
+                    if (!running.contains(active.device)
+                            || !matches(new NamedTunnel(active.device), active)) {
+                        throw new IllegalStateException("Selected interface is not identity-verified.");
+                    }
+                }
+                boolean toolsAvailable = shell.run(null,
+                        "command -v tcpdump >/dev/null 2>&1") == 0
+                        && shell.run(null, "command -v timeout >/dev/null 2>&1") == 0;
+                StringBuilder report = new StringBuilder(
+                        "BATCH E — EXPLICIT SCOPED TCP PACKET OBSERVATION\n");
+                report.append("Numeric target: ").append(target.label()).append('\n')
+                        .append("Selected profiles: ").append(selected.size()).append('\n');
+                if (!toolsAvailable) {
+                    report.append("Root tcpdump/timeout: UNAVAILABLE. No capture "
+                            + "attempted, no tools installed and no device settings changed. ")
+                            .append("App TCP and interface byte-counter tests remain available.");
+                } else {
+                    report.append("One 4-second narrowly filtered TCP summary per selected interface; "
+                            + "no payload output or pcap files retained.\n");
+                    for (Active active : selected) {
+                        // Device names are SHA-derived and the numeric IP/port
+                        // are strictly parsed: never interpolate profile text.
+                        String command = "timeout 4 tcpdump -p -tt -n -l -q -s 80 -c 16 -i "
+                                + active.device + " 'tcp and host " + target.address
+                                + " and port " + target.port + "' 2>/dev/null";
+                        Future<CaptureSample> pending = captureWorker.submit(() -> {
+                            List<String> packetHeaders = new ArrayList<>();
+                            int code = shell.run(packetHeaders, command);
+                            // Reduce to a count before returning to the app's
+                            // main worker. Never report or journal raw lines.
+                            return new CaptureSample(code,
+                                    RootPacketEvidence.packetLines(packetHeaders));
+                        });
+                        Thread.sleep(400); // let the bounded capture attach first
+                        String connect = tcpConnectResult(target);
+                        CaptureSample sample;
+                        try { sample = pending.get(7, TimeUnit.SECONDS); }
+                        catch (Exception failed) {
+                            pending.cancel(true);
+                            sample = new CaptureSample(-1, 0);
+                        }
+                        boolean toolFinished = sample.code == 0 || sample.code == 124;
+                        report.append(active.profileName).append(": ")
+                                .append(RootPacketEvidence.interpretation(sample.packets,
+                                        toolFinished))
+                                .append("; app TCP ").append(connect).append('\n');
+                    }
+                    report.append("A matching packet summary on a specific interface "
+                            + "is stronger evidence than route prediction, but does "
+                            + "not identify the originating UID or prove fail-closed behavior. ")
+                            .append("Zero packets can result from timing or capture limits. ")
+                            .append("Only the selected numeric TCP target and port were "
+                                    + "included in the capture filter.");
+                }
+                report.append("\nACTUAL KILL SWITCH: OFF. No firewall, route, "
+                        + "DNS, tunnel or network configuration changed.");
+                result = report.toString();
+                completed = true;
+            } catch (IllegalArgumentException invalid) {
+                result = "Scoped capture refused: " + invalid.getMessage()
+                        + " No device settings changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Scoped capture could not validate its selected identities "
+                        + "or root tooling. No device settings changed.";
+            } finally {
+                captureWorker.shutdownNow();
+            }
+            finish(callback, completed, result);
+        });
+    }
+
+    private static final class CaptureSample {
+        final int code;
+        final int packets;
+        CaptureSample(int code, int packets) {
+            this.code = code;
+            this.packets = packets;
+        }
+    }
+
+    private static String tcpConnectResult(RootTcpProbeTarget target) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(InetAddress.getByName(target.address),
+                    target.port), 3000);
+            return "CONNECTED";
+        } catch (IOException | SecurityException unavailable) { return "NOT CONNECTED"; }
+    }
+
+    /** Pure hypothetical failure routing: no iptables/rules are produced. */
+    void previewFailClosedModel(List<SecureTunnelProfileStore.Profile> profiles,
+                                 String rawTarget, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                RootTcpProbeTarget target = RootTcpProbeTarget.parse(rawTarget);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(loadAll(profiles));
+                RootMultiTunnelPlan.validate(entries);
+                Set<String> hypotheticallyUp = new LinkedHashSet<>();
+                for (RootMultiTunnelPlan.Entry entry : entries) hypotheticallyUp.add(entry.device);
+                String required = RootGuardDryRun.requiredTunnel(entries, target.address);
+                String normal = RootGuardDryRun.modelDecision(entries, target.address,
+                        hypotheticallyUp);
+                if (!required.isEmpty()) hypotheticallyUp.remove(required);
+                String failed = RootGuardDryRun.modelDecision(entries, target.address,
+                        hypotheticallyUp);
+                StringBuilder report = new StringBuilder("BATCH E — NON-ENFORCING GUARD MODEL\n");
+                report.append("Selected independent profiles: ").append(entries.size()).append('\n')
+                        .append("Numeric target: ").append(target.label()).append('\n')
+                        .append("Expected selected tunnel: ")
+                        .append(required.isEmpty() ? "NO SELECTED POLICY" : required).append('\n')
+                        .append("Hypothetical all-tunnels-up decision: ").append(normal).append('\n')
+                        .append("Hypothetical required-tunnel-down decision: ").append(failed)
+                        .append('\n')
+                        .append("Model constraints: default/fallback deny when required "
+                                + "tunnel is absent; protect only verified endpoint "
+                                + "transport underlay; keep unrelated Android rules intact; "
+                                + "persistent exact-match rollback; verify DNS/IPv6 and handoffs.\n")
+                        .append("NOT APPLIED: zero firewall rules, endpoint exceptions, "
+                                + "routing changes or DNS settings generated. A paper "
+                                + "decision is NOT device fail-closed behavior.");
+                result = report.toString();
+                ok = true;
+            } catch (IllegalArgumentException invalid) {
+                result = "Guard model refused: " + safeReason(invalid)
+                        + ". No device settings changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Guard model could not validate selected encrypted profiles. "
+                        + "No device settings changed.";
+            }
+            finish(callback, ok, result);
         });
     }
 

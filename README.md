@@ -56,6 +56,20 @@ not packet-path proof**. No root routing, firewall, network settings, or
 WireGuard state is changed by these diagnostics. The kill switch remains OFF.
 See the [Batch D test plan](docs/ROOT_MULTI_TUNNEL_BATCH_D_TRAFFIC_EVIDENCE_TEST_PLAN.md).
 
+### Batch E 0.13.0 — scoped packet evidence and non-enforcing guard model
+
+The Multi-Tunnel Lab adds a separately confirmed, narrow 4-second TCP packet
+observation per selected, identity-verified WireGuard interface. If root
+`tcpdump` and `timeout` are available, only counts of packets matching a
+numeric IP:port are reported; no pcap files, raw packet lines, credentials
+or payloads are stored. Without those utilities, the action reports
+UNAVAILABLE and installs nothing. The transport audit now inspects the active
+Android network's `LinkProperties` DNS/Private DNS state, redacting DNS
+addresses and provider hostnames. A pure multi-profile guard model shows
+the hypothetical decision if the required tunnel is unavailable, but
+**does not install a firewall or kill switch**. See the
+[Batch E test plan](docs/ROOT_MULTI_TUNNEL_BATCH_E_SCOPED_OBSERVATION_TEST_PLAN.md).
+
 See [Batch A](docs/ROOT_MULTI_TUNNEL_BATCH_A_TEST_PLAN.md) and the
 [Batch B routing test plan](docs/ROOT_MULTI_TUNNEL_BATCH_B_ROUTING_TEST_PLAN.md).
 The older offline packet-engine experiment described below is historical and

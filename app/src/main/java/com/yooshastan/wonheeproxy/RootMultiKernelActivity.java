@@ -45,6 +45,8 @@ public final class RootMultiKernelActivity extends Activity {
     private Button dnsAudit;
     private Button transportAudit;
     private Button serviceProbe;
+    private Button packetObserve;
+    private Button guardModel;
     private EditText serviceTarget;
 
     @Override public void onCreate(Bundle state) {
@@ -73,7 +75,7 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Batch D · transport and traffic evidence (read-only)", 14, WHITE);
+        label(page, "Batch E · scoped path observation + guard model", 14, WHITE);
         label(page, "EXPERIMENTAL: this is separate from the tested Home + AirVPN pair. "
                 + "Stop that pair first. Root changes may interrupt Internet access. "
                 + "Keep USB ADB recovery available. No firewall, kill switch, per-app "
@@ -193,6 +195,34 @@ public final class RootMultiKernelActivity extends Activity {
             run("Probe numeric TCP service path", false,
                     (profiles, callback) -> session.probeService(profiles, target, callback));
         });
+        packetObserve = button(privacy, "Observe filtered TCP packet headers · opt in");
+        packetObserve.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Observe narrowly filtered packets?")
+                .setMessage("Wonhee will attempt up to 4 seconds of filtered TCP "
+                        + "summary observation on EACH selected, identity-verified "
+                        + "WireGuard interface, creating one TCP handshake per interface "
+                        + "to the numeric target above. Only packet counts are reported; "
+                        + "no payload, raw addresses or pcap files are saved. This "
+                        + "requires existing root tcpdump and timeout tools; nothing "
+                        + "is installed. No firewall or route changes occur.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Observe headers", (dialog, which) -> {
+                    String target = serviceTarget.getText().toString();
+                    run("Observe scoped TCP packet path", false,
+                            (profiles, callback) -> session.observeTcpPacketPaths(
+                                    profiles, target, callback));
+                }).show());
+        guardModel = button(privacy, "Preview fail-closed decision · NO rules");
+        guardModel.setOnClickListener(v -> {
+            String target = serviceTarget.getText().toString();
+            run("Preview hypothetical no-fallback decision", false,
+                    (profiles, callback) -> session.previewFailClosedModel(
+                            profiles, target, callback));
+        });
+        label(privacy, "Batch E capture is optional and may report UNAVAILABLE "
+                + "if root tcpdump is absent. The guard preview is a pure model: "
+                + "it never installs a kill switch. Android's active network "
+                + "DNS state is also included in the endpoint audit.", 13, MUTED);
         label(privacy, "Kill switch: OFF. No iptables/ip6tables changes, DNS blocking "
                 + "or hidden network rules are installed by these checks. "
                 + "Keep USB ADB recovery ready for future enforcement testing.", 13, PINK);
@@ -317,6 +347,8 @@ public final class RootMultiKernelActivity extends Activity {
         if (dnsAudit != null) dnsAudit.setEnabled(ready);
         if (transportAudit != null) transportAudit.setEnabled(ready);
         if (serviceProbe != null) serviceProbe.setEnabled(ready);
+        if (packetObserve != null) packetObserve.setEnabled(ready);
+        if (guardModel != null) guardModel.setEnabled(ready);
         if (remove != null) remove.setEnabled(!session.isBusy());
     }
 
