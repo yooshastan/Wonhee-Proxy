@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.10.2 Batch B Recovery Safety
+name: Wonhee Proxy 0.11.0 Batch C Network Protection Readiness
 
 on:
   push:
@@ -45,6 +45,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/VpnRouteProbePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootDualRoutePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMultiTunnelPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootProtectionPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootSplitRouteRules.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootKernelRouteAudit.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootFirewallMark.java \
@@ -71,6 +72,7 @@ jobs:
             core-tests/VpnRouteProbePolicyTest.java \
             core-tests/RootDualRoutePolicyTest.java \
             core-tests/RootMultiTunnelPlanTest.java \
+            core-tests/RootProtectionPolicyTest.java \
             core-tests/RootSplitRouteRulesTest.java \
             core-tests/RootKernelRouteAuditTest.java \
             core-tests/RootFirewallMarkTest.java \
@@ -97,6 +99,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnRouteProbePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDualRoutePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiTunnelPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootProtectionPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSplitRouteRulesTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootKernelRouteAuditTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootFirewallMarkTest
@@ -110,7 +113,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0102-batch-b-recovery-debug-apk
+          name: wonhee-0110-batch-c-guard-readiness-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

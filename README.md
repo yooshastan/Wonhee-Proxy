@@ -22,6 +22,18 @@ The recovery-safety update detects reserved routing rules missing from the
 local rollback ledger and offers separately confirmed, exact-identity
 reconciliation before any cleanup.
 
+### Batch C 0.11.0 — network protection readiness (read-only)
+
+The opt-in lab now inspects selected multi-kernel tunnel identities, UDP socket
+marks and numeric endpoints, public IPv4/IPv6 and private split route
+selection, firewall capabilities, rollback-ledger consistency, and configured
+DNS resolver route destinations. A pure route-expectation component supports
+arbitrary distinct private tunnel profiles alongside one default exit per
+address family, rather than assuming exactly two profiles. These are
+**read-only diagnostics**; no firewall or kill switch is installed, and DNS
+packet paths, app socket fwmarks, encrypted DNS and fail-closed behavior
+remain unverified. See the [Batch C test plan](docs/ROOT_MULTI_TUNNEL_BATCH_C_GUARD_READINESS_TEST_PLAN.md).
+
 See [Batch A](docs/ROOT_MULTI_TUNNEL_BATCH_A_TEST_PLAN.md) and the
 [Batch B routing test plan](docs/ROOT_MULTI_TUNNEL_BATCH_B_ROUTING_TEST_PLAN.md).
 The older offline packet-engine experiment described below is historical and

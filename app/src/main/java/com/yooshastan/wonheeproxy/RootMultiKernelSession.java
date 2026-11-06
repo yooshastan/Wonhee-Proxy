@@ -16,6 +16,7 @@ import com.wireguard.config.Peer;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -287,6 +288,196 @@ final class RootMultiKernelSession {
             }
             finish(callback, ok, result);
         });
+    }
+
+    /**
+     * Batch C: collect a multi-profile guard readiness snapshot without adding
+     * iptables, ip6tables, DNS interception or a VPN lockdown rule. This is a
+     * development gate, not a protection enable button.
+     */
+    void auditProtection(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean inspected = false;
+            String result;
+            try {
+                List<Active> selected = loadAll(profiles);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                RootMultiTunnelPlan.validate(entries);
+                List<RootSplitRouteRules.Rule> split = RootSplitRouteRules.plan(entries);
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                boolean allMatched = true;
+                boolean allEndpoints = true;
+                boolean transportBypass = true;
+                boolean distinctMarks = true;
+                Set<Long> observedMarks = new LinkedHashSet<>();
+                StringBuilder report = new StringBuilder("BATCH C — READ-ONLY NETWORK PROTECTION GATE\n");
+                report.append("Selected independent tunnels: ").append(selected.size()).append('\n');
+                for (Active active : selected) {
+                    Tunnel link = new NamedTunnel(active.device);
+                    boolean identity = running.contains(active.device) && matches(link, active);
+                    allMatched &= identity;
+                    List<String> markOutput = new ArrayList<>();
+                    boolean markRead = identity && shell.run(markOutput,
+                            "wg show " + active.device + " fwmark") == 0;
+                    long mark = markRead ? RootFirewallMark.parse(markOutput) : 0;
+                    boolean exempt = mark > 0 && (mark & RootSplitRouteRules.MARK_MASK) != 0;
+                    transportBypass &= exempt;
+                    if (mark == 0 || !observedMarks.add(mark)) distinctMarks = false;
+                    List<String> endpointOutput = new ArrayList<>();
+                    boolean numericEndpoint = identity && shell.run(endpointOutput,
+                            "wg show " + active.device + " endpoints") == 0
+                            && RootWireGuardEndpoint.hasSingleNumericEndpoint(endpointOutput);
+                    allEndpoints &= numericEndpoint;
+                    report.append(active.profileName).append(" (" + active.device + "): ")
+                            .append(identity ? "UP / PUBLIC IDENTITY MATCH" : "DOWN OR IDENTITY UNVERIFIED")
+                            .append("; UDP mark ").append(mark > 0 ? "SET" : "OFF/UNVERIFIED")
+                            .append("; endpoint ").append(numericEndpoint ? "NUMERIC" : "UNVERIFIED")
+                            .append("; last handshake ").append(identity
+                                    ? handshakeAge(active.device) : "unavailable").append('\n');
+                }
+                boolean extra = false;
+                for (String name : running) {
+                    if (name.startsWith("wnm")) {
+                        boolean selectedName = false;
+                        for (Active active : selected) selectedName |= active.device.equals(name);
+                        if (!selectedName) extra = true;
+                    }
+                }
+                report.append("Unselected experimental interfaces present: ")
+                        .append(extra ? "YES" : "NO").append('\n');
+                int routeMatches = 0;
+                for (RootSplitRouteRules.Rule rule : split) {
+                    if (rule.device.equals(routeDevice(rule.family, rule.probe))) routeMatches++;
+                }
+                report.append("Home/private split root routes: ").append(routeMatches)
+                        .append('/').append(split.size()).append(" matched\n");
+                for (int family : new int[] {4, 6}) {
+                    String address = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
+                    String expected = RootProtectionPolicy.expectedDevice(entries, address);
+                    String selectedDevice = routeDevice(family, address);
+                    report.append("Public IPv").append(family).append(" default: ")
+                            .append(RootProtectionPolicy.hasInternetDefault(entries, family)
+                                    ? expected.equals(selectedDevice) ? "MATCH" : "MISMATCH"
+                                    : "NOT CONFIGURED — leak/fallback risk")
+                            .append('\n');
+                }
+                boolean firewall4 = shell.run(null,
+                        "iptables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean firewall6 = shell.run(null,
+                        "ip6tables -w -L OUTPUT -n >/dev/null 2>&1") == 0;
+                boolean mark4 = shell.run(null,
+                        "iptables -m mark -h >/dev/null 2>&1") == 0;
+                boolean mark6 = shell.run(null,
+                        "ip6tables -m mark -h >/dev/null 2>&1") == 0;
+                boolean occupied = shell.run(null,
+                        "iptables -w -S WN_MULTI_GUARD4 >/dev/null 2>&1") == 0
+                        || shell.run(null,
+                        "ip6tables -w -S WN_MULTI_GUARD6 >/dev/null 2>&1") == 0;
+                List<RootSplitRouteRules.Rule> ledger = RootSplitRouteRules.decode(savedRules());
+                boolean consistent = countReservedRules() == ledger.size();
+                for (RootSplitRouteRules.Rule rule : ledger) consistent &= rulePresent(rule);
+                report.append("IPv4/IPv6 firewall OUTPUT inspection: ")
+                        .append(firewall4 && firewall6 ? "AVAILABLE" : "INCOMPLETE")
+                        .append("; mark matching: ").append(mark4 && mark6 ? "AVAILABLE" : "INCOMPLETE")
+                        .append('\n');
+                report.append("Reserved guard-chain collision: ")
+                        .append(occupied ? "YES" : "NO").append('\n');
+                report.append("Owned routing ledger matches live priority rules: ")
+                        .append(consistent ? "YES" : "NO — recover before any mutation")
+                        .append('\n');
+                report.append("Transport marks exclude unmarked route rules: ")
+                        .append(transportBypass ? "YES (routing only)" : "NOT PROVEN")
+                        .append("; distinct nonzero marks: ")
+                        .append(distinctMarks ? "YES" : "NO/UNVERIFIED")
+                        .append("; all numeric UDP endpoints: ")
+                        .append(allEndpoints ? "YES" : "NO/UNVERIFIED")
+                        .append('\n');
+                boolean prerequisites = allMatched && !extra && consistent
+                        && !occupied && firewall4 && firewall6 && mark4 && mark6
+                        && routeMatches == split.size()
+                        && RootProtectionPolicy.hasInternetDefault(entries, 4)
+                        && RootProtectionPolicy.hasInternetDefault(entries, 6)
+                        && transportBypass && distinctMarks && allEndpoints;
+                report.append("Protection design preconditions: ")
+                        .append(prerequisites ? "PARTIAL PASS" : "INCOMPLETE")
+                        .append(". Even a partial pass is NOT safe to arm.\n")
+                        .append("ACTUAL KILL SWITCH: OFF — NO RULES INSTALLED. ")
+                        .append("Endpoint UDP exceptions, app fwmarks, DNS/DoH/DoQ, ")
+                        .append("IPv6 leak paths, crash/reboot and network handoff remain ")
+                        .append("unverified. Never infer fail-closed behavior from this audit.");
+                result = report.toString();
+                inspected = true;
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not complete the read-only protection gate. "
+                        + "Check root tools, selected profile identities, and the "
+                        + "routing ledger. No firewall or DNS rules changed.";
+            }
+            finish(callback, inspected, result);
+        });
+    }
+
+    /** Inspect configured resolver destinations, not Android's actual DNS packets. */
+    void auditResolverRoutes(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean inspected = false;
+            String result;
+            try {
+                List<Active> selected = loadAll(profiles);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                RootMultiTunnelPlan.validate(entries);
+                rootReady();
+                int total = 0;
+                int matched = 0;
+                StringBuilder report = new StringBuilder("READ-ONLY DNS DESTINATION ROUTE AUDIT\n");
+                for (Active active : selected) {
+                    Set<InetAddress> servers = active.configuration.getInterface().getDnsServers();
+                    report.append(active.profileName).append(": ")
+                            .append(servers.isEmpty() ? "NO CONFIGURED RESOLVERS\n" : "\n");
+                    for (InetAddress server : servers) {
+                        total++;
+                        String host = server.getHostAddress();
+                        int family = server.getAddress().length == 4 ? 4 : 6;
+                        String expected = RootProtectionPolicy.expectedDevice(entries, host);
+                        String actual = routeDevice(family, host);
+                        boolean pass = !expected.isEmpty() && expected.equals(actual);
+                        if (pass) matched++;
+                        report.append("IPv").append(family).append(" resolver ")
+                                .append(host).append(" → ")
+                                .append(actual.isEmpty() ? "NO ROOT ROUTE" : actual)
+                                .append(pass ? " · MATCH" : " · MISMATCH/UNROUTED")
+                                .append('\n');
+                    }
+                }
+                report.append("Configured resolver root-route matches: ")
+                        .append(matched).append('/').append(total).append('\n');
+                report.append("Android Private DNS status, per-app resolver sockets, "
+                        + "DoH/DoQ, DNS cache, and DNS fallback are NOT observed here. "
+                        + "No DNS settings or firewall rules changed.");
+                result = report.toString();
+                inspected = true;
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not audit selected configured resolver routes. "
+                        + "No DNS settings or policy rules changed.";
+            }
+            finish(callback, inspected, result);
+        });
+    }
+
+    private String handshakeAge(String device) {
+        try {
+            List<String> lines = new ArrayList<>();
+            if (shell.run(lines, "wg show " + device + " latest-handshakes") != 0
+                    || lines.size() != 1) return "unknown";
+            String[] fields = lines.get(0).trim().split("\\s+");
+            if (fields.length != 2) return "unknown";
+            long epoch = Long.parseLong(fields[1]);
+            if (epoch <= 0) return "none observed";
+            long age = Math.max(0, System.currentTimeMillis() / 1000 - epoch);
+            return age < 180 ? age + "s ago" : age + "s ago (may be idle)";
+        } catch (Exception | LinkageError invalid) { return "unknown"; }
     }
 
     /** Explicit, opt-in priority fix for Home-split plus Internet-default selection. */
