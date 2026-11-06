@@ -40,6 +40,8 @@ public final class RootMultiKernelActivity extends Activity {
     private Button apply;
     private Button remove;
     private Button recover;
+    private Button guardReadiness;
+    private Button dnsAudit;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -67,7 +69,7 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Batch B · independent tunnels + optional split-route priority", 14, WHITE);
+        label(page, "Batch C · network protection readiness (read-only)", 14, WHITE);
         label(page, "EXPERIMENTAL: this is separate from the tested Home + AirVPN pair. "
                 + "Stop that pair first. Root changes may interrupt Internet access. "
                 + "Keep USB ADB recovery available. No firewall, kill switch, per-app "
@@ -144,6 +146,23 @@ public final class RootMultiKernelActivity extends Activity {
                 .setPositiveButton("Remove owned rules", (dialog, which) ->
                         run("Remove owned routing rules", true, session::removeRouting))
                 .show());
+
+        LinearLayout privacy = card(page);
+        label(privacy, "NETWORK PROTECTION · READ ONLY", 18, PINK);
+        label(privacy, "Privacy Guard is a readiness report, NOT an active kill switch. "
+                + "It inspects all selected kernel tunnel identities, UDP transport "
+                + "marks/endpoints, public IPv4/IPv6 and split routes, existing "
+                + "firewall capability and rollback ownership. It cannot prove "
+                + "app-level DNS or fail-closed behavior.", 13, MUTED);
+        guardReadiness = button(privacy, "Check multi-tunnel guard readiness");
+        guardReadiness.setOnClickListener(v ->
+                run("Audit multi-tunnel guard readiness", false, session::auditProtection));
+        dnsAudit = button(privacy, "Audit configured DNS routes");
+        dnsAudit.setOnClickListener(v ->
+                run("Audit configured DNS routes", false, session::auditResolverRoutes));
+        label(privacy, "Kill switch: OFF. No iptables/ip6tables changes, DNS blocking "
+                + "or hidden network rules are installed by these checks. "
+                + "Keep USB ADB recovery ready for future enforcement testing.", 13, PINK);
 
         LinearLayout diagnostics = card(page);
         label(diagnostics, "LATEST RESULT", 18, PINK);
@@ -261,6 +280,8 @@ public final class RootMultiKernelActivity extends Activity {
         if (audit != null) audit.setEnabled(ready);
         if (apply != null) apply.setEnabled(ready);
         if (recover != null) recover.setEnabled(ready);
+        if (guardReadiness != null) guardReadiness.setEnabled(ready);
+        if (dnsAudit != null) dnsAudit.setEnabled(ready);
         if (remove != null) remove.setEnabled(!session.isBusy());
     }
 
