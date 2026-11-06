@@ -29,6 +29,7 @@ import java.net.NoRouteToHostException;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -40,6 +41,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /**
  * Opt-in, rooted multi-tunnel experiment. Existing wnhome0/wnair0 control and
@@ -58,6 +60,7 @@ final class RootMultiKernelSession {
     private final ToolsInstaller tools;
     private final WgQuickBackend backend;
     private final SharedPreferences routeLedger;
+    private final RootMultiRecoveryPreferences recovery;
     private static final String ROUTE_LEDGER_KEY = "pending_or_installed_rules_v1";
     // Only links started and identity-verified by this process are in this map.
     private final Map<String, Active> managed = new LinkedHashMap<>();
@@ -101,6 +104,7 @@ final class RootMultiKernelSession {
         backend = new WgQuickBackend(app, shell, tools);
         backend.setMultipleTunnels(true);
         routeLedger = app.getSharedPreferences("wonhee_owned_split_routes", Context.MODE_PRIVATE);
+        recovery = new RootMultiRecoveryPreferences(app);
     }
 
     static synchronized RootMultiKernelSession get(Context context) {
@@ -177,6 +181,217 @@ final class RootMultiKernelSession {
         if (!routeLedger.edit().putString(ROUTE_LEDGER_KEY, value).commit()) {
             throw new IllegalStateException("Unable to persist the routing rollback ledger.");
         }
+    }
+
+    String recoveryStatus() { return recovery.summary(); }
+
+    private static String configDigest(Active active) throws Exception {
+        // Include keys, routes and DNS overrides without persisting plaintext.
+        byte[] bytes = active.configuration.toWgQuickString().getBytes(StandardCharsets.UTF_8);
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : hash) hex.append(String.format(java.util.Locale.ROOT, "%02x", b & 0xff));
+            return hex.toString();
+        } finally { Arrays.fill(bytes, (byte) 0); }
+    }
+
+    private void verifyRecoveryRules() throws Exception {
+        List<RootSplitRouteRules.Rule> owned = RootSplitRouteRules.decode(savedRules());
+        if (countReservedRules() != owned.size()) {
+            throw new IllegalStateException("Reserved policy rules do not match the owned ledger.");
+        }
+        for (RootSplitRouteRules.Rule rule : owned) {
+            if (!rulePresent(rule)) {
+                throw new IllegalStateException("Owned kernel route missing or changed.");
+            }
+        }
+    }
+
+    /** Explicit opt-in for the exact set of presently connected root profiles. */
+    void enableAutomaticRecovery(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                rootReady();
+                verifyRecoveryRules();
+                Set<String> running = backend.getRunningTunnelNames();
+                if (running.contains("wnhome0") || running.contains("wnair0")) {
+                    throw new IllegalStateException("Legacy tunnel pair is still present.");
+                }
+                Set<String> expected = new LinkedHashSet<>();
+                List<RootMultiRecoveryPreferences.Entry> entries = new ArrayList<>();
+                for (Active active : selected) {
+                    if (!expected.add(active.device) || !running.contains(active.device)
+                            || !matches(new NamedTunnel(active.device), active)
+                            || backend.getState(new NamedTunnel(active.device)) != Tunnel.State.UP) {
+                        throw new IllegalStateException("One selected link is absent or mismatched.");
+                    }
+                    entries.add(new RootMultiRecoveryPreferences.Entry(active.profileName,
+                            configDigest(active)));
+                }
+                for (String iface : running) {
+                    if (iface.startsWith("wnm") && !expected.contains(iface)) {
+                        throw new IllegalStateException("Unknown or unselected root multi link present.");
+                    }
+                }
+                for (Active active : selected) managed.put(active.device, active);
+                recovery.enable(entries);
+                RootMultiRecoveryScheduler.update(appContext);
+                RootMultiRecoveryMonitor.update(appContext);
+                ok = true;
+                result = "PRODUCT BATCH C — OPTED IN for " + entries.size()
+                        + " identity-verified currently UP tunnel(s). Recovery is best effort "
+                        + "at network handoff, after process restart and via deferred Android jobs. "
+                        + "If routes or saved profiles change, recovery refuses. Manual stop wins. "
+                        + "NO kill switch; unprotected traffic remains possible.";
+            } catch (Exception | LinkageError problem) {
+                result = "Recovery opt-in REFUSED: selected tunnels, saved routing ledger "
+                        + "or identities could not be verified. No recovery consent was added; "
+                        + "no kernel change was made.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    void disableAutomaticRecovery(Callback callback) {
+        if (!recovery.disable()) {
+            main.post(() -> callback.completed(false, "Could not persist recovery disable request."));
+            return;
+        }
+        RootMultiRecoveryScheduler.update(appContext);
+        RootMultiRecoveryMonitor.update(appContext);
+        main.post(() -> callback.completed(true,
+                "PRODUCT BATCH C recovery disabled. Running tunnels and routes were NOT changed. "
+                        + "No kill switch is installed."));
+    }
+
+    /** Serialize root work; restore only consented, cryptographically identified links. */
+    void recoverSavedIfDesired(Callback callback) {
+        recoverSavedIfDesired(callback, () -> false);
+    }
+
+    void recoverSavedIfDesired(Callback callback, BooleanSupplier cancelled) {
+        if (!recovery.canAttempt(System.currentTimeMillis())) {
+            main.post(() -> callback.completed(false,
+                    "Recovery is off, manually stopped, backing off, or exhausted. "
+                            + recovery.summary()));
+            return;
+        }
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            List<Active> started = new ArrayList<>();
+            boolean ok = false;
+            String result;
+            try {
+                if (cancelled.getAsBoolean()
+                        || !recovery.canAttempt(System.currentTimeMillis())) {
+                    throw new IllegalStateException("Recovery intent changed.");
+                }
+                List<RootMultiRecoveryPreferences.Entry> approved = recovery.selection();
+                Map<String, SecureTunnelProfileStore.Profile> saved = new LinkedHashMap<>();
+                for (SecureTunnelProfileStore.Profile profile :
+                        new SecureTunnelProfileStore(appContext).load()) {
+                    saved.put(profile.name, profile);
+                }
+                List<Active> expected = new ArrayList<>();
+                Set<String> devices = new LinkedHashSet<>();
+                for (RootMultiRecoveryPreferences.Entry entry : approved) {
+                    SecureTunnelProfileStore.Profile profile = saved.get(entry.name);
+                    if (profile == null) throw new IllegalStateException("Profile removed.");
+                    Active active = load(profile);
+                    if (!entry.digest.equals(configDigest(active)) || !devices.add(active.device)) {
+                        throw new IllegalStateException("Approved profile edited or duplicated.");
+                    }
+                    expected.add(active);
+                }
+                validate(expected);
+                rootReady();
+                verifyRecoveryRules();
+                Set<String> running = backend.getRunningTunnelNames();
+                if (running.contains("wnhome0") || running.contains("wnair0")) {
+                    throw new IllegalStateException("Legacy root pair present.");
+                }
+                for (String iface : running) {
+                    if (iface.startsWith("wnm") && !devices.contains(iface)) {
+                        throw new IllegalStateException("Unknown kernel interface present.");
+                    }
+                }
+                for (Active active : expected) {
+                    if (running.contains(active.device)) {
+                        Tunnel link = new NamedTunnel(active.device);
+                        if (backend.getState(link) != Tunnel.State.UP || !matches(link, active)) {
+                            throw new IllegalStateException("Running link identity changed.");
+                        }
+                        Active prior = managed.get(active.device);
+                        if (prior != null && !sameIdentity(prior, active)) {
+                            throw new IllegalStateException("Managed profile identity changed.");
+                        }
+                    }
+                }
+                for (Active active : expected) {
+                    if (running.contains(active.device)) {
+                        managed.put(active.device, active);
+                        continue;
+                    }
+                    if (cancelled.getAsBoolean()
+                            || !recovery.canAttempt(System.currentTimeMillis())) {
+                        throw new IllegalStateException("Recovery cancelled by user.");
+                    }
+                    if (backend.getRunningTunnelNames().contains(active.device)) {
+                        throw new IllegalStateException("Kernel interface appeared during recovery.");
+                    }
+                    verifyRecoveryRules();
+                    Tunnel link = new NamedTunnel(active.device);
+                    try {
+                        setState(link, Tunnel.State.UP, active.configuration);
+                        if (backend.getState(link) != Tunnel.State.UP || !matches(link, active)) {
+                            throw new IllegalStateException("Restored link failed identity check.");
+                        }
+                        managed.put(active.device, active);
+                        started.add(active);
+                    } catch (Exception | LinkageError failure) {
+                        if (backend.getRunningTunnelNames().contains(active.device)
+                                && matches(link, active) && !started.contains(active)) {
+                            started.add(active);
+                            managed.put(active.device, active);
+                        }
+                        throw failure;
+                    }
+                    if (cancelled.getAsBoolean()) {
+                        throw new IllegalStateException("Background job stopped by Android.");
+                    }
+                }
+                if (cancelled.getAsBoolean()
+                        || !recovery.canAttempt(System.currentTimeMillis())) {
+                    throw new IllegalStateException("Recovery cancelled by user.");
+                }
+                recovery.success(!started.isEmpty());
+                ok = true;
+                result = "PRODUCT BATCH C: " + started.size() + " missing identity-verified "
+                        + "link(s) restored; " + expected.size() + " selected tunnel(s) UP. "
+                        + "No firewall/routing/DNS changes. NOT proof of end-to-end connectivity "
+                        + "or leak-free protection; kill switch remains OFF.";
+            } catch (Exception | LinkageError ignored) {
+                boolean clean = rollback(started);
+                if (!cancelled.getAsBoolean() && recovery.enabled() && recovery.desired()
+                        && !recovery.manuallyStopped()) {
+                    recovery.failure(System.currentTimeMillis());
+                }
+                result = "PRODUCT BATCH C recovery refused/failed: profile fingerprint, "
+                        + "kernel identity, route ledger, or runtime precondition changed. "
+                        + (clean ? "Newly started links rolled back if needed. "
+                                : "ROLLBACK INCOMPLETE: inspect links manually. ")
+                        + "No unapproved interfaces were touched; kill switch OFF.";
+            }
+            RootMultiRecoveryScheduler.afterAttempt(appContext);
+            RootMultiRecoveryMonitor.update(appContext);
+            finish(callback, ok, result);
+        });
     }
 
     /** Previews all selected and in-process managed routes, without root writes. */
@@ -1198,6 +1413,15 @@ final class RootMultiKernelSession {
 
     /** Verify identities of every selected present link BEFORE disconnecting any. */
     void disconnect(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        // Persist manual stop even if a root worker is busy or owned routing
+        // rules block the disconnect. Future recoveries must not race the user.
+        if (!recovery.manualStop()) {
+            main.post(() -> callback.completed(false,
+                    "Manual stop could not be persisted; recovery intent unchanged."));
+            return;
+        }
+        RootMultiRecoveryScheduler.update(appContext);
+        RootMultiRecoveryMonitor.update(appContext);
         if (!begin(callback)) return;
         worker.execute(() -> {
             boolean success = false;

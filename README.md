@@ -70,6 +70,23 @@ the hypothetical decision if the required tunnel is unavailable, but
 **does not install a firewall or kill switch**. See the
 [Batch E test plan](docs/ROOT_MULTI_TUNNEL_BATCH_E_SCOPED_OBSERVATION_TEST_PLAN.md).
 
+### Product Batch C 0.14.0 — opted-in connection recovery preview
+
+This implements the **connection recovery** stage in the separate,
+[immutable Product Batch A–I schedule](https://github.com/yooshastan/Wonhee-Proxy/blob/main/docs/PRODUCT_BATCH_ROADMAP_A_I.md).
+The diagnostic "Batch C/D/E" audits above do not count as the corresponding
+product stages. Root multi-kernel recovery is disabled by default and must be
+enrolled for the exact identity-verified tunnels already UP. It can adopt
+matching surviving links, attempt to restore missing selected links after a
+network handoff or process restart, and request best-effort persisted Android
+job checks after reboot/unlock. It refuses unknown links, changed profiles and
+unowned/changed routing rules. Manual stop or Disable cancels unattended
+reconnection; bounded backoff prevents unlimited attempts. **No kill switch,
+encrypted DNS or tracker blocking is added; traffic fallback and leaks remain
+possible.** See the [single Product Batch C device checklist](docs/PRODUCT_BATCH_C_CONNECTION_RECOVERY_TEST_PLAN.md).
+Moka's app-level Navidrome failure with simultaneous tunnels is tracked in the
+[post–Batch I compatibility backlog](docs/POST_BATCH_I_COMPATIBILITY_BACKLOG.md).
+
 See [Batch A](docs/ROOT_MULTI_TUNNEL_BATCH_A_TEST_PLAN.md) and the
 [Batch B routing test plan](docs/ROOT_MULTI_TUNNEL_BATCH_B_ROUTING_TEST_PLAN.md).
 The older offline packet-engine experiment described below is historical and

@@ -47,6 +47,10 @@ public final class RootMultiKernelActivity extends Activity {
     private Button serviceProbe;
     private Button packetObserve;
     private Button guardModel;
+    private Button enableRecovery;
+    private Button disableRecovery;
+    private Button checkRecovery;
+    private TextView recoveryStatus;
     private EditText serviceTarget;
 
     @Override public void onCreate(Bundle state) {
@@ -75,10 +79,10 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Batch E · scoped path observation + guard model", 14, WHITE);
-        label(page, "EXPERIMENTAL: this is separate from the tested Home + AirVPN pair. "
-                + "Stop that pair first. Root changes may interrupt Internet access. "
-                + "Keep USB ADB recovery available. No firewall, kill switch, per-app "
+        label(page, "Product Batch C · opt-in connection recovery (includes diagnostic Batch E)", 14, WHITE);
+        label(page, "EXPERIMENTAL: this multi-profile lab is separate from the older "
+                + "wnhome0/wnair0 pair. Stop that legacy pair first. Root changes "
+                + "may interrupt Internet access. Keep Termux root or USB recovery ready. No firewall, kill switch, per-app "
                 + "routing verification, encrypted DNS or fail-closed protection is "
                 + "automatic here. Routing overrides require separate confirmation.", 13, PINK);
 
@@ -107,6 +111,45 @@ public final class RootMultiKernelActivity extends Activity {
                 + "restart. Unknown interfaces are never removed.", 13, MUTED);
         inspect = button(controls, "Read live kernel status");
         inspect.setOnClickListener(v -> run("Read multi-tunnel state", true, session::inspect));
+
+        LinearLayout recoveryCard = card(page);
+        label(recoveryCard, "PRODUCT BATCH C · CONNECTION RECOVERY", 18, PINK);
+        label(recoveryCard, "Disabled by default. Enroll ONLY an exact selection of "
+                + "already connected, identity-verified kernel tunnels. At network handoff "
+                + "or after app/process restart, Wonhee may adopt surviving matching "
+                + "links and restore missing ones. Android may delay background jobs. "
+                + "Changed profiles, unknown interfaces or changed owned routing rules "
+                + "block recovery. This does not guarantee a working handshake, DNS, "
+                + "leak prevention or fail-closed behavior.", 13, MUTED);
+        recoveryStatus = label(recoveryCard, session.recoveryStatus(), 14, PINK);
+        enableRecovery = button(recoveryCard, "Enable recovery for selected UP tunnels · opt in");
+        enableRecovery.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Enable unattended multi-tunnel recovery?")
+                .setMessage("Only the exact selected, currently UP tunnels will be enrolled. "
+                        + "On a later handoff, process restart or deferred background job, "
+                        + "Wonhee may restart a missing tunnel using its encrypted saved profile. "
+                        + "It verifies both public WireGuard keys and the owned route ledger "
+                        + "before acting. A manual disconnect or Disable stops future recovery. "
+                        + "NO kill switch is installed: unprotected traffic can occur when "
+                        + "tunnels are down. Keep Termux/root or USB recovery access ready.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Enable opt-in recovery", (dialog, which) ->
+                        run("Enable Product C recovery", false,
+                                session::enableAutomaticRecovery))
+                .show());
+        checkRecovery = button(recoveryCard, "Check / recover missing selected links now");
+        checkRecovery.setOnClickListener(v -> run("Run opted-in recovery", true,
+                (profiles, cb) -> session.recoverSavedIfDesired(cb)));
+        disableRecovery = button(recoveryCard, "Disable automatic recovery · keep tunnels UP");
+        disableRecovery.setOnClickListener(v -> session.disableAutomaticRecovery((ok, result) -> {
+            if (isFinishing() || isDestroyed()) return;
+            output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
+            journal.record("RESULT", "Product C recovery disable requested");
+            updateButtons();
+        }));
+        label(recoveryCard, "Manual Disconnect overrides recovery intent even when "
+                + "routing ownership prevents safely stopping the interfaces. "
+                + "No routes, firewall or DNS settings are installed by recovery.", 13, PINK);
 
         LinearLayout routing = card(page);
         label(routing, "EXPERIMENTAL ROUTING OVERRIDES", 18, PINK);
@@ -350,6 +393,10 @@ public final class RootMultiKernelActivity extends Activity {
         if (packetObserve != null) packetObserve.setEnabled(ready);
         if (guardModel != null) guardModel.setEnabled(ready);
         if (remove != null) remove.setEnabled(!session.isBusy());
+        if (enableRecovery != null) enableRecovery.setEnabled(ready);
+        if (checkRecovery != null) checkRecovery.setEnabled(!session.isBusy());
+        if (disableRecovery != null) disableRecovery.setEnabled(true);
+        if (recoveryStatus != null) recoveryStatus.setText(session.recoveryStatus());
     }
 
     private LinearLayout card(LinearLayout parent) {

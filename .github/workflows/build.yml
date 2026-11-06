@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.13.0 Batch E Scoped Observation
+name: Wonhee Proxy 0.14.0 Product Batch C Recovery
 
 on:
   push:
@@ -56,6 +56,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootTransportRoute.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootPacketEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardDryRun.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMultiRecoveryPolicy.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
             core-tests/UltgramPackagesTest.java \
@@ -87,7 +88,8 @@ jobs:
             core-tests/RootTunnelTransferTest.java \
             core-tests/RootTransportRouteTest.java \
             core-tests/RootPacketEvidenceTest.java \
-            core-tests/RootGuardDryRunTest.java
+            core-tests/RootGuardDryRunTest.java \
+            core-tests/RootMultiRecoveryPolicyTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
           java -cp /tmp/wonhee-classes UltgramPackagesTest
@@ -120,6 +122,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTransportRouteTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootPacketEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardDryRunTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiRecoveryPolicyTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
@@ -128,7 +131,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0130-batch-e-scoped-observation-debug-apk
+          name: wonhee-0140-product-c-recovery-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
