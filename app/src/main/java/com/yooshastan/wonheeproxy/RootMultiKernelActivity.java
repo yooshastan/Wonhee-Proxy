@@ -43,6 +43,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button recover;
     private Button guardReadiness;
     private Button dnsAudit;
+    private Button transportAudit;
     private Button serviceProbe;
     private EditText serviceTarget;
 
@@ -72,7 +73,7 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Batch C.1 · network path diagnostics (read-only)", 14, WHITE);
+        label(page, "Batch D · transport and traffic evidence (read-only)", 14, WHITE);
         label(page, "EXPERIMENTAL: this is separate from the tested Home + AirVPN pair. "
                 + "Stop that pair first. Root changes may interrupt Internet access. "
                 + "Keep USB ADB recovery available. No firewall, kill switch, per-app "
@@ -163,11 +164,20 @@ public final class RootMultiKernelActivity extends Activity {
         dnsAudit = button(privacy, "Audit configured DNS routes");
         dnsAudit.setOnClickListener(v ->
                 run("Audit configured DNS routes", false, session::auditResolverRoutes));
+        transportAudit = button(privacy, "Inspect UDP endpoint egress + Private DNS");
+        transportAudit.setOnClickListener(v ->
+                run("Audit marked transport paths", false, session::auditTransportPaths));
+        label(privacy, "This new Batch D check evaluates the marked route to "
+                + "each selected tunnel's current numeric UDP endpoint without "
+                + "showing the endpoint address, then records Android's Private "
+                + "DNS setting. It does not capture packets or install exceptions.", 13, MUTED);
         label(privacy, "SERVICE PATH · APP SOCKET TEST", 18, PINK);
         label(privacy, "Enter a numeric service destination, such as "
                 + "10.0.0.169:4533 or [2001:db8::1]:443. This checks the "
                 + "root route separately from a TCP connection made by Wonhee's "
-                + "own Android app UID. It cannot prove the socket used a tunnel.", 13, MUTED);
+                + "own Android app UID and records WireGuard byte-counter "
+                + "changes around the connection. Background traffic may contribute "
+                + "to those counters; this is not packet-path proof.", 13, MUTED);
         serviceTarget = new EditText(this);
         serviceTarget.setSingleLine(true);
         serviceTarget.setTextColor(WHITE);
@@ -305,6 +315,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (recover != null) recover.setEnabled(ready);
         if (guardReadiness != null) guardReadiness.setEnabled(ready);
         if (dnsAudit != null) dnsAudit.setEnabled(ready);
+        if (transportAudit != null) transportAudit.setEnabled(ready);
         if (serviceProbe != null) serviceProbe.setEnabled(ready);
         if (remove != null) remove.setEnabled(!session.isBusy());
     }

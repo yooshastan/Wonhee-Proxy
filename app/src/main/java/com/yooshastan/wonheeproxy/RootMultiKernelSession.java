@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 
 import com.wireguard.android.backend.Tunnel;
 import com.wireguard.android.backend.WgQuickBackend;
@@ -46,6 +47,7 @@ final class RootMultiKernelSession {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final File appCacheDir;
+    private final Context appContext;
     private final RootShell shell;
     private final ToolsInstaller tools;
     private final WgQuickBackend backend;
@@ -86,6 +88,7 @@ final class RootMultiKernelSession {
 
     private RootMultiKernelSession(Context context) {
         Context app = context.getApplicationContext();
+        appContext = app;
         appCacheDir = app.getCacheDir();
         shell = new RootShell(app);
         tools = new ToolsInstaller(app, shell);
@@ -475,6 +478,92 @@ final class RootMultiKernelSession {
         });
     }
 
+    /** Per-profile WireGuard UDP endpoint egress and Android DNS-mode inventory. */
+    void auditTransportPaths(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean inspected = false;
+            String result;
+            try {
+                List<Active> selected = loadAll(profiles);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                RootMultiTunnelPlan.validate(entries);
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                List<String> selectedDevices = new ArrayList<>();
+                for (Active active : selected) selectedDevices.add(active.device);
+                StringBuilder report = new StringBuilder("BATCH D — READ-ONLY TRANSPORT PATH GATE\n");
+                report.append("Independent selected profiles: ").append(selected.size()).append('\n');
+                Set<Long> marks = new LinkedHashSet<>();
+                boolean shared = false;
+                int resolved = 0;
+                int potentialLoops = 0;
+                for (Active active : selected) {
+                    boolean identity = running.contains(active.device)
+                            && matches(new NamedTunnel(active.device), active);
+                    report.append(active.profileName).append(" (").append(active.device).append("): ");
+                    if (!identity) {
+                        report.append("NOT IDENTITY-VERIFIED — endpoint not inspected\n");
+                        continue;
+                    }
+                    List<String> markLines = new ArrayList<>();
+                    long mark = shell.run(markLines, "wg show " + active.device + " fwmark") == 0
+                            ? RootFirewallMark.parse(markLines) : 0;
+                    if (mark != 0 && !marks.add(mark)) shared = true;
+                    List<String> endpoints = new ArrayList<>();
+                    RootTcpProbeTarget endpoint = shell.run(endpoints,
+                            "wg show " + active.device + " endpoints") == 0
+                            ? RootWireGuardEndpoint.numericTarget(endpoints) : null;
+                    if (endpoint == null || mark == 0) {
+                        report.append("numeric endpoint or mark UNVERIFIED\n");
+                        continue;
+                    }
+                    String egress = routeDeviceMarked(endpoint.family, endpoint.address, mark);
+                    if (!egress.isEmpty()) resolved++;
+                    if (RootTransportRoute.isPotentialLoop(egress, selectedDevices)) potentialLoops++;
+                    report.append("IPv").append(endpoint.family).append(" endpoint; UDP mark ")
+                            .append(RootFirewallMark.display(mark))
+                            .append("; marked root egress ")
+                            .append(RootTransportRoute.classifiedDevice(egress, selectedDevices))
+                            .append('\n');
+                }
+                report.append("Marked endpoint root routes resolved: ").append(resolved)
+                        .append('/').append(selected.size())
+                        .append("; selected-tunnel loops flagged: ").append(potentialLoops)
+                        .append("; shared nonzero marks: ").append(shared ? "YES" : "NO OBSERVED")
+                        .append('\n');
+                report.append("Shared Android protected-from-VPN marks are not "
+                        + "per-tunnel identities. Even a non-tunnel endpoint route "
+                        + "is only an underlay candidate, not proof of real UDP delivery.\n");
+                String mode = null;
+                try { mode = Settings.Global.getString(appContext.getContentResolver(),
+                        "private_dns_mode"); }
+                catch (SecurityException ignored) { /* not available on this device */ }
+                report.append("Android configured Private DNS mode: ")
+                        .append(mode == null || mode.isEmpty() ? "UNREPORTED" :
+                                mode.matches("[a-z_]{1,32}") ? mode : "CUSTOM/UNVERIFIED")
+                        .append(" (setting only, no DNS traffic observed)\n");
+                for (int family : new int[] {4, 6}) {
+                    report.append("Configured public IPv").append(family).append(" default: ")
+                            .append(RootProtectionPolicy.hasInternetDefault(entries, family)
+                                    ? "PRESENT" : "MISSING — fallback must be investigated")
+                            .append('\n');
+                }
+                report.append("ACTUAL KILL SWITCH: OFF. No endpoint exception, "
+                        + "firewall rule or DNS configuration was installed. "
+                        + "App fwmarks, actual UDP packets, encrypted DNS, "
+                        + "IPv6 escapes and crash/handoff behavior remain unverified. "
+                        + "Never arm based solely on this route snapshot.");
+                result = report.toString();
+                inspected = true;
+            } catch (Exception | LinkageError ignored) {
+                result = "Transport path audit could not verify the selected profiles "
+                        + "and root tools. No routing or firewall settings changed.";
+            }
+            finish(callback, inspected, result);
+        });
+    }
+
     /** App-UID TCP connect plus an independently labeled UID-0 route prediction. */
     void probeService(List<SecureTunnelProfileStore.Profile> profiles, String rawTarget,
                       Callback callback) {
@@ -489,10 +578,20 @@ final class RootMultiKernelSession {
                 RootMultiTunnelPlan.validate(entries);
                 String expected = RootProtectionPolicy.expectedDevice(entries, target.address);
                 String rootRoute = "UNAVAILABLE";
+                Map<String, RootTunnelTransfer> before = new LinkedHashMap<>();
+                Set<String> verifiedForCounters = new LinkedHashSet<>();
                 try {
                     rootReady();
                     String selectedDevice = routeDevice(target.family, target.address);
                     rootRoute = selectedDevice.isEmpty() ? "NO ROOT ROUTE" : selectedDevice;
+                    Set<String> running = backend.getRunningTunnelNames();
+                    for (Active active : selected) {
+                        if (running.contains(active.device)
+                                && matches(new NamedTunnel(active.device), active)) {
+                            verifiedForCounters.add(active.device);
+                            before.put(active.device, readTransfer(active.device));
+                        }
+                    }
                 } catch (Exception | LinkageError ignored) {
                     // App socket reachability is still informative if su starts slowly.
                 }
@@ -519,6 +618,20 @@ final class RootMultiKernelSession {
                         .append(expected.isEmpty() ? "NONE IN SELECTION" : expected).append('\n')
                         .append("UID-0 kernel route lookup: ").append(rootRoute).append('\n')
                         .append("Wonhee app-UID TCP socket: ").append(tcpResult).append('\n')
+                        .append("WireGuard byte-counter deltas during this probe:\n");
+                for (Active active : selected) {
+                    RootTunnelTransfer after = null;
+                    if (verifiedForCounters.contains(active.device)) {
+                        try { after = readTransfer(active.device); }
+                        catch (Exception | LinkageError ignored) { /* report unavailable */ }
+                    }
+                    report.append(active.profileName).append(": ")
+                            .append(RootTunnelTransfer.delta(before.get(active.device), after))
+                            .append('\n');
+                }
+                report.append("Counter changes can include background traffic, "
+                        + "handshakes and keepalives. A positive delta is NOT "
+                        + "packet-path proof.\n")
                         .append("No HTTP request, credentials, or DNS lookup were sent. ")
                         .append("A TCP success does not prove the socket used the expected ")
                         .append("tunnel, and it does not prove HTTP works. An IP target ")
@@ -550,6 +663,12 @@ final class RootMultiKernelSession {
             long age = Math.max(0, System.currentTimeMillis() / 1000 - epoch);
             return age < 180 ? age + "s ago" : age + "s ago (may be idle)";
         } catch (Exception | LinkageError invalid) { return "unknown"; }
+    }
+
+    private RootTunnelTransfer readTransfer(String device) throws Exception {
+        List<String> lines = new ArrayList<>();
+        return shell.run(lines, "wg show " + device + " transfer") == 0
+                ? RootTunnelTransfer.parse(lines) : null;
     }
 
     /** Explicit, opt-in priority fix for Home-split plus Internet-default selection. */
@@ -753,6 +872,16 @@ final class RootMultiKernelSession {
     private String routeDevice(int family, String address) throws Exception {
         List<String> output = new ArrayList<>();
         if (shell.run(output, "ip -" + family + " route get " + address) != 0) return "";
+        return RootKernelRouteAudit.selectedDevice(output);
+    }
+
+    private String routeDeviceMarked(int family, String address, long mark) throws Exception {
+        if (mark <= 0 || mark > 0xffffffffL) return "";
+        // The endpoint literal comes from numeric-only validation, and the
+        // mark comes from strict parsing of `wg show IFACE fwmark`.
+        List<String> output = new ArrayList<>();
+        if (shell.run(output, "ip -" + family + " route get " + address
+                + " mark 0x" + Long.toHexString(mark)) != 0) return "";
         return RootKernelRouteAudit.selectedDevice(output);
     }
 
