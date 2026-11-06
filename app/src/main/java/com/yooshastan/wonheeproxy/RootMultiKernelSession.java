@@ -46,7 +46,8 @@ import java.util.function.BooleanSupplier;
 /**
  * Opt-in, rooted multi-tunnel experiment. Existing wnhome0/wnair0 control and
  * the Android VpnService backend are intentionally untouched. Every mutation
- * checks kernel identities and never installs a firewall or kill switch.
+ * checks kernel identities. Batch D's separate explicit DNS-only opt-in can
+ * install exactly owned resolver firewall rules; no full kill switch exists.
  */
 final class RootMultiKernelSession {
     interface Callback { void completed(boolean ok, String message); }
@@ -60,8 +61,10 @@ final class RootMultiKernelSession {
     private final ToolsInstaller tools;
     private final WgQuickBackend backend;
     private final SharedPreferences routeLedger;
+    private final SharedPreferences dnsLedger;
     private final RootMultiRecoveryPreferences recovery;
     private static final String ROUTE_LEDGER_KEY = "pending_or_installed_rules_v1";
+    private static final String DNS_LEDGER_KEY = "pending_dns_policy_v1";
     // Only links started and identity-verified by this process are in this map.
     private final Map<String, Active> managed = new LinkedHashMap<>();
     private volatile boolean busy;
@@ -104,6 +107,7 @@ final class RootMultiKernelSession {
         backend = new WgQuickBackend(app, shell, tools);
         backend.setMultipleTunnels(true);
         routeLedger = app.getSharedPreferences("wonhee_owned_split_routes", Context.MODE_PRIVATE);
+        dnsLedger = app.getSharedPreferences("wonhee_owned_dns_policy", Context.MODE_PRIVATE);
         recovery = new RootMultiRecoveryPreferences(app);
     }
 
@@ -185,6 +189,56 @@ final class RootMultiKernelSession {
 
     String recoveryStatus() { return recovery.summary(); }
 
+    String dnsLedgerStatus() {
+        String record = dnsLedger.getString(DNS_LEDGER_KEY, "");
+        return record == null || record.isEmpty() ? "OFF" : "OWNED POLICY RECORDED · VERIFY LIVE RULES";
+    }
+
+    private String dnsRecord() { return dnsLedger.getString(DNS_LEDGER_KEY, ""); }
+
+    private void requireDnsDisabledForTunnelMutation() {
+        String record = dnsRecord();
+        if (record != null && !record.isEmpty()) {
+            throw new IllegalStateException("First disable and verify owned DNS firewall "
+                    + "rules. No tunnel or split-routing mutation is safe while DNS is guarded.");
+        }
+    }
+
+    private void saveDnsRecord(String record) {
+        if (!dnsLedger.edit().putString(DNS_LEDGER_KEY, record).commit()) {
+            throw new IllegalStateException("Cannot persist DNS rollback ownership ledger.");
+        }
+    }
+
+    private static final class DnsRecord {
+        final int pid;
+        final String device;
+        final RootDnsProbePolicy policy;
+
+        DnsRecord(int pid, String device, RootDnsProbePolicy policy) {
+            this.pid = pid;
+            this.device = device;
+            this.policy = policy;
+        }
+
+        String encode() {
+            return RootDnsFirewallPlan.LEDGER + "|" + pid + "|" + device
+                    + "|" + policy.protocol + "|" + policy.url + "|" + policy.bootstrapAddress;
+        }
+
+        static DnsRecord decode(String value) {
+            String[] fields = value == null ? new String[0] : value.split("\\|", -1);
+            if (fields.length != 6 || !RootDnsFirewallPlan.validIntent(fields[0])
+                    || !fields[1].matches("[0-9]{1,7}") || !fields[2].matches("wnm[0-9a-f]{12}")) {
+                throw new IllegalStateException("Unrecognized DNS rollback record; refusing mutation.");
+            }
+            int pid = Integer.parseInt(fields[1]);
+            if (pid < 2) throw new IllegalStateException("Invalid owned DNS process identifier.");
+            return new DnsRecord(pid, fields[2],
+                    RootDnsProbePolicy.parse(fields[3], fields[4], fields[5]));
+        }
+    }
+
     private static String configDigest(Active active) throws Exception {
         // Include keys, routes and DNS overrides without persisting plaintext.
         byte[] bytes = active.configuration.toWgQuickString().getBytes(StandardCharsets.UTF_8);
@@ -215,6 +269,7 @@ final class RootMultiKernelSession {
             boolean ok = false;
             String result;
             try {
+                requireDnsDisabledForTunnelMutation();
                 List<Active> selected = loadAll(profiles);
                 validate(selected);
                 rootReady();
@@ -288,6 +343,7 @@ final class RootMultiKernelSession {
             boolean ok = false;
             String result;
             try {
+                requireDnsDisabledForTunnelMutation();
                 if (cancelled.getAsBoolean()
                         || !recovery.canAttempt(System.currentTimeMillis())) {
                     throw new IllegalStateException("Recovery intent changed.");
@@ -785,6 +841,235 @@ final class RootMultiKernelSession {
         probeRootDns(profiles, profileName, "doh", endpointUrl, bootstrapIp, callback);
     }
 
+    /**
+     * Batch D DNS-port enforcement. Root interception is NEVER automatic and
+     * does not purport to capture application-owned DoH to arbitrary HTTPS
+     * endpoints. Existing kernel tunnel identities and routing stay untouched.
+     */
+    void enableRootDns(List<SecureTunnelProfileStore.Profile> profiles, String profileName,
+                       String protocol, String endpointUrl, String bootstrapIp,
+                       Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            boolean ledgerCommitted = false;
+            int spawned = -1;
+            String message;
+            try {
+                if (dnsRecord() != null && !dnsRecord().isEmpty()) {
+                    throw new IllegalStateException("Existing DNS rollback ledger: disable/recover first.");
+                }
+                if (recovery.enabled()) {
+                    throw new IllegalStateException("Turn off Batch C automatic tunnel recovery "
+                            + "before this first DNS firewall test; background tunnel "
+                            + "changes are not yet coordinated with the DNS guard.");
+                }
+                String privateDns = Settings.Global.getString(appContext.getContentResolver(),
+                        "private_dns_mode");
+                if (!"off".equals(privateDns)) {
+                    throw new IllegalStateException("Android Private DNS must be set to OFF "
+                            + "manually before Wonhee can safely intercept resolver requests.");
+                }
+                RootDnsProbePolicy policy = RootDnsProbePolicy.parse(protocol, endpointUrl, bootstrapIp);
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                Active chosen = null;
+                for (Active active : selected) if (active.profileName.equals(profileName)) {
+                    if (chosen != null) throw new IllegalStateException("Ambiguous DNS profile.");
+                    chosen = active;
+                }
+                if (chosen == null) throw new IllegalStateException("Select a checked tunnel for DNS.");
+                rootReady();
+                verifyRecoveryRules();
+                for (Active active : selected) {
+                    NamedTunnel link = new NamedTunnel(active.device);
+                    if (backend.getState(link) != Tunnel.State.UP || !matches(link, active)) {
+                        throw new IllegalStateException("Selected kernel identity changed or tunnel is DOWN.");
+                    }
+                }
+                if (!chosen.device.equals(routeDevice(policy.family, policy.bootstrapAddress))) {
+                    throw new IllegalStateException("Encrypted DNS upstream does not route via chosen interface.");
+                }
+                dnsFirewallPreflight();
+                RootDnsRelayRunner.prepare(appContext);
+                spawned = RootDnsRelayRunner.start(appContext, shell, chosen.device, policy);
+                if (!RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
+                    throw new IllegalStateException("DNS relay process identity not verified.");
+                }
+                int answers = RootDnsRelayRunner.healthQuery();
+                if (answers < 1) throw new IllegalStateException("DNS relay returned no verified answers.");
+                // Intent written BEFORE any firewall mutation, with exact PID,
+                // interface and validated resolver configuration for recovery.
+                saveDnsRecord(new DnsRecord(spawned, chosen.device, policy).encode());
+                ledgerCommitted = true;
+                for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+                    if (shell.run(null, rule.add()) != 0 || !dnsRulePresent(rule)) {
+                        throw new IllegalStateException("DNS firewall install/verification refused.");
+                    }
+                }
+                dnsVerifyOwnedRules(true);
+                ok = true;
+                message = "BATCH D — DNS PORT ENFORCEMENT ACTIVE\n"
+                        + "Encrypted upstream: " + protocol.toUpperCase(java.util.Locale.ROOT)
+                        + " via " + chosen.profileName + " (" + chosen.device + ")\n"
+                        + "Local DNS relay: 127.0.0.1:" + RootDnsFirewallPlan.PORT + "\n"
+                        + "IPv4 UDP/TCP 53: intercepted to encrypted relay\n"
+                        + "IPv6 DNS 53 and native DoT TCP 853: blocked\n"
+                        + "Android app DoQ UDP 853: blocked except root UID\n"
+                        + "One verified local relay test: " + answers + " IPv4 A answers\n"
+                        + "Exact rollback ledger: SAVED. Do not disconnect/change tunnels "
+                        + "until DNS protection is disabled. Custom in-app HTTPS resolvers "
+                        + "are outside this DNS-port guard; this is NOT an all-traffic kill switch.";
+            } catch (Exception | LinkageError failure) {
+                if (ledgerCommitted) {
+                    try {
+                        dnsRemoveOwnedRules();
+                        if (spawned > 0 && RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
+                            RootDnsRelayRunner.stop(appContext, shell, spawned);
+                        }
+                        saveDnsRecord("");
+                        message = "DNS activation failed; exact owned rules rolled back. "
+                                + "No system resolver enforcement remains active.";
+                    } catch (Exception | LinkageError cleanup) {
+                        message = "DNS ROLLBACK NOT VERIFIED. Owned-rule ledger RETAINED. "
+                                + "Keep USB ADB available, do not disconnect tunnels, "
+                                + "and use Disable DNS protection before other changes.";
+                    }
+                } else {
+                    if (spawned > 0) try {
+                        if (RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
+                            RootDnsRelayRunner.stop(appContext, shell, spawned);
+                        }
+                    } catch (Exception ignored) { /* No firewall was installed. */ }
+                    message = "DNS activation REFUSED before firewall changes: "
+                            + (failure instanceof IllegalStateException
+                                    ? failure.getMessage() : "preflight/transport unavailable")
+                            + ". No direct/plaintext fallback was installed.";
+                }
+            }
+            finish(callback, ok, message);
+        });
+    }
+
+    void disableRootDns(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String message;
+            try {
+                String record = dnsRecord();
+                if (record == null || record.isEmpty()) {
+                    throw new IllegalStateException("No DNS ownership ledger; refusing unknown cleanup.");
+                }
+                DnsRecord owned = DnsRecord.decode(record);
+                // Recovery must remain available even if the kernel WG backend
+                // or its bundled tools have disappeared since activation.
+                shell.start();
+                dnsRemoveOwnedRules();
+                if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
+                    RootDnsRelayRunner.stop(appContext, shell, owned.pid);
+                }
+                saveDnsRecord("");
+                ok = true;
+                message = "Disabled DNS-port interception and removed all exactly owned "
+                        + "firewall rules. Original Android DNS configuration was not "
+                        + "changed by Wonhee. Kernel WireGuard interfaces remain UP.";
+            } catch (Exception | LinkageError refused) {
+                message = "DNS DISABLE / ROLLBACK NOT VERIFIED: owned rules may remain. "
+                        + "Keep USB ADB available. "
+                        + (refused instanceof IllegalStateException
+                                ? refused.getMessage() : "Check live rule ownership before recovery.");
+            }
+            finish(callback, ok, message);
+        });
+    }
+
+    void auditRootDns(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String message;
+            try {
+                String record = dnsRecord();
+                if (record == null || record.isEmpty()) {
+                    message = "DNS enforcement: OFF in owned ledger. This is not proof "
+                            + "that no outside firewall rules exist.";
+                } else {
+                    DnsRecord owned = DnsRecord.decode(record);
+                    shell.start();
+                    dnsVerifyOwnedRules(true);
+                    boolean alive = RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
+                    ok = alive;
+                    message = "DNS enforcement ledger: OWNED\nExact firewall rules: MATCH\n"
+                            + "Relay process: " + (alive ? "ALIVE" : "MISSING — DNS remains fail-closed")
+                            + "\nUpstream tunnel: " + owned.device + " (identity not rechecked by this audit)";
+                }
+            } catch (Exception | LinkageError refused) {
+                message = "DNS enforcement audit: OWNERSHIP MISMATCH OR UNAVAILABLE. "
+                        + "Do not disconnect tunnels; inspect with ADB.";
+            }
+            finish(callback, ok, message);
+        });
+    }
+
+    private void dnsFirewallPreflight() throws Exception {
+        for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+            if (countDnsTaggedRules(rule) != 0) {
+                throw new IllegalStateException("Untracked Wonhee DNS firewall tag; refusing takeover.");
+            }
+        }
+    }
+
+    private List<String> dnsFirewallListing(RootDnsFirewallPlan.Rule rule) throws Exception {
+        List<String> output = new ArrayList<>();
+        if (shell.run(output, rule.commandPrefix() + " -S OUTPUT") != 0) {
+            throw new IllegalStateException("IPv4/IPv6 DNS firewall tool unavailable.");
+        }
+        return output;
+    }
+
+    private int countDnsTaggedRules(RootDnsFirewallPlan.Rule rule) throws Exception {
+        int count = 0;
+        for (String line : dnsFirewallListing(rule)) {
+            if (line.contains("--comment " + rule.tag)
+                    || line.contains("--comment \"" + rule.tag + "\"")) count++;
+        }
+        return count;
+    }
+
+    private boolean dnsRulePresent(RootDnsFirewallPlan.Rule rule) throws Exception {
+        int count = countDnsTaggedRules(rule);
+        if (count > 1) throw new IllegalStateException("Duplicate DNS ownership tag.");
+        if (count == 0) return false;
+        if (shell.run(null, rule.exists()) != 0) {
+            throw new IllegalStateException("DNS tag exists but live kernel rule differs.");
+        }
+        return true;
+    }
+
+    private void dnsVerifyOwnedRules(boolean full) throws Exception {
+        for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+            if (full && !dnsRulePresent(rule)) {
+                throw new IllegalStateException("Expected owned DNS firewall rule missing.");
+            }
+        }
+    }
+
+    private void dnsRemoveOwnedRules() throws Exception {
+        List<RootDnsFirewallPlan.Rule> rules = RootDnsFirewallPlan.rules();
+        // First validate ALL tags, including rules that may not have been
+        // installed before an app crash. Never partially delete foreign rules.
+        for (RootDnsFirewallPlan.Rule rule : rules) dnsRulePresent(rule);
+        for (int i = rules.size() - 1; i >= 0; i--) {
+            RootDnsFirewallPlan.Rule rule = rules.get(i);
+            if (dnsRulePresent(rule)) {
+                if (shell.run(null, rule.delete()) != 0 || dnsRulePresent(rule)) {
+                    throw new IllegalStateException("Exact DNS firewall rollback incomplete.");
+                }
+            }
+        }
+    }
+
     /** Strictly isolated, one-shot transport test; not a system DNS resolver. */
     void probeRootDns(List<SecureTunnelProfileStore.Profile> profiles, String profileName,
                       String protocol, String endpointUrl, String bootstrapIp,
@@ -1255,6 +1540,7 @@ final class RootMultiKernelSession {
             String result;
             boolean ledgerCommitted = false;
             try {
+                requireDnsDisabledForTunnelMutation();
                 if (!savedRules().isEmpty()) {
                     throw new IllegalStateException("Existing rollback ledger must be reviewed/removed first.");
                 }
@@ -1337,6 +1623,7 @@ final class RootMultiKernelSession {
             boolean ok = false;
             String result;
             try {
+                requireDnsDisabledForTunnelMutation();
                 rootReady();
                 int count = RootSplitRouteRules.decode(savedRules()).size();
                 if (count == 0 && countReservedRules() > 0) {
@@ -1368,6 +1655,7 @@ final class RootMultiKernelSession {
             boolean ok = false;
             String result;
             try {
+                requireDnsDisabledForTunnelMutation();
                 if (!savedRules().isEmpty()) {
                     throw new IllegalStateException("Existing rollback record requires normal removal.");
                 }
@@ -1482,6 +1770,7 @@ final class RootMultiKernelSession {
             boolean success = false;
             String result;
             try {
+                requireDnsDisabledForTunnelMutation();
                 if (!savedRules().isEmpty()) {
                     throw new IllegalStateException("Remove owned routing overrides before connecting more tunnels.");
                 }
@@ -1586,6 +1875,7 @@ final class RootMultiKernelSession {
             boolean success = false;
             String result;
             try {
+                requireDnsDisabledForTunnelMutation();
                 if (!savedRules().isEmpty()) {
                     finish(callback, false, "Remove Wonhee routing overrides before disconnecting "
                             + "tunnels. This avoids leaving policy rules pointing at stopped links.");

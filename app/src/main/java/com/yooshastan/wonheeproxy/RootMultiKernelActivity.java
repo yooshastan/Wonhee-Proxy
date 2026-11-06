@@ -56,6 +56,10 @@ public final class RootMultiKernelActivity extends Activity {
     private Button checkRecovery;
     private Button dohProbe;
     private Button rootDohProbe;
+    private Button dnsEnable;
+    private Button dnsDisable;
+    private Button dnsEnforcementAudit;
+    private TextView dnsEnforcementStatus;
     private Button guidedAudit;
     private Button guidedDetails;
     private Button advancedToggle;
@@ -137,7 +141,7 @@ public final class RootMultiKernelActivity extends Activity {
                 + "the next safe action. It never changes a route, DNS setting or firewall "
                 + "rule without separate consent.", 13, MUTED);
         guidedStatus = label(guided, RootSafetyGuide.summary(guidedFindings)
-                + "\nKILL SWITCH: OFF · DNS ENFORCEMENT: OFF", 14, WHITE);
+                + "\nKILL SWITCH: OFF · DNS POLICY LEDGER: " + session.dnsLedgerStatus(), 14, WHITE);
         guidedAudit = button(guided, "Run guided safety check · read only");
         guidedAudit.setOnClickListener(v -> startGuidedAudit());
         guidedDetails = button(guided, "Review safety check details");
@@ -344,6 +348,54 @@ public final class RootMultiKernelActivity extends Activity {
                 + "test to check the kernel interface explicitly. Root execution is "
                 + "one-shot, with no route, DNS or firewall mutation.", 13, PINK);
 
+        LinearLayout enforcement = card(advancedGroup);
+        label(enforcement, "PRODUCT BATCH D · SYSTEM RESOLVER ENFORCEMENT", 18, PINK);
+        label(enforcement, "EXPERIMENTAL ROOT FIREWALL CHANGE. After the selected "
+                + "root-bound encrypted relay passes a local DNS health check, Wonhee "
+                + "redirects IPv4 UDP/TCP 53 to it and blocks other classic DNS/DoT "
+                + "ports. A tunnel or relay failure makes affected DNS requests FAIL, "
+                + "not fall back to Wi-Fi. The original Android Private DNS setting "
+                + "must be manually set to OFF before enabling. Keep USB ADB connected. "
+                + "This does not intercept applications with their own HTTPS/QUIC DNS "
+                + "on arbitrary ports, and is NOT an all-traffic kill switch.", 13, MUTED);
+        dnsEnforcementStatus = label(enforcement,
+                "DNS POLICY LEDGER: " + session.dnsLedgerStatus(), 14, WHITE);
+        dnsEnable = button(enforcement, "Review + enable encrypted system DNS · opt in");
+        dnsEnable.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Enable experimental root DNS interception?")
+                .setMessage("This modifies IPv4/IPv6 firewall OUTPUT rules and can block "
+                        + "DNS if the selected tunnel or encrypted relay fails. IPv6 port-53 "
+                        + "queries and DoT TCP/853 will be rejected. First set Android "
+                        + "Private DNS to OFF, keep USB ADB available, and do not disconnect "
+                        + "these tunnels until you disable/verify owned DNS rules. "
+                        + "Disable Batch C automatic tunnel recovery for this first test. "
+                        + "An exact rollback record is saved before any firewall mutation. "
+                        + "Application-owned DoH on port 443 is not covered. Continue?")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Enable + verify", (dialog, which) -> {
+                    Object chosen = dohTunnel.getSelectedItem();
+                    String name = chosen == null ? "" : chosen.toString();
+                    String protocol = currentDnsProtocol();
+                    String url = dohUrl.getText().toString();
+                    String bootstrap = dohBootstrap.getText().toString();
+                    run("Enable Batch D DNS-port protection", false, (profiles, cb) ->
+                            session.enableRootDns(profiles, name, protocol, url, bootstrap, cb));
+                }).show());
+        dnsEnforcementAudit = button(enforcement, "Audit live DNS firewall + relay · read only");
+        dnsEnforcementAudit.setOnClickListener(v -> run("Audit DNS enforcement", true,
+                session::auditRootDns));
+        dnsDisable = button(enforcement, "Disable owned DNS rules + restore resolution");
+        dnsDisable.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Disable Wonhee's DNS interception?")
+                .setMessage("Wonhee will remove ONLY exact owned DNS rules from its "
+                        + "rollback ledger, then stop its verified root relay. Kernel "
+                        + "tunnels and Android Private DNS settings are not modified. "
+                        + "Unknown firewall rules will never be deleted.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Remove owned DNS rules", (dialog, which) ->
+                        run("Disable Batch D DNS protection", true, session::disableRootDns))
+                .show());
+
         LinearLayout privacy = card(advancedGroup);
         label(privacy, "NETWORK PROTECTION · READ ONLY", 18, PINK);
         label(privacy, "Privacy Guard is a readiness report, NOT an active kill switch. "
@@ -429,6 +481,9 @@ public final class RootMultiKernelActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         reloadProfiles();
+        if (dnsEnforcementStatus != null) {
+            dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
+        }
     }
 
     private void reloadProfiles() {
@@ -522,7 +577,8 @@ public final class RootMultiKernelActivity extends Activity {
         if (step == RootSafetyGuide.STEP_COUNT) {
             guidedRunning = false;
             String summary = RootSafetyGuide.summary(guidedFindings);
-            guidedStatus.setText(summary + "\nKILL SWITCH: OFF · DNS ENFORCEMENT: OFF");
+            guidedStatus.setText(summary + "\nKILL SWITCH: OFF · DNS POLICY LEDGER: "
+                    + session.dnsLedgerStatus());
             output.setText("GUIDED READ-ONLY CHECK COMPLETE\n" + summary
                     + "\nTap Review safety check details for each audit.");
             journal.record("RESULT", "Guided read-only audit completed, "
@@ -650,6 +706,12 @@ public final class RootMultiKernelActivity extends Activity {
         if (dnsProtocol != null) dnsProtocol.setEnabled(idle);
         if (dohUrl != null) dohUrl.setEnabled(idle);
         if (dohBootstrap != null) dohBootstrap.setEnabled(idle);
+        if (dnsEnable != null) dnsEnable.setEnabled(ready && "OFF".equals(session.dnsLedgerStatus()));
+        if (dnsDisable != null) dnsDisable.setEnabled(idle && !"OFF".equals(session.dnsLedgerStatus()));
+        if (dnsEnforcementAudit != null) dnsEnforcementAudit.setEnabled(idle);
+        if (dnsEnforcementStatus != null) {
+            dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
+        }
         if (disableRecovery != null) disableRecovery.setEnabled(idle);
         if (guidedAudit != null) guidedAudit.setEnabled(ready);
         if (guidedDetails != null) guidedDetails.setEnabled(idle && !guidedFindings.isEmpty());
