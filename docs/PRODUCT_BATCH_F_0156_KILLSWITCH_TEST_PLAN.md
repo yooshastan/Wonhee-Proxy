@@ -1,4 +1,4 @@
-# Wonhee Proxy 0.15.6 — Product Batch F (experimental root kill-switch)
+# Wonhee Proxy 0.15.7 — Product Batch F (experimental endpoint-pinned root guard)
 
 Status: **test APK / opt-in prototype**. No unattended activation. No default firewall modification. Product roadmap A→I remains unchanged: F is root firewall; G handles future background coordination; H UI consolidation; I beta qualification.
 
@@ -8,15 +8,15 @@ Status: **test APK / opt-in prototype**. No unattended activation. No default fi
 2. In Wonhee Multi-Tunnel Lab, disable Product D encrypted *system* DNS enforcement and verify the owned DNS ledger says **OFF**. Product E tracker policy needs to be disabled with it. Android Private DNS can be audited separately; this is **not** a system-wide encrypted-DNS guarantee.
 3. Disable Product C unattended tunnel recovery. Keep the existing tested Home + AirVPN split-routing setup active, and verify the selected profiles are exactly the UP WireGuard interfaces.
 4. **Do not disconnect, change or restart tunnels or reboot** between enabling and the first successful *Disable + audit* cycle. Do not enable F on a phone you cannot recover through USB ADB.
-5. This implementation refuses unknown or legacy kernel tunnels; missing/hostnamed WireGuard endpoints; shared/off fwmarks; nonphysical or looped marked endpoint egress; mismatched route selection; conflicting preexisting guard rules; and unowned firewall chains. If it refuses, **leave it OFF** and report the refusal. Do not force an install by removing another app's rules.
+5. This implementation refuses unknown or legacy kernel tunnels; missing/hostnamed WireGuard endpoints; **unset/unsafe fwmarks or shared non-Android marks**; duplicated endpoint IP:port tuples; nonphysical or looped marked endpoint egress; mismatched route selection; conflicting preexisting guard rules; and unowned firewall chains. Android's **shared `0x20000` protected-from-VPN mark is permitted only with distinct exact numeric endpoint IP:port pairs**. This mark is *not* a socket identity. Do not force an install by removing another app's rules.
 
 ## One test cycle (phone UI)
 
-- [ ] Install the debug APK as an update only if the installed signature matches. Record app version `0.15.6-productBatchF-killswitch-alpha` (versionCode 53).
+- [ ] Install the debug APK as an update only if the installed signature matches. Record app version `0.15.7-productBatchF-endpoint-pinned-alpha` (versionCode 54).
 - [ ] Multi-Tunnel Lab → select Home and AirVPN → connect/verify exactly the same chosen tunnel identities and routes.
 - [ ] Open *Advanced security controls* → **Product Batch F · Fail-closed firewall prototype**. It must read **KILL SWITCH LEDGER: OFF** before any action.
 - [ ] Press **Audit owned IPv4/IPv6 kill-switch rules**. When OFF, it should report **OFF in owned ledger** (this cannot exclude third-party rules).
-- [ ] Press **Review + enable experimental kill switch · opt in**. Read the recovery warning and explicitly confirm only while connected to USB ADB. If a gate refuses, preserve the error and stop; this is expected on kernels with a shared Android protected-from-VPN fwmark.
+- [ ] Press **Review + enable experimental kill switch · opt in**. Read the recovery warning, including the shared-mark limitations, and explicitly confirm only while connected to USB ADB. If a gate refuses, preserve the error and stop.
 - [ ] If enabled, press **Audit**. Require two OUTPUT anchors, exact chain rules and terminal IPv4/IPv6 rejects to match the ownership ledger. Leave Home/AirVPN connected.
 - [ ] While F is active, check a small benign Internet request and an authorized Home-only request. Both should travel only through their chosen interfaces; *successful requests alone do not prove no leak*. Do not deliberately drop the only working underlay without additional safe rollback access.
 - [ ] Press **Disable Batch F guard + verify exact rollback**. Require a positive result. Press **Audit** again: owned ledger **OFF**. Confirm no Wonhee guard chain/tag exists. Tunnel profiles remain UP.
@@ -66,6 +66,6 @@ After a **successful disable**, the guard-tag search and guard-chain listing sho
 
 ## What Product F does and does not prove
 
-It installs `filter/OUTPUT` chains per IP family, exact `SO_MARK` + numeric UDP endpoint exceptions, tunnel-interface allowances for their configured CIDRs, Home/split-route negative guards, and terminal rejects. It saves its rollback intent before writes and prevents tunnel/routing mutations while owned. It **does not** prove continuous kernel identity, packet-level leak freedom, Android background service continuity, boot-time enforcement, or safe automatic reconnect. Testing restart/handoff/reboot protection is a future **Product G** task, not a claimed Product F pass.
+It installs `filter/OUTPUT` chains per IP family, exact `SO_MARK` + numeric UDP endpoint exceptions, tunnel-interface allowances for their configured CIDRs, Home/split-route negative guards, and terminal rejects. It saves its rollback intent before writes and prevents tunnel/routing mutations while owned. **For the Android `0x20000` shared mark, another socket with the same mark could reach the same narrow endpoint IP:port; this is a known bypass and explicitly NOT unique per-tunnel identity.** We do not mutate Android's fwmark layout or live WireGuard marks. It **does not** prove continuous kernel identity, packet-level leak freedom, Android background service continuity, boot-time enforcement, or safe automatic reconnect. Testing restart/handoff/reboot protection is a future **Product G** task, not a claimed Product F pass.
 
 **Acceptance for F prototype:** compile/tests pass; default OFF; guarded activation either refuses safely or installs and audits exactly; exact app-owned rollback works with USB ADB. A device-specific *fail-closed verified* claim requires later controlled on-device packet capture, negative connectivity tests, and successful recovery. Do not mark that claim complete based only on a successful app audit.

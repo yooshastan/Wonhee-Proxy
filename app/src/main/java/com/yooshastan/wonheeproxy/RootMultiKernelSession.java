@@ -1103,6 +1103,7 @@ final class RootMultiKernelSession {
                     }
                 }
                 Set<Long> marks = new LinkedHashSet<>();
+                boolean sharedAndroidMark = false;
                 List<RootFailClosedFirewallPlan.Tunnel> transports = new ArrayList<>();
                 for (Active active : selected) {
                     NamedTunnel link = new NamedTunnel(active.device);
@@ -1125,11 +1126,17 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("Unable to inspect WireGuard transport mark.");
                     }
                     long mark = RootFirewallMark.parse(rawMark);
-                    if (mark == 0 || !marks.add(mark)
-                            || !RootSplitRouteRules.transportBypassesRules(
+                    if (mark == 0 || !RootSplitRouteRules.transportBypassesRules(
                                     "0x" + Long.toHexString(mark))) {
-                        throw new IllegalStateException("Transport mark absent, shared or unsafe; "
+                        throw new IllegalStateException("Transport mark absent or unsafe; "
                                 + "no broad physical-network exception will be installed.");
+                    }
+                    if (!marks.add(mark)) {
+                        if (mark != RootFirewallMark.ANDROID_PROTECTED_FROM_VPN) {
+                            throw new IllegalStateException("Shared non-Android transport mark "
+                                    + "refused; endpoint mark identity is unverified.");
+                        }
+                        sharedAndroidMark = true;
                     }
                     List<String> rawEndpoint = new ArrayList<>();
                     RootTcpProbeTarget endpoint = shell.run(rawEndpoint,
@@ -1163,6 +1170,11 @@ final class RootMultiKernelSession {
                         + "UDP endpoints are permitted by this guard. Private split routes "
                         + "cannot fall back through the default tunnel.\n"
                         + "Verified selected tunnel identities: " + selected.size() + "\n"
+                        + (sharedAndroidMark ? "Both tunnels use Android's shared protected-from-VPN "
+                                + "mark 0x20000. Exceptions are pinned to the verified distinct "
+                                + "numeric UDP destination IP:port pairs, NOT to unique sockets. "
+                                + "Other protected packets to the same endpoints could pass; "
+                                + "this is NOT a verified leak-proof policy.\n" : "")
                         + "Ownership ledger saved; USB ADB recovery REQUIRED. "
                         + "Do not disconnect, switch profiles or reboot yet. "
                         + "No boot-time enforcement or packet-leak guarantee is claimed.";

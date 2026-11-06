@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.6 Product Batch F Experimental Fail-Closed Guard
+name: Wonhee Proxy 0.15.7 Product Batch F Endpoint-Pinned Guard
 
 on:
   push:
@@ -157,7 +157,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0156-product-f-experimental-failclosed-alpha-debug-apk
+          name: wonhee-0157-product-f-endpoint-pinned-alpha-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

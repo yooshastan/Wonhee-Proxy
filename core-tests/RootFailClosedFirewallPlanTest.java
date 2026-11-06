@@ -21,6 +21,25 @@ public final class RootFailClosedFirewallPlanTest {
         check(plan.family(4).get(plan.family(4).size()-1).args.equals("-j REJECT"), "v4 deny");
         check(plan.family(6).get(plan.family(6).size()-1).args.equals("-j REJECT"), "v6 deny");
         check(!encoded.contains("-m mark -j RETURN"), "no broad mark allow");
+        RootFailClosedFirewallPlan.Tunnel sharedMarkInternet = new RootFailClosedFirewallPlan.Tunnel(
+                "wnm68fe81200daa", "2001:db8::1", 1637, 0x20000,
+                Arrays.asList("0.0.0.0/0", "::/0"));
+        RootFailClosedFirewallPlan.Plan sharedMarkPlan = RootFailClosedFirewallPlan.build(
+                Arrays.asList(home, sharedMarkInternet));
+        check(sharedMarkPlan.encode().contains("--mark 0x20000/0xffffffff"),
+                "shared Android protected mark has exact endpoint-pinned rules");
+        check(!sharedMarkPlan.encode().contains("-m mark -j RETURN"),
+                "shared mark cannot be a broad underlay bypass");
+        try {RootFailClosedFirewallPlan.build(Arrays.asList(home,
+                new RootFailClosedFirewallPlan.Tunnel("wnm68fe81200daa", "192.0.2.1", 51820,
+                        0x20000, Arrays.asList("0.0.0.0/0"))));
+            throw new AssertionError("accepted identical shared-mark endpoint");}
+        catch (IllegalArgumentException expected) { }
+        try {RootFailClosedFirewallPlan.build(Arrays.asList(air,
+                new RootFailClosedFirewallPlan.Tunnel("wnmfedcba987654", "192.0.2.2", 1637,
+                        0x40000, Arrays.asList("10.99.0.0/16"))));
+            throw new AssertionError("accepted shared non-Android mark");}
+        catch (IllegalArgumentException expected) { }
         try {RootFailClosedFirewallPlan.decode("bad\n");throw new AssertionError("accepted unknown ledger");}
         catch (IllegalArgumentException expected) { }
         try {RootFailClosedFirewallPlan.build(Arrays.asList(home,home));throw new AssertionError("accepted duplicate");}

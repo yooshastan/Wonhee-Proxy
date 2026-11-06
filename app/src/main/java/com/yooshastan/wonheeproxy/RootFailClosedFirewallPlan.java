@@ -142,9 +142,16 @@ final class RootFailClosedFirewallPlan {
         List<Rule> all = new ArrayList<>();
         Set<String> devices = new LinkedHashSet<>();
         Set<Long> marks = new LinkedHashSet<>();
+        Set<String> exactUdpEndpoints = new LinkedHashSet<>();
         for (Tunnel tunnel : tunnels) {
-            if (!devices.add(tunnel.device) || !marks.add(tunnel.mark)) {
-                throw new IllegalArgumentException("Endpoint marks and tunnel interfaces must be distinct.");
+            if (!devices.add(tunnel.device)
+                    || !exactUdpEndpoints.add(tunnel.address + "|" + tunnel.port)) {
+                throw new IllegalArgumentException("Every selected tunnel needs a unique "
+                        + "device and numeric UDP endpoint tuple.");
+            }
+            if (!marks.add(tunnel.mark)
+                    && tunnel.mark != RootFirewallMark.ANDROID_PROTECTED_FROM_VPN) {
+                throw new IllegalArgumentException("Shared non-Android fwmark refused.");
             }
         }
         for (int family : new int[]{4, 6}) {

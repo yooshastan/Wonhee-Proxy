@@ -54,10 +54,13 @@ final class RootFailClosedFirewallRuntime {
             if (anchored != 0 || full) throw new IllegalStateException("Guard chain missing/mismatched.");
             return;
         }
-        int actualRules = 0;
+        List<String> appended = new ArrayList<>();
         for (String line : listing(shell, family, RootFailClosedFirewallPlan.chain(family))) {
-            if (line.startsWith("-A " + RootFailClosedFirewallPlan.chain(family) + " ")) actualRules++;
+            if (line.startsWith("-A " + RootFailClosedFirewallPlan.chain(family) + " ")) {
+                appended.add(line);
+            }
         }
+        int actualRules = appended.size();
         int exactMatches = 0;
         for (RootFailClosedFirewallPlan.Rule rule : plan.family(family)) {
             if (shell.run(null, rule.exists()) == 0) exactMatches++;
@@ -66,6 +69,10 @@ final class RootFailClosedFirewallRuntime {
         // silently flush an unrecognized or duplicate rule from the chain.
         if (actualRules != exactMatches || (full && exactMatches != plan.family(family).size())) {
             throw new IllegalStateException("Guard chain contains unowned or missing rules.");
+        }
+        if (full && (appended.isEmpty() || !appended.get(appended.size() - 1)
+                .equals("-A " + RootFailClosedFirewallPlan.chain(family) + " -j REJECT"))) {
+            throw new IllegalStateException("Guard terminal reject is not the final rule.");
         }
     }
 
