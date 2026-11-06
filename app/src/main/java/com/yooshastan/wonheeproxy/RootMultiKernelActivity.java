@@ -2,7 +2,9 @@ package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -60,6 +62,11 @@ public final class RootMultiKernelActivity extends Activity {
     private Button dnsDisable;
     private Button dnsEnforcementAudit;
     private TextView dnsEnforcementStatus;
+    private TextView trackerStatus;
+    private CheckBox trackerFilter;
+    private EditText trackerCustom;
+    private EditText trackerAllow;
+    private SharedPreferences trackerPrefs;
     private Button guidedAudit;
     private Button guidedDetails;
     private Button advancedToggle;
@@ -78,6 +85,7 @@ public final class RootMultiKernelActivity extends Activity {
         super.onCreate(state);
         store = new SecureTunnelProfileStore(this);
         session = RootMultiKernelSession.get(this);
+        trackerPrefs = getSharedPreferences("wonhee_local_tracker_options", Context.MODE_PRIVATE);
         journal = new RootSessionJournal(this);
         journal.record("APP", "Experimental multi-tunnel manager opened");
 
@@ -100,12 +108,12 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Product Batch D · root-bound DNS transport preview (retains Product C recovery)", 14, WHITE);
+        label(page, "Product Batch E · optional local tracker blocking over Product D encrypted DNS", 14, WHITE);
         label(page, "EXPERIMENTAL: this multi-profile lab is separate from the older "
                 + "wnhome0/wnair0 pair. Stop that legacy pair first. Root changes "
-                + "may interrupt Internet access. Keep Termux root or USB recovery ready. No firewall, kill switch, per-app "
-                + "routing verification, encrypted DNS or fail-closed protection is "
-                + "automatic here. Routing overrides require separate confirmation.", 13, PINK);
+                + "may interrupt Internet access. Keep Termux root or USB recovery ready. "
+                + "DNS interception and tracker filtering require explicit opt-in; "
+                + "there is no all-traffic kill switch. Routing overrides also require separate consent.", 13, PINK);
 
         LinearLayout configs = card(page);
         label(configs, "SELECT ACTIVE PROFILES", 18, PINK);
@@ -348,6 +356,51 @@ public final class RootMultiKernelActivity extends Activity {
                 + "test to check the kernel interface explicitly. Root execution is "
                 + "one-shot, with no route, DNS or firewall mutation.", 13, PINK);
 
+        LinearLayout trackers = card(advancedGroup);
+        label(trackers, "PRODUCT BATCH E · LOCAL TRACKER BLOCKING", 18, PINK);
+        label(trackers, "Optional, offline DNS filtering uses a small, transparent "
+                + "starter list (" + RootTrackerPolicy.builtIns().size() + " known tracking/ad domains). "
+                + "Subdomains are included. An allowlist always wins. No filter lists "
+                + "are downloaded and no DNS history is collected. Some apps or sites "
+                + "may break; disable and re-enable the DNS relay to change a live filter. "
+                + "This cannot block hardcoded IPs or apps with their own HTTPS DNS.", 13, MUTED);
+        trackerFilter = new CheckBox(this);
+        trackerFilter.setText("Block known tracker domains when encrypted DNS starts");
+        trackerFilter.setTextSize(15);
+        trackerFilter.setTextColor(WHITE);
+        trackerFilter.setButtonTintList(android.content.res.ColorStateList.valueOf(PINK));
+        trackerFilter.setChecked(trackerPrefs.getBoolean("enabled", false));
+        trackers.addView(trackerFilter);
+        label(trackers, "Additional domains to block · one domain per line", 13, WHITE);
+        trackerCustom = trackerTextEditor(trackers, "telemetry.example.net (example only)",
+                trackerPrefs.getString("custom", ""));
+        label(trackers, "Exceptions to allow · one domain per line", 13, WHITE);
+        trackerAllow = trackerTextEditor(trackers, "trusted.example.net (example only)",
+                trackerPrefs.getString("allow", ""));
+        Button trackerPreview = button(trackers, "Preview tracker filtering · no system changes");
+        trackerPreview.setOnClickListener(v -> {
+            try {
+                RootTrackerPolicy.Config configured = RootTrackerPolicy.compile(
+                        trackerFilter.isChecked(), trackerCustom.getText().toString(),
+                        trackerAllow.getText().toString());
+                String summary = configured.enabled
+                        ? "Local DNS filtering planned: " + configured.blocked.size()
+                          + " domain suffixes blocked and " + configured.allowed.size()
+                          + " allowed exceptions.\n\nBuilt-in suffixes:\n"
+                          + String.join("\n", RootTrackerPolicy.builtIns())
+                          + "\n\nExisting DNS policy is unchanged until separately enabled."
+                        : "Tracker filtering is OFF. No DNS or firewall changes planned.";
+                new AlertDialog.Builder(this).setTitle("Batch E policy preview")
+                        .setMessage(summary).setPositiveButton("Close", null).show();
+            } catch (IllegalArgumentException invalid) {
+                new AlertDialog.Builder(this).setTitle("Tracker policy refused")
+                        .setMessage(invalid.getMessage()).setPositiveButton("Close", null).show();
+            }
+        });
+        trackerStatus = label(trackers, "TRACKER FILTER: " + session.trackerLedgerStatus(), 14, PINK);
+        label(trackers, "Configuration is applied ONLY when you press Enable encrypted "
+                + "system DNS below. The original selected encrypted upstream remains unchanged.", 13, MUTED);
+
         LinearLayout enforcement = card(advancedGroup);
         label(enforcement, "PRODUCT BATCH D · SYSTEM RESOLVER ENFORCEMENT", 18, PINK);
         label(enforcement, "EXPERIMENTAL ROOT FIREWALL CHANGE. After the selected "
@@ -369,6 +422,8 @@ public final class RootMultiKernelActivity extends Activity {
                         + "Private DNS to OFF, keep USB ADB available, and do not disconnect "
                         + "these tunnels until you disable/verify owned DNS rules. "
                         + "Disable Batch C automatic tunnel recovery for this first test. "
+                        + "Batch E tracker filter is " + (trackerFilter.isChecked() ? "SELECTED" : "OFF")
+                        + "; it may cause app/site breakage. "
                         + "An exact rollback record is saved before any firewall mutation. "
                         + "Application-owned DoH on port 443 is not covered. Continue?")
                 .setNegativeButton("Cancel", null)
@@ -378,8 +433,13 @@ public final class RootMultiKernelActivity extends Activity {
                     String protocol = currentDnsProtocol();
                     String url = dohUrl.getText().toString();
                     String bootstrap = dohBootstrap.getText().toString();
+                    boolean filter = trackerFilter.isChecked();
+                    String block = trackerCustom.getText().toString();
+                    String allow = trackerAllow.getText().toString();
+                    saveTrackerOptions();
                     run("Enable Batch D DNS-port protection", false, (profiles, cb) ->
-                            session.enableRootDns(profiles, name, protocol, url, bootstrap, cb));
+                            session.enableRootDns(profiles, name, protocol, url, bootstrap,
+                                    filter, block, allow, cb));
                 }).show());
         dnsEnforcementAudit = button(enforcement, "Audit live DNS firewall + relay · read only");
         dnsEnforcementAudit.setOnClickListener(v -> run("Audit DNS enforcement", true,
@@ -462,7 +522,7 @@ public final class RootMultiKernelActivity extends Activity {
                     (profiles, callback) -> session.previewFailClosedModel(
                             profiles, target, callback));
         });
-        label(privacy, "Batch E capture is optional and may report UNAVAILABLE "
+        label(privacy, "The scoped packet-capture diagnostic is optional and may report UNAVAILABLE "
                 + "if root tcpdump is absent. The guard preview is a pure model: "
                 + "it never installs a kill switch. Android's active network "
                 + "DNS state is also included in the endpoint audit.", 13, MUTED);
@@ -484,6 +544,34 @@ public final class RootMultiKernelActivity extends Activity {
         if (dnsEnforcementStatus != null) {
             dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
         }
+    }
+
+    @Override protected void onPause() {
+        saveTrackerOptions();
+        super.onPause();
+    }
+
+    private EditText trackerTextEditor(LinearLayout parent, String hint, String value) {
+        EditText editor = new EditText(this);
+        editor.setTextColor(WHITE);
+        editor.setHintTextColor(MUTED);
+        editor.setTextSize(14);
+        editor.setHint(hint);
+        editor.setMinLines(2);
+        editor.setMaxLines(4);
+        editor.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        editor.setText(value);
+        parent.addView(editor);
+        return editor;
+    }
+
+    private void saveTrackerOptions() {
+        if (trackerPrefs == null || trackerFilter == null || trackerCustom == null || trackerAllow == null) return;
+        trackerPrefs.edit().putBoolean("enabled", trackerFilter.isChecked())
+                .putString("custom", trackerCustom.getText().toString())
+                .putString("allow", trackerAllow.getText().toString()).apply();
     }
 
     private void reloadProfiles() {
@@ -712,6 +800,11 @@ public final class RootMultiKernelActivity extends Activity {
         if (dnsEnforcementStatus != null) {
             dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
         }
+        boolean trackerEditable = idle && "OFF".equals(session.dnsLedgerStatus());
+        if (trackerFilter != null) trackerFilter.setEnabled(trackerEditable);
+        if (trackerCustom != null) trackerCustom.setEnabled(trackerEditable);
+        if (trackerAllow != null) trackerAllow.setEnabled(trackerEditable);
+        if (trackerStatus != null) trackerStatus.setText("TRACKER FILTER: " + session.trackerLedgerStatus());
         if (disableRecovery != null) disableRecovery.setEnabled(idle);
         if (guidedAudit != null) guidedAudit.setEnabled(ready);
         if (guidedDetails != null) guidedDetails.setEnabled(idle && !guidedFindings.isEmpty());

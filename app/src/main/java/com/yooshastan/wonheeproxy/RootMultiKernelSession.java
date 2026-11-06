@@ -194,6 +194,13 @@ final class RootMultiKernelSession {
         return record == null || record.isEmpty() ? "OFF" : "OWNED POLICY RECORDED · VERIFY LIVE RULES";
     }
 
+    String trackerLedgerStatus() {
+        String record = dnsRecord();
+        if (record == null || record.isEmpty()) return "OFF";
+        try { return DnsRecord.decode(record).trackerFiltering ? "ENABLED · AUDIT TO VERIFY" : "OFF"; }
+        catch (RuntimeException invalid) { return "UNKNOWN · AUDIT REQUIRED"; }
+    }
+
     private String dnsRecord() { return dnsLedger.getString(DNS_LEDGER_KEY, ""); }
 
     private void requireDnsDisabledForTunnelMutation() {
@@ -214,28 +221,35 @@ final class RootMultiKernelSession {
         final int pid;
         final String device;
         final RootDnsProbePolicy policy;
+        final boolean trackerFiltering;
 
-        DnsRecord(int pid, String device, RootDnsProbePolicy policy) {
+        DnsRecord(int pid, String device, RootDnsProbePolicy policy, boolean trackerFiltering) {
             this.pid = pid;
             this.device = device;
             this.policy = policy;
+            this.trackerFiltering = trackerFiltering;
         }
 
         String encode() {
             return RootDnsFirewallPlan.LEDGER + "|" + pid + "|" + device
-                    + "|" + policy.protocol + "|" + policy.url + "|" + policy.bootstrapAddress;
+                    + "|" + policy.protocol + "|" + policy.url + "|" + policy.bootstrapAddress
+                    + "|" + (trackerFiltering ? "blocked" : "unfiltered");
         }
 
         static DnsRecord decode(String value) {
             String[] fields = value == null ? new String[0] : value.split("\\|", -1);
-            if (fields.length != 6 || !RootDnsFirewallPlan.validIntent(fields[0])
+            if ((fields.length != 6 && fields.length != 7) || !RootDnsFirewallPlan.validIntent(fields[0])
                     || !fields[1].matches("[0-9]{1,7}") || !fields[2].matches("wnm[0-9a-f]{12}")) {
                 throw new IllegalStateException("Unrecognized DNS rollback record; refusing mutation.");
+            }
+            if (fields.length == 7 && !fields[6].equals("blocked") && !fields[6].equals("unfiltered")) {
+                throw new IllegalStateException("Unrecognized tracker ledger flag; refusing mutation.");
             }
             int pid = Integer.parseInt(fields[1]);
             if (pid < 2) throw new IllegalStateException("Invalid owned DNS process identifier.");
             return new DnsRecord(pid, fields[2],
-                    RootDnsProbePolicy.parse(fields[3], fields[4], fields[5]));
+                    RootDnsProbePolicy.parse(fields[3], fields[4], fields[5]),
+                    fields.length == 7 && fields[6].equals("blocked"));
         }
     }
 
@@ -848,6 +862,7 @@ final class RootMultiKernelSession {
      */
     void enableRootDns(List<SecureTunnelProfileStore.Profile> profiles, String profileName,
                        String protocol, String endpointUrl, String bootstrapIp,
+                       boolean trackerFiltering, String trackerCustom, String trackerExceptions,
                        Callback callback) {
         if (!begin(callback)) return;
         worker.execute(() -> {
@@ -871,6 +886,8 @@ final class RootMultiKernelSession {
                             + "manually before Wonhee can safely intercept resolver requests.");
                 }
                 RootDnsProbePolicy policy = RootDnsProbePolicy.parse(protocol, endpointUrl, bootstrapIp);
+                RootTrackerPolicy.Config tracker = RootTrackerPolicy.compile(
+                        trackerFiltering, trackerCustom, trackerExceptions);
                 List<Active> selected = loadAll(profiles);
                 validate(selected);
                 Active chosen = null;
@@ -892,15 +909,19 @@ final class RootMultiKernelSession {
                 }
                 dnsFirewallPreflight();
                 RootDnsRelayRunner.prepare(appContext);
-                spawned = RootDnsRelayRunner.start(appContext, shell, chosen.device, policy);
+                RootDnsRelayRunner.prepareTrackerPolicy(appContext, tracker);
+                spawned = RootDnsRelayRunner.start(appContext, shell, chosen.device, policy, tracker);
                 if (!RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
                     throw new IllegalStateException("DNS relay process identity not verified.");
                 }
                 int answers = RootDnsRelayRunner.healthQuery();
                 if (answers < 1) throw new IllegalStateException("DNS relay returned no verified answers.");
+                if (tracker.enabled && !RootDnsRelayRunner.blockedHealthQuery()) {
+                    throw new IllegalStateException("Tracker filter did not return local NXDOMAIN.");
+                }
                 // Intent written BEFORE any firewall mutation, with exact PID,
                 // interface and validated resolver configuration for recovery.
-                saveDnsRecord(new DnsRecord(spawned, chosen.device, policy).encode());
+                saveDnsRecord(new DnsRecord(spawned, chosen.device, policy, tracker.enabled).encode());
                 ledgerCommitted = true;
                 for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
                     if (shell.run(null, rule.add()) != 0 || !dnsRulePresent(rule)) {
@@ -917,6 +938,8 @@ final class RootMultiKernelSession {
                         + "IPv6 DNS 53 and native DoT TCP 853: blocked\n"
                         + "Android app DoQ UDP 853: blocked except root UID\n"
                         + "One verified local relay test: " + answers + " IPv4 A answers\n"
+                        + "Batch E local tracker filtering: "
+                        + (tracker.enabled ? "ON · local block response VERIFIED" : "OFF") + "\n"
                         + "Exact rollback ledger: SAVED. Do not disconnect/change tunnels "
                         + "until DNS protection is disabled. Custom in-app HTTPS resolvers "
                         + "are outside this DNS-port guard; this is NOT an all-traffic kill switch.";
@@ -927,6 +950,7 @@ final class RootMultiKernelSession {
                         if (spawned > 0 && RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
                             RootDnsRelayRunner.stop(appContext, shell, spawned);
                         }
+                        RootDnsRelayRunner.removeTrackerPolicy(appContext);
                         saveDnsRecord("");
                         message = "DNS activation failed; exact owned rules rolled back. "
                                 + "No system resolver enforcement remains active.";
@@ -941,6 +965,7 @@ final class RootMultiKernelSession {
                             RootDnsRelayRunner.stop(appContext, shell, spawned);
                         }
                     } catch (Exception ignored) { /* No firewall was installed. */ }
+                    RootDnsRelayRunner.removeTrackerPolicy(appContext);
                     message = "DNS activation REFUSED before firewall changes: "
                             + (failure instanceof IllegalStateException
                                     ? failure.getMessage() : "preflight/transport unavailable")
@@ -969,6 +994,7 @@ final class RootMultiKernelSession {
                 if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
                     RootDnsRelayRunner.stop(appContext, shell, owned.pid);
                 }
+                RootDnsRelayRunner.removeTrackerPolicy(appContext);
                 saveDnsRecord("");
                 ok = true;
                 message = "Disabled DNS-port interception and removed all exactly owned "
@@ -999,9 +1025,13 @@ final class RootMultiKernelSession {
                     shell.start();
                     dnsVerifyOwnedRules(true);
                     boolean alive = RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
-                    ok = alive;
+                    boolean trackerConfirmed = !owned.trackerFiltering ||
+                            (alive && RootDnsRelayRunner.blockedHealthQuery());
+                    ok = alive && trackerConfirmed;
                     message = "DNS enforcement ledger: OWNED\nExact firewall rules: MATCH\n"
                             + "Relay process: " + (alive ? "ALIVE" : "MISSING — DNS remains fail-closed")
+                            + "\nBatch E tracker filter: " + (owned.trackerFiltering
+                            ? (trackerConfirmed ? "LOCAL BLOCK VERIFIED" : "REFUSED OR UNAVAILABLE") : "OFF")
                             + "\nUpstream tunnel: " + owned.device + " (identity not rechecked by this audit)";
                 }
             } catch (Exception | LinkageError refused) {
@@ -1299,7 +1329,7 @@ final class RootMultiKernelSession {
                         "command -v tcpdump >/dev/null 2>&1") == 0
                         && shell.run(null, "command -v timeout >/dev/null 2>&1") == 0;
                 StringBuilder report = new StringBuilder(
-                        "BATCH E — EXPLICIT SCOPED TCP PACKET OBSERVATION\n");
+                        "SCOPED PACKET DIAGNOSTIC — EXPLICIT TCP OBSERVATION\n");
                 report.append("Numeric target: ").append(target.label()).append('\n')
                         .append("Selected profiles: ").append(selected.size()).append('\n');
                 if (!toolsAvailable) {
@@ -1397,7 +1427,7 @@ final class RootMultiKernelSession {
                 if (!required.isEmpty()) hypotheticallyUp.remove(required);
                 String failed = RootGuardDryRun.modelDecision(entries, target.address,
                         hypotheticallyUp);
-                StringBuilder report = new StringBuilder("BATCH E — NON-ENFORCING GUARD MODEL\n");
+                StringBuilder report = new StringBuilder("GUARD DIAGNOSTIC — NON-ENFORCING MODEL\n");
                 report.append("Selected independent profiles: ").append(entries.size()).append('\n')
                         .append("Numeric target: ").append(target.label()).append('\n')
                         .append("Expected selected tunnel: ")

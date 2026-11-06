@@ -14,7 +14,7 @@ import (
 // reply (fail closed). It does not try the host's resolver or another route.
 const localDnsPort = "53535"
 
-func serveDNS(c config) error {
+func serveDNS(c config, filter *trackerPolicy) error {
 	if _,err := net.InterfaceByName(c.interfaceName); err!=nil {return err}
 	udp,err:=net.ListenPacket("udp4","127.0.0.1:"+localDnsPort)
 	if err!=nil{return err}
@@ -22,7 +22,7 @@ func serveDNS(c config) error {
 	tcp,err:=net.Listen("tcp4","127.0.0.1:"+localDnsPort)
 	if err!=nil{return err}
 	defer tcp.Close()
-	go serveTcpDNS(tcp,c)
+	go serveTcpDNS(tcp,c,filter)
 	// Bounded parallel DNS forwarding; overload refuses instead of leaking.
 	slots:=make(chan struct{},8)
 	for {
@@ -35,6 +35,10 @@ func serveDNS(c config) error {
 		case slots<-struct{}{}:
 			go func(){
 				defer func(){<-slots}()
+				if answer,blocked:=trackerReply(query,filter);blocked {
+					udp.WriteTo(answer,remote)
+					return
+				}
 				ctx,cancel:=context.WithTimeout(context.Background(),9*time.Second)
 				defer cancel()
 				reply,err:=forwardWire(ctx,c,query)
@@ -45,20 +49,20 @@ func serveDNS(c config) error {
 	}
 }
 
-func serveTcpDNS(listener net.Listener,c config){
+func serveTcpDNS(listener net.Listener,c config,filter *trackerPolicy){
 	slots:=make(chan struct{},8)
 	for {
 		conn,err:=listener.Accept()
 		if err!=nil{return}
 		select {
 		case slots<-struct{}{}:
-			go func(){defer func(){<-slots;conn.Close()}();handleTcpDNS(conn,c)}()
+			go func(){defer func(){<-slots;conn.Close()}();handleTcpDNS(conn,c,filter)}()
 		default:conn.Close()
 		}
 	}
 }
 
-func handleTcpDNS(conn net.Conn,c config){
+func handleTcpDNS(conn net.Conn,c config,filter *trackerPolicy){
 	conn.SetDeadline(time.Now().Add(9*time.Second))
 	var prefix [2]byte
 	if _,err:=io.ReadFull(conn,prefix[:]);err!=nil{return}
@@ -68,8 +72,12 @@ func handleTcpDNS(conn net.Conn,c config){
 	if _,err:=io.ReadFull(conn,query);err!=nil{return}
 	ctx,cancel:=context.WithTimeout(context.Background(),8*time.Second)
 	defer cancel()
-	reply,err:=forwardWire(ctx,c,query)
-	if err!=nil{return}
+	reply,blocked:=trackerReply(query,filter)
+	if !blocked {
+		var err error
+		reply,err=forwardWire(ctx,c,query)
+		if err!=nil{return}
+	}
 	if len(reply)>65535{return}
 	binary.BigEndian.PutUint16(prefix[:],uint16(len(reply)))
 	if n,err:=conn.Write(prefix[:]);err!=nil||n!=2{return}

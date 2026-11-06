@@ -11,7 +11,9 @@ import java.io.InputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /** The DNS relay is started only after an explicit user opt-in. */
@@ -20,6 +22,35 @@ final class RootDnsRelayRunner {
 
     static File binary(Context context) {
         return new File(context.getFilesDir(), "wonhee-root-dns-0154-arm64");
+    }
+
+    static File trackerFile(Context context) {
+        return new File(context.getFilesDir(), "wonhee-tracker-policy-0155.txt");
+    }
+
+    static void prepareTrackerPolicy(Context context, RootTrackerPolicy.Config tracker) throws Exception {
+        if (!tracker.enabled) return;
+        File target = trackerFile(context);
+        File staging = File.createTempFile("wonhee-tracker-", ".tmp", context.getFilesDir());
+        try {
+            try (FileOutputStream out = new FileOutputStream(staging, false)) {
+                out.write(tracker.serialized().getBytes(StandardCharsets.US_ASCII));
+                out.getFD().sync();
+            }
+            if (!staging.setReadable(true, true) || !staging.renameTo(target)) {
+                throw new IllegalStateException("Cannot commit local tracker policy.");
+            }
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            staging.delete();
+        }
+    }
+
+    static void removeTrackerPolicy(Context context) {
+        // No firewall state is owned by this file; the relay holds an immutable
+        // in-memory copy while running, and validates it before accepting DNS.
+        //noinspection ResultOfMethodCallIgnored
+        trackerFile(context).delete();
     }
 
     static void prepare(Context context) throws Exception {
@@ -42,12 +73,13 @@ final class RootDnsRelayRunner {
     }
 
     static int start(Context context, RootShell shell, String device,
-                     RootDnsProbePolicy policy) throws Exception {
+                     RootDnsProbePolicy policy, RootTrackerPolicy.Config tracker) throws Exception {
         File target = binary(context);
         String inner = quote(target.getAbsolutePath()) + " --serve --protocol "
                 + quote(policy.protocol) + " --interface " + quote(device)
                 + " --url " + quote(policy.url)
                 + " --bootstrap " + quote(policy.bootstrapAddress)
+                + (tracker.enabled ? " --tracker-file " + quote(trackerFile(context).getAbsolutePath()) : "")
                 + " </dev/null >/dev/null 2>&1 & echo $!";
         List<String> result = new ArrayList<>();
         int status = shell.run(result, "sh -c " + quote(inner));
@@ -78,6 +110,22 @@ final class RootDnsRelayRunner {
 
     static int healthQuery() throws Exception {
         byte[] query = DoHWireMessage.question("example.com", 0x5734);
+        byte[] exact = localQuery(query);
+        return DoHWireMessage.verifiedAnswers(exact, query);
+    }
+
+    static boolean blockedHealthQuery() throws Exception {
+        byte[] query = DoHWireMessage.question("app-measurement.com", 0x5735);
+        byte[] reply = localQuery(query);
+        return reply.length == query.length && reply.length >= 17
+                && Arrays.equals(Arrays.copyOfRange(reply, 0, 2), Arrays.copyOfRange(query, 0, 2))
+                && Arrays.equals(Arrays.copyOfRange(reply, 12, reply.length),
+                        Arrays.copyOfRange(query, 12, query.length))
+                && (reply[2] & 0x80) != 0 && (reply[3] & 15) == 3
+                && reply[6] == 0 && reply[7] == 0;
+    }
+
+    private static byte[] localQuery(byte[] query) throws Exception {
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.setSoTimeout(9000);
             InetAddress loopback = InetAddress.getByName("127.0.0.1");
@@ -85,8 +133,7 @@ final class RootDnsRelayRunner {
             byte[] answer = new byte[4096];
             DatagramPacket reply = new DatagramPacket(answer, answer.length);
             socket.receive(reply);
-            byte[] exact = java.util.Arrays.copyOf(answer, reply.getLength());
-            return DoHWireMessage.verifiedAnswers(exact, query);
+            return Arrays.copyOf(answer, reply.getLength());
         }
     }
 
