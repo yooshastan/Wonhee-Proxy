@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowInsets;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -54,6 +55,13 @@ public final class RootMultiKernelActivity extends Activity {
     private Button checkRecovery;
     private Button dohProbe;
     private Button rootDohProbe;
+    private Button guidedAudit;
+    private Button guidedDetails;
+    private Button advancedToggle;
+    private TextView guidedStatus;
+    private LinearLayout advancedGroup;
+    private boolean guidedRunning;
+    private final List<RootSafetyGuide.Finding> guidedFindings = new ArrayList<>();
     private TextView recoveryStatus;
     private EditText serviceTarget;
     private EditText dohUrl;
@@ -119,7 +127,36 @@ public final class RootMultiKernelActivity extends Activity {
         inspect = button(controls, "Read live kernel status");
         inspect.setOnClickListener(v -> run("Read multi-tunnel state", true, session::inspect));
 
-        LinearLayout recoveryCard = card(page);
+        LinearLayout guided = card(page);
+        label(guided, "SECURITY ASSISTANT · GUIDED CHECK", 18, PINK);
+        label(guided, "Choose your tunnel profiles, then run five automatic READ-ONLY "
+                + "checks: tunnel identity, split routes, DNS destinations, endpoint/Android "
+                + "DNS status and guard readiness. Wonhee explains any issue and suggests "
+                + "the next safe action. It never changes a route, DNS setting or firewall "
+                + "rule without separate consent.", 13, MUTED);
+        guidedStatus = label(guided, RootSafetyGuide.summary(guidedFindings)
+                + "\nKILL SWITCH: OFF · DNS ENFORCEMENT: OFF", 14, WHITE);
+        guidedAudit = button(guided, "Run guided safety check · read only");
+        guidedAudit.setOnClickListener(v -> startGuidedAudit());
+        guidedDetails = button(guided, "Review safety check details");
+        guidedDetails.setOnClickListener(v -> showGuidedDetails());
+        advancedToggle = button(guided, "Show advanced security controls");
+        advancedToggle.setOnClickListener(v -> {
+            boolean reveal = advancedGroup.getVisibility() != View.VISIBLE;
+            advancedGroup.setVisibility(reveal ? View.VISIBLE : View.GONE);
+            advancedToggle.setText(reveal ? "Hide advanced security controls"
+                    : "Show advanced security controls");
+        });
+        label(guided, "Advanced controls contain recovery, routing rules, DNS probes and "
+                + "network diagnostics. They remain available, but are hidden until needed. "
+                + "This assistant does not enable a kill switch or guarantee leak-free traffic.", 13, PINK);
+
+        advancedGroup = new LinearLayout(this);
+        advancedGroup.setOrientation(LinearLayout.VERTICAL);
+        advancedGroup.setVisibility(View.GONE);
+        page.addView(advancedGroup);
+
+        LinearLayout recoveryCard = card(advancedGroup);
         label(recoveryCard, "PRODUCT BATCH C · CONNECTION RECOVERY", 18, PINK);
         label(recoveryCard, "Disabled by default. Enroll ONLY an exact selection of "
                 + "already connected, identity-verified kernel tunnels. At network handoff "
@@ -158,7 +195,7 @@ public final class RootMultiKernelActivity extends Activity {
                 + "routing ownership prevents safely stopping the interfaces. "
                 + "No routes, firewall or DNS settings are installed by recovery.", 13, PINK);
 
-        LinearLayout routing = card(page);
+        LinearLayout routing = card(advancedGroup);
         label(routing, "EXPERIMENTAL ROUTING OVERRIDES", 18, PINK);
         label(routing, "Batch B addresses the observed Home split route choosing the "
                 + "AirVPN default. Inspect the read-only audit first. The optional fix "
@@ -203,7 +240,7 @@ public final class RootMultiKernelActivity extends Activity {
                         run("Remove owned routing rules", true, session::removeRouting))
                 .show());
 
-        LinearLayout encryptedDns = card(page);
+        LinearLayout encryptedDns = card(advancedGroup);
         label(encryptedDns, "PRODUCT BATCH D · ENCRYPTED DNS TRANSPORT", 18, PINK);
         label(encryptedDns, "Choose ANY one of the checked, identity-verified, running tunnels "
                 + "for one RFC 8484 DNS-over-HTTPS POST. Enter your own HTTPS DoH resolver "
@@ -278,7 +315,7 @@ public final class RootMultiKernelActivity extends Activity {
                 + "test to check the kernel interface explicitly. Root execution is "
                 + "one-shot, with no route, DNS or firewall mutation.", 13, PINK);
 
-        LinearLayout privacy = card(page);
+        LinearLayout privacy = card(advancedGroup);
         label(privacy, "NETWORK PROTECTION · READ ONLY", 18, PINK);
         label(privacy, "Privacy Guard is a readiness report, NOT an active kill switch. "
                 + "It inspects all selected kernel tunnel identities, UDP transport "
@@ -429,7 +466,86 @@ public final class RootMultiKernelActivity extends Activity {
         void invoke(List<SecureTunnelProfileStore.Profile> selected, RootMultiKernelSession.Callback cb);
     }
 
+    private void startGuidedAudit() {
+        List<SecureTunnelProfileStore.Profile> chosen = selected();
+        if (chosen.isEmpty()) {
+            guidedStatus.setText("Choose at least one imported profile first. "
+                    + "Connect it before requesting an identity audit.");
+            return;
+        }
+        if (guidedRunning || session.isBusy()) return;
+        guidedFindings.clear();
+        guidedRunning = true;
+        guidedStatus.setText("Checking selected profiles · step 1 of "
+                + RootSafetyGuide.STEP_COUNT + "...\nNo settings will be changed.");
+        updateButtons();
+        nextGuidedStep(chosen, 0);
+    }
+
+    private void nextGuidedStep(List<SecureTunnelProfileStore.Profile> chosen, int step) {
+        if (step == RootSafetyGuide.STEP_COUNT) {
+            guidedRunning = false;
+            String summary = RootSafetyGuide.summary(guidedFindings);
+            guidedStatus.setText(summary + "\nKILL SWITCH: OFF · DNS ENFORCEMENT: OFF");
+            output.setText("GUIDED READ-ONLY CHECK COMPLETE\n" + summary
+                    + "\nTap Review safety check details for each audit.");
+            journal.record("RESULT", "Guided read-only audit completed, "
+                    + guidedFindings.size() + " checks; no mutations");
+            updateButtons();
+            return;
+        }
+        Operation operation;
+        switch (step) {
+            case 0: operation = session::inspect; break;
+            case 1: operation = session::auditRouting; break;
+            case 2: operation = session::auditResolverRoutes; break;
+            case 3: operation = session::auditTransportPaths; break;
+            case 4: operation = session::auditProtection; break;
+            default: throw new IllegalStateException("Unexpected guided audit step.");
+        }
+        operation.invoke(chosen, (ok, report) -> {
+            if (isFinishing() || isDestroyed()) return;
+            RootSafetyGuide.Finding finding = RootSafetyGuide.assess(
+                    step, chosen.size(), ok, report);
+            guidedFindings.add(finding);
+            if (!ok) {
+                guidedRunning = false;
+                guidedStatus.setText(RootSafetyGuide.summary(guidedFindings)
+                        + "\nNo configuration changed. Review details before retrying.");
+                output.setText("GUIDED CHECK PAUSED\n" + finding.explanation);
+                updateButtons();
+                return;
+            }
+            guidedStatus.setText("Completed " + (step + 1) + "/"
+                    + RootSafetyGuide.STEP_COUNT + ": " + finding.label
+                    + "\n" + finding.explanation + "\nChecking next step...");
+            nextGuidedStep(chosen, step + 1);
+        });
+    }
+
+    private void showGuidedDetails() {
+        if (guidedFindings.isEmpty()) {
+            guidedStatus.setText("Run the guided check first; no security assessment is saved.");
+            return;
+        }
+        String[] options = new String[guidedFindings.size()];
+        for (int i = 0; i < options.length; i++) {
+            options[i] = RootSafetyGuide.TITLES[i] + " · " + guidedFindings.get(i).label;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Read-only safety check results")
+                .setItems(options, (dialog, index) -> {
+                    RootSafetyGuide.Finding chosen = guidedFindings.get(index);
+                    new AlertDialog.Builder(this)
+                            .setTitle(options[index])
+                            .setMessage(chosen.explanation + "\n\n" + chosen.detail)
+                            .setPositiveButton("Done", null).show();
+                })
+                .setNegativeButton("Close", null).show();
+    }
+
     private void run(String action, boolean allowEmpty, Operation operation) {
+        if (guidedRunning) return;
         List<SecureTunnelProfileStore.Profile> list = selected();
         if (list.isEmpty() && !allowEmpty) {
             output.setText("Choose at least one encrypted profile.");
@@ -473,11 +589,13 @@ public final class RootMultiKernelActivity extends Activity {
     }
 
     private void updateButtons() {
-        boolean ready = !session.isBusy() && !selected().isEmpty();
+        boolean idle = !session.isBusy() && !guidedRunning;
+        boolean ready = idle && !selected().isEmpty();
+        for (CheckBox checkbox : selection.values()) checkbox.setEnabled(idle);
         if (connect != null) connect.setEnabled(ready);
         if (disconnect != null) disconnect.setEnabled(ready);
         if (preview != null) preview.setEnabled(ready);
-        if (inspect != null) inspect.setEnabled(!session.isBusy());
+        if (inspect != null) inspect.setEnabled(idle);
         if (audit != null) audit.setEnabled(ready);
         if (apply != null) apply.setEnabled(ready);
         if (recover != null) recover.setEnabled(ready);
@@ -487,13 +605,18 @@ public final class RootMultiKernelActivity extends Activity {
         if (serviceProbe != null) serviceProbe.setEnabled(ready);
         if (packetObserve != null) packetObserve.setEnabled(ready);
         if (guardModel != null) guardModel.setEnabled(ready);
-        if (remove != null) remove.setEnabled(!session.isBusy());
+        if (remove != null) remove.setEnabled(idle);
         if (enableRecovery != null) enableRecovery.setEnabled(ready);
-        if (checkRecovery != null) checkRecovery.setEnabled(!session.isBusy());
+        if (checkRecovery != null) checkRecovery.setEnabled(idle);
         if (dohProbe != null) dohProbe.setEnabled(ready);
         if (rootDohProbe != null) rootDohProbe.setEnabled(ready);
-        if (dohTunnel != null) dohTunnel.setEnabled(!session.isBusy());
-        if (disableRecovery != null) disableRecovery.setEnabled(true);
+        if (dohTunnel != null) dohTunnel.setEnabled(idle);
+        if (dohUrl != null) dohUrl.setEnabled(idle);
+        if (dohBootstrap != null) dohBootstrap.setEnabled(idle);
+        if (disableRecovery != null) disableRecovery.setEnabled(idle);
+        if (guidedAudit != null) guidedAudit.setEnabled(ready);
+        if (guidedDetails != null) guidedDetails.setEnabled(idle && !guidedFindings.isEmpty());
+        if (advancedToggle != null) advancedToggle.setEnabled(idle);
         if (recoveryStatus != null) recoveryStatus.setText(session.recoveryStatus());
     }
 

@@ -559,6 +559,16 @@ Not affiliated with Telegram or any recording artist. See:
 
 # Product Batch D DNS infrastructure preview
 
+Product D stage 2.1 includes a simplified **Security Assistant** in the
+multi-tunnel lab. One tap now performs a five-part read-only audit of selected
+kernel identities, routing, configured DNS destinations, endpoint/DNS inventory
+and firewall readiness, with plain-language results and individual detail
+dialogs. Experimental recovery, routing, DNS and packet controls are collapsed
+by default under **Show advanced security controls**. The guide never installs
+DNS rules, firewall rules, routing overrides, recovery enrollment or a kill
+switch; these remain separate opt-in actions. The guide does not claim leak-free
+protection merely because an inspection succeeded.
+
 Product Batch D stage 2 adds a separately opted-in **root-bound** one-shot
 DNS-over-HTTPS wireformat probe for kernel WireGuard interfaces. Unlike the
 original Android `Network`-bound diagnostic (which safely refused on root-only

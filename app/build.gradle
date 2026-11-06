@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 48
-        versionName '0.15.1-productBatchD-root-doh-preview'
+        versionCode 49
+        versionName '0.15.2-productBatchD-guided-security-preview'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
