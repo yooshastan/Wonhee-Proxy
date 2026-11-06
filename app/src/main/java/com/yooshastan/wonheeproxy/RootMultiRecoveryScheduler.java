@@ -49,10 +49,11 @@ final class RootMultiRecoveryScheduler {
             long next = prefs.nextAttemptAtMillis();
             if (next > 0L && jobs.getPendingJob(RETRY_ID) == null) {
                 long delay = Math.max(1_000L, next - System.currentTimeMillis());
+                // No override deadline: Android must still honor the network
+                // constraint when it schedules a deferred recovery attempt.
                 jobs.schedule(new JobInfo.Builder(RETRY_ID, component)
                         .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                         .setMinimumLatency(delay)
-                        .setOverrideDeadline(Math.max(delay, 30_000L))
                         .setPersisted(true)
                         .build());
             } else if (next == 0L) {
