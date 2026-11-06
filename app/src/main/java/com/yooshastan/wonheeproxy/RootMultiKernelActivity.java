@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -42,6 +43,8 @@ public final class RootMultiKernelActivity extends Activity {
     private Button recover;
     private Button guardReadiness;
     private Button dnsAudit;
+    private Button serviceProbe;
+    private EditText serviceTarget;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -69,7 +72,7 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Batch C · network protection readiness (read-only)", 14, WHITE);
+        label(page, "Batch C.1 · network path diagnostics (read-only)", 14, WHITE);
         label(page, "EXPERIMENTAL: this is separate from the tested Home + AirVPN pair. "
                 + "Stop that pair first. Root changes may interrupt Internet access. "
                 + "Keep USB ADB recovery available. No firewall, kill switch, per-app "
@@ -160,6 +163,26 @@ public final class RootMultiKernelActivity extends Activity {
         dnsAudit = button(privacy, "Audit configured DNS routes");
         dnsAudit.setOnClickListener(v ->
                 run("Audit configured DNS routes", false, session::auditResolverRoutes));
+        label(privacy, "SERVICE PATH · APP SOCKET TEST", 18, PINK);
+        label(privacy, "Enter a numeric service destination, such as "
+                + "10.0.0.169:4533 or [2001:db8::1]:443. This checks the "
+                + "root route separately from a TCP connection made by Wonhee's "
+                + "own Android app UID. It cannot prove the socket used a tunnel.", 13, MUTED);
+        serviceTarget = new EditText(this);
+        serviceTarget.setSingleLine(true);
+        serviceTarget.setTextColor(WHITE);
+        serviceTarget.setHintTextColor(MUTED);
+        serviceTarget.setHint("IP address:port");
+        serviceTarget.setTextSize(16);
+        serviceTarget.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        privacy.addView(serviceTarget);
+        serviceProbe = button(privacy, "Test app TCP reachability · no HTTP data");
+        serviceProbe.setOnClickListener(v -> {
+            String target = serviceTarget.getText().toString();
+            run("Probe numeric TCP service path", false,
+                    (profiles, callback) -> session.probeService(profiles, target, callback));
+        });
         label(privacy, "Kill switch: OFF. No iptables/ip6tables changes, DNS blocking "
                 + "or hidden network rules are installed by these checks. "
                 + "Keep USB ADB recovery ready for future enforcement testing.", 13, PINK);
@@ -282,6 +305,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (recover != null) recover.setEnabled(ready);
         if (guardReadiness != null) guardReadiness.setEnabled(ready);
         if (dnsAudit != null) dnsAudit.setEnabled(ready);
+        if (serviceProbe != null) serviceProbe.setEnabled(ready);
         if (remove != null) remove.setEnabled(!session.isBusy());
     }
 

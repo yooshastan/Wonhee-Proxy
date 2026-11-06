@@ -25,6 +25,8 @@ public final class RootFirewallMarkTest {
         check(RootFirewallMark.sharedAndroidProtectBit(0x20000, 0x20000));
         check(!RootFirewallMark.sharedAndroidProtectBit(0xc91c0, 0xc91c0));
         check(!RootFirewallMark.sharedAndroidProtectBit(0x20000, 0xc6488));
+        check("0x20000".equals(RootFirewallMark.display(0x20000)));
+        check("OFF/UNVERIFIED".equals(RootFirewallMark.display(0)));
         System.out.println("RootFirewallMarkTest passed");
     }
 }
