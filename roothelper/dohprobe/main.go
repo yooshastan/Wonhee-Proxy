@@ -264,6 +264,7 @@ func main() {
 	device := flag.String("interface", "", "exact kernel WireGuard interface")
 	endpoint := flag.String("url", "", "DoH HTTPS URL")
 	bootstrap := flag.String("bootstrap", "", "numeric upstream IP")
+	trackerFile := flag.String("tracker-file", "", "optional local Batch E tracker policy")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Println("REFUSED CONFIG")
@@ -275,12 +276,18 @@ func main() {
 		os.Exit(2)
 	}
 	if *serve {
-		if err := serveDNS(c); err != nil {
+		filter, filterErr := loadTrackerPolicy(*trackerFile)
+		if filterErr != nil {
+			fmt.Println("REFUSED TRACKER_POLICY")
+			os.Exit(1)
+		}
+		if err := serveDNS(c,filter); err != nil {
 			fmt.Println("REFUSED RELAY_UNAVAILABLE")
 			os.Exit(1)
 		}
 		return
 	}
+	if *trackerFile != "" {fmt.Println("REFUSED CONFIG");os.Exit(2)}
 	answers, status := run(c)
 	if status != "OK" {
 		fmt.Println("REFUSED " + status)

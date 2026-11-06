@@ -56,7 +56,7 @@ not packet-path proof**. No root routing, firewall, network settings, or
 WireGuard state is changed by these diagnostics. The kill switch remains OFF.
 See the [Batch D test plan](docs/ROOT_MULTI_TUNNEL_BATCH_D_TRAFFIC_EVIDENCE_TEST_PLAN.md).
 
-### Batch E 0.13.0 — scoped packet evidence and non-enforcing guard model
+### Historical diagnostic E 0.13.0 — scoped packet evidence and non-enforcing guard model
 
 The Multi-Tunnel Lab adds a separately confirmed, narrow 4-second TCP packet
 observation per selected, identity-verified WireGuard interface. If root
@@ -69,6 +69,20 @@ addresses and provider hostnames. A pure multi-profile guard model shows
 the hypothetical decision if the required tunnel is unavailable, but
 **does not install a firewall or kill switch**. See the
 [Batch E test plan](docs/ROOT_MULTI_TUNNEL_BATCH_E_SCOPED_OBSERVATION_TEST_PLAN.md).
+
+### Product Batch E 0.15.5 — explicit local tracker filtering (alpha)
+
+On top of Batch D's root-bound DNS relay and exact firewall rollback, the
+Multi-Tunnel Lab can optionally block a conservative built-in list of known
+tracker/advertising hostnames and user-added domain suffixes. The local
+allowlist overrides blocking; both lists are reviewed and validated before
+activation. Filtering is OFF unless explicitly selected, with a read-only
+preview and live audit. The daemon reads the approved policy once at startup;
+changing it requires disabling the owned DNS policy and re-enabling. The
+rules do not install an all-traffic kill switch, capture telemetry, download
+remote lists, intercept application-owned DoH to arbitrary HTTPS endpoints or
+prevent hardcoded IP connections. See
+[Product E on-device test plan](docs/PRODUCT_BATCH_E_0155_TRACKER_TEST_PLAN.md).
 
 ### Product Batch C 0.14.0 — opted-in connection recovery preview
 

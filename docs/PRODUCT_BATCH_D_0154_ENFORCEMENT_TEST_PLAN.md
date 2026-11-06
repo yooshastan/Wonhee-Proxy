@@ -23,8 +23,8 @@ query and a durable rollback record. Its default state is OFF.
   provided the kernel has not removed those rules. Reboot wipes volatile
   firewall rules; the durable ledger then requires inspection and explicit
   removal before reactivation. There is no boot-time fail-closed guarantee.
-- Routing of ordinary apps, IPv6 public traffic, proxy bypass and system-wide
-  network lockdown require separate Batch E/F validation.
+- Routing of ordinary apps, IPv6 public traffic, proxy bypass and full
+  network lockdown require separate Product Batch F and later validation.
 
 ## On-device first-run procedure
 
