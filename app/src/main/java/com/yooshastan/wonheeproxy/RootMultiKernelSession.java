@@ -1183,8 +1183,12 @@ final class RootMultiKernelSession {
                     try {
                         RootFailClosedFirewallRuntime.removeOwned(shell, plan);
                         saveGuardRecord("");
-                        message = "Batch F activation failed; owned firewall changes rolled back "
-                                + "and verified. No kill switch was activated.";
+                        message = "Batch F activation failed at: "
+                                + (failed instanceof IllegalStateException
+                                        || failed instanceof IllegalArgumentException
+                                        ? failed.getMessage() : "root firewall operation unavailable")
+                                + "\nOwned firewall changes rolled back and verified. "
+                                + "No kill switch was activated.";
                     } catch (Exception | LinkageError cleanup) {
                         message = "BATCH F ROLLBACK NOT VERIFIED. OWNERSHIP LEDGER RETAINED. "
                                 + "Keep USB ADB connected, do NOT change or stop tunnels, "

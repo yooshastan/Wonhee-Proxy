@@ -1,4 +1,4 @@
-# Wonhee Proxy 0.15.7 — Product Batch F (experimental endpoint-pinned root guard)
+# Wonhee Proxy 0.15.8 — Product Batch F (experimental endpoint-pinned root guard)
 
 Status: **test APK / opt-in prototype**. No unattended activation. No default firewall modification. Product roadmap A→I remains unchanged: F is root firewall; G handles future background coordination; H UI consolidation; I beta qualification.
 
@@ -12,11 +12,12 @@ Status: **test APK / opt-in prototype**. No unattended activation. No default fi
 
 ## One test cycle (phone UI)
 
-- [ ] Install the debug APK as an update only if the installed signature matches. Record app version `0.15.7-productBatchF-endpoint-pinned-alpha` (versionCode 54).
+- [ ] Install the debug APK as an update only if the installed signature matches. Record app version `0.15.8-productBatchF-firewall-diagnostics-alpha` (versionCode 55).
 - [ ] Multi-Tunnel Lab → select Home and AirVPN → connect/verify exactly the same chosen tunnel identities and routes.
 - [ ] Open *Advanced security controls* → **Product Batch F · Fail-closed firewall prototype**. It must read **KILL SWITCH LEDGER: OFF** before any action.
 - [ ] Press **Audit owned IPv4/IPv6 kill-switch rules**. When OFF, it should report **OFF in owned ledger** (this cannot exclude third-party rules).
 - [ ] Press **Review + enable experimental kill switch · opt in**. Read the recovery warning, including the shared-mark limitations, and explicitly confirm only while connected to USB ADB. If a gate refuses, preserve the error and stop.
+- [ ] If activation reports **rolled back and verified**, preserve the new preceding **failed at** stage (family, command step, and rule number, without endpoint addresses). It indicates which iptables operation failed. Do not retry repeatedly if the stage persists. No kill switch should be active after verified rollback.
 - [ ] If enabled, press **Audit**. Require two OUTPUT anchors, exact chain rules and terminal IPv4/IPv6 rejects to match the ownership ledger. Leave Home/AirVPN connected.
 - [ ] While F is active, check a small benign Internet request and an authorized Home-only request. Both should travel only through their chosen interfaces; *successful requests alone do not prove no leak*. Do not deliberately drop the only working underlay without additional safe rollback access.
 - [ ] Press **Disable Batch F guard + verify exact rollback**. Require a positive result. Press **Audit** again: owned ledger **OFF**. Confirm no Wonhee guard chain/tag exists. Tunnel profiles remain UP.

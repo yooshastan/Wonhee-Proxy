@@ -70,8 +70,8 @@ final class RootFailClosedFirewallRuntime {
         if (actualRules != exactMatches || (full && exactMatches != plan.family(family).size())) {
             throw new IllegalStateException("Guard chain contains unowned or missing rules.");
         }
-        if (full && (appended.isEmpty() || !appended.get(appended.size() - 1)
-                .equals("-A " + RootFailClosedFirewallPlan.chain(family) + " -j REJECT"))) {
+        if (full && (appended.isEmpty() || !RootFailClosedFirewallPlan.listedTerminalReject(
+                family, appended.get(appended.size() - 1)))) {
             throw new IllegalStateException("Guard terminal reject is not the final rule.");
         }
     }
@@ -83,23 +83,38 @@ final class RootFailClosedFirewallRuntime {
     static void install(RootShell shell, RootFailClosedFirewallPlan.Plan plan) throws Exception {
         preflight(shell);
         for (int family : new int[]{4, 6}) {
-            if (shell.run(null, RootFailClosedFirewallPlan.prefix(family) + " -N "
-                    + RootFailClosedFirewallPlan.chain(family)) != 0) {
-                throw new IllegalStateException("Cannot create owned kill-switch chain.");
+            int created = shell.run(null, RootFailClosedFirewallPlan.prefix(family) + " -N "
+                    + RootFailClosedFirewallPlan.chain(family));
+            if (created != 0) {
+                throw new IllegalStateException("IPv" + family + " create owned chain (exit "
+                        + created + ").");
             }
+            int ruleIndex = 0;
             for (RootFailClosedFirewallPlan.Rule rule : plan.family(family)) {
-                if (shell.run(null, rule.add()) != 0 || shell.run(null, rule.exists()) != 0) {
-                    throw new IllegalStateException("Cannot install exact guard rule.");
+                ruleIndex++;
+                int installed = shell.run(null, rule.add());
+                if (installed != 0) {
+                    throw new IllegalStateException("IPv" + family + " append rule #"
+                            + ruleIndex + " (exit " + installed + ").");
                 }
+                int exact = shell.run(null, rule.exists());
+                if (exact != 0) throw new IllegalStateException("IPv" + family
+                        + " verify appended rule #" + ruleIndex + " (exit " + exact + ").");
             }
-            verifyFamily(shell, plan, family, true, false);
+            try { verifyFamily(shell, plan, family, true, false); }
+            catch (IllegalStateException invalid) {
+                throw new IllegalStateException("IPv" + family
+                        + " pre-anchor chain audit: " + invalid.getMessage());
+            }
         }
         // Anchor last, only after BOTH chains are fully validated. There is
         // no period where an OUTPUT anchor points to an incomplete chain.
         for (int family : new int[]{4, 6}) {
-            if (shell.run(null, RootFailClosedFirewallPlan.prefix(family)
-                    + " -I OUTPUT 1 " + RootFailClosedFirewallPlan.anchorArgs(family)) != 0) {
-                throw new IllegalStateException("Cannot activate kill-switch anchor.");
+            int anchored = shell.run(null, RootFailClosedFirewallPlan.prefix(family)
+                    + " -I OUTPUT 1 " + RootFailClosedFirewallPlan.anchorArgs(family));
+            if (anchored != 0) {
+                throw new IllegalStateException("IPv" + family + " install OUTPUT anchor "
+                        + "(exit " + anchored + ").");
             }
         }
         verify(shell, plan);

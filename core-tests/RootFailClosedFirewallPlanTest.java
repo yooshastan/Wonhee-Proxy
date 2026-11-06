@@ -30,6 +30,16 @@ public final class RootFailClosedFirewallPlanTest {
                 "shared Android protected mark has exact endpoint-pinned rules");
         check(!sharedMarkPlan.encode().contains("-m mark -j RETURN"),
                 "shared mark cannot be a broad underlay bypass");
+        check(RootFailClosedFirewallPlan.listedTerminalReject(4,
+                "-A WN_MULTI_GUARD4 -j REJECT"), "IPv4 compact terminal rule");
+        check(RootFailClosedFirewallPlan.listedTerminalReject(4,
+                "-A WN_MULTI_GUARD4 -j REJECT --reject-with icmp-port-unreachable"),
+                "IPv4 canonical default terminal rule");
+        check(RootFailClosedFirewallPlan.listedTerminalReject(6,
+                "-A WN_MULTI_GUARD6 -j REJECT --reject-with icmp6-port-unreachable"),
+                "IPv6 canonical default terminal rule");
+        check(!RootFailClosedFirewallPlan.listedTerminalReject(4,
+                "-A WN_MULTI_GUARD4 -j ACCEPT"), "reject must stay terminal");
         try {RootFailClosedFirewallPlan.build(Arrays.asList(home,
                 new RootFailClosedFirewallPlan.Tunnel("wnm68fe81200daa", "192.0.2.1", 51820,
                         0x20000, Arrays.asList("0.0.0.0/0"))));

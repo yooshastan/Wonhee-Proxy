@@ -115,6 +115,14 @@ final class RootFailClosedFirewallPlan {
     static String chain(int family) { return family == 4 ? CHAIN4 : CHAIN6; }
     static String tag(int family) { return family == 4 ? TAG4 : TAG6; }
     static String prefix(int family) { return family == 4 ? "iptables -w" : "ip6tables -w"; }
+    /** iptables -S often prints the implicit REJECT default explicitly. */
+    static boolean listedTerminalReject(int family, String line) {
+        if (family != 4 && family != 6) return false;
+        String base = "-A " + chain(family) + " -j REJECT";
+        return base.equals(line) || (base + " --reject-with "
+                + (family == 4 ? "icmp-port-unreachable" : "icmp6-port-unreachable"))
+                .equals(line);
+    }
     static String anchorArgs(int family) {
         return "-m comment --comment " + tag(family) + " -j " + chain(family);
     }
