@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 44
-        versionName '0.12.0-batchD-traffic-evidence'
+        versionCode 45
+        versionName '0.13.0-batchE-scoped-observation'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
