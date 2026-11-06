@@ -7,6 +7,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowInsets;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -67,6 +68,7 @@ public final class RootMultiKernelActivity extends Activity {
     private EditText dohUrl;
     private EditText dohBootstrap;
     private Spinner dohTunnel;
+    private Spinner dnsProtocol;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -242,15 +244,21 @@ public final class RootMultiKernelActivity extends Activity {
 
         LinearLayout encryptedDns = card(advancedGroup);
         label(encryptedDns, "PRODUCT BATCH D · ENCRYPTED DNS TRANSPORT", 18, PINK);
-        label(encryptedDns, "Choose ANY one of the checked, identity-verified, running tunnels "
-                + "for one RFC 8484 DNS-over-HTTPS POST. Enter your own HTTPS DoH resolver "
-                + "URL and its NUMERIC bootstrap IP. Strict probe refuses if Android cannot "
-                + "bind a socket to that exact kernel interface, if the root route disagrees, "
-                + "or if TLS/response verification fails. No default/direct or plaintext "
-                + "fallback. This does NOT configure system-wide DNS, DoQ/DoH3, intercept "
-                + "other apps, or turn on a kill switch.", 13, MUTED);
+        label(encryptedDns, "Select one checked, verified tunnel and DNS protocol. "
+                + "Built-in provider examples fill in a hostname and NUMERIC bootstrap IP; "
+                + "you may enter a custom resolver. The root probe checks the upstream "
+                + "route, binds the socket to that exact tunnel, validates TLS/response "
+                + "and REFUSES on mismatch. No default/direct or plaintext fallback. "
+                + "These are one-shot tests, NOT system-wide DNS enforcement.", 13, MUTED);
         dohTunnel = new Spinner(this);
         encryptedDns.addView(dohTunnel);
+        dnsProtocol = new Spinner(this);
+        ArrayAdapter<String> dnsProtocolOptions = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item,
+                new String[] { "DoH · HTTPS/TCP", "DoQ · QUIC/UDP", "DoH3 · HTTP/3/UDP" });
+        dnsProtocolOptions.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        dnsProtocol.setAdapter(dnsProtocolOptions);
+        encryptedDns.addView(dnsProtocol);
         dohUrl = new EditText(this);
         dohUrl.setSingleLine(true);
         dohUrl.setTextColor(WHITE);
@@ -268,6 +276,9 @@ public final class RootMultiKernelActivity extends Activity {
         dohBootstrap.setText("1.1.1.1");
         dohBootstrap.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
         encryptedDns.addView(dohBootstrap);
+        label(encryptedDns, "AirVPN can route public resolver tests. A Home-only split "
+                + "tunnel will correctly refuse a public DNS upstream unless that address "
+                + "is explicitly routed through Home. No tunnel routes are added here.", 13, MUTED);
         dohProbe = button(encryptedDns, "Test ANDROID-bound DoH · framework baseline");
         dohProbe.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Send one encrypted DNS test query?")
@@ -286,30 +297,48 @@ public final class RootMultiKernelActivity extends Activity {
                     run("Product D DoH probe", false, (profiles, cb) ->
                             session.probeDoH(profiles, profileName, url, ip, cb));
                 }).show());
-        rootDohProbe = button(encryptedDns,
-                "Test ROOT-bound DoH on selected tunnel · opt in");
+        rootDohProbe = button(encryptedDns, "Test ROOT-bound DoH · opt in");
         rootDohProbe.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("Run one root-bound DNS-over-HTTPS probe?")
+                .setTitle("Run one root-bound " + currentDnsProtocol().toUpperCase(java.util.Locale.ROOT) + " probe?")
                 .setMessage("Product D will execute a short-lived packaged helper as root. "
-                        + "It binds its TCP socket directly to the selected, identity-verified "
+                        + "It binds its TCP or UDP socket directly to the selected, identity-verified "
                         + "WireGuard kernel interface and numeric bootstrap IP, then uses "
-                        + "normal TLS certificate validation for the DoH hostname. "
+                        + "TLS certificate/hostname validation for the DNS server. "
                         + "Only example.com A will be queried; the DNS provider can see "
                         + "the query and tunnel exit address. If interface binding, TLS "
                         + "or DNS verification fails, it REFUSES with no other network, "
                         + "proxy or plaintext fallback. No routing, DNS or firewall "
                         + "settings are installed. Not a system resolver or kill switch.")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Test root-bound DoH", (dialog, which) -> {
+                .setPositiveButton("Test encrypted DNS", (dialog, which) -> {
                     Object selectedTunnel = dohTunnel.getSelectedItem();
                     String profileName = selectedTunnel == null ? "" : selectedTunnel.toString();
                     String url = dohUrl.getText().toString();
                     String ip = dohBootstrap.getText().toString();
-                    run("Product D DoH root-bound probe", false, (profiles, cb) ->
-                            session.probeRootDoH(profiles, profileName, url, ip, cb));
+                    String protocol = currentDnsProtocol();
+                    run("Product D " + protocol + " root-bound probe", false, (profiles, cb) ->
+                            session.probeRootDns(profiles, profileName, protocol, url, ip, cb));
                 }).show());
-        label(encryptedDns, "Defaults are a Cloudflare example only; replace BOTH fields "
-                + "for a custom resolver. No endpoint preferences are saved. Root-only "
+        dnsProtocol.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view,
+                                                 int position, long id) {
+                if (position == 1) {
+                    dohUrl.setText("quic://dns.adguard-dns.com");
+                    dohBootstrap.setText("94.140.14.14");
+                } else {
+                    dohUrl.setText("https://cloudflare-dns.com/dns-query");
+                    dohBootstrap.setText("1.1.1.1");
+                }
+                dohProbe.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
+                rootDohProbe.setText("Test ROOT-bound "
+                        + (position == 1 ? "DoQ" : position == 2 ? "DoH3" : "DoH")
+                        + " · opt in");
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        label(encryptedDns, "Provider examples: Cloudflare for DoH/DoH3, AdGuard for DoQ. "
+                + "Switching protocols resets these two fields. No endpoint preferences "
+                + "are saved. Root-only "
                 + "WireGuard links may not appear as bindable Android Networks: the "
                 + "original app-bound probe will refuse. Use the separate ROOT-bound "
                 + "test to check the kernel interface explicitly. Root execution is "
@@ -451,6 +480,13 @@ public final class RootMultiKernelActivity extends Activity {
         if (routeMode == VpnRouteModes.HOME) return "split destinations";
         if (routeMode == VpnRouteModes.ALL) return "IPv4+IPv6 defaults";
         return "profile-defined routes";
+    }
+
+    private String currentDnsProtocol() {
+        int position = dnsProtocol == null ? 0 : dnsProtocol.getSelectedItemPosition();
+        if (position == 1) return "doq";
+        if (position == 2) return "doh3";
+        return "doh";
     }
 
     private List<SecureTunnelProfileStore.Profile> selected() {
@@ -611,6 +647,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (dohProbe != null) dohProbe.setEnabled(ready);
         if (rootDohProbe != null) rootDohProbe.setEnabled(ready);
         if (dohTunnel != null) dohTunnel.setEnabled(idle);
+        if (dnsProtocol != null) dnsProtocol.setEnabled(idle);
         if (dohUrl != null) dohUrl.setEnabled(idle);
         if (dohBootstrap != null) dohBootstrap.setEnabled(idle);
         if (disableRecovery != null) disableRecovery.setEnabled(idle);

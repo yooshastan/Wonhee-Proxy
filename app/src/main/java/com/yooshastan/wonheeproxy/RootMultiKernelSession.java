@@ -782,12 +782,19 @@ final class RootMultiKernelSession {
      */
     void probeRootDoH(List<SecureTunnelProfileStore.Profile> profiles, String profileName,
                       String endpointUrl, String bootstrapIp, Callback callback) {
+        probeRootDns(profiles, profileName, "doh", endpointUrl, bootstrapIp, callback);
+    }
+
+    /** Strictly isolated, one-shot transport test; not a system DNS resolver. */
+    void probeRootDns(List<SecureTunnelProfileStore.Profile> profiles, String profileName,
+                      String protocol, String endpointUrl, String bootstrapIp,
+                      Callback callback) {
         if (!begin(callback)) return;
         worker.execute(() -> {
             boolean ok = false;
             String result;
             try {
-                DoHProbePolicy policy = DoHProbePolicy.parse(endpointUrl, bootstrapIp);
+                RootDnsProbePolicy policy = RootDnsProbePolicy.parse(protocol, endpointUrl, bootstrapIp);
                 List<Active> selected = loadAll(profiles);
                 validate(selected);
                 Active chosen = null;
@@ -800,7 +807,7 @@ final class RootMultiKernelSession {
                     }
                 }
                 if (chosen == null) {
-                    throw new IllegalStateException("Choose one checked profile for root DoH.");
+                    throw new IllegalStateException("Choose one checked profile for root encrypted DNS.");
                 }
                 rootReady();
                 verifyRecoveryRules();
@@ -812,19 +819,25 @@ final class RootMultiKernelSession {
                 }
                 String routed = routeDevice(policy.family, policy.bootstrapAddress);
                 if (!chosen.device.equals(routed)) {
-                    throw new IllegalStateException("Numeric DoH upstream route does not match "
+                    throw new IllegalStateException("Numeric encrypted DNS upstream route does not match "
                             + "the chosen tunnel. No root helper was launched.");
                 }
                 int answers = RootDoHNativeRunner.probe(appContext, shell, chosen.device, policy);
                 ok = true;
+                String wireformat = "doq".equals(policy.protocol)
+                        ? "RFC 9250 DNS-over-QUIC stream"
+                        : "doh3".equals(policy.protocol)
+                        ? "RFC 8484 DNS-over-HTTP/3 POST"
+                        : "RFC 8484 DNS-over-HTTPS POST";
                 result = "PRODUCT BATCH D — ROOT-BOUND ENCRYPTED DNS PROBE\n"
+                        + "Verified protocol: " + policy.protocol.toUpperCase(java.util.Locale.ROOT) + "\n"
                         + "Independently identity-verified selected profiles: " + selected.size() + "\n"
                         + "Chosen tunnel: " + chosen.profileName + " (" + chosen.device + ")\n"
                         + "Kernel route: NUMERIC UPSTREAM MATCH\n"
                         + "Root transport: SO_BINDTODEVICE enforced for selected interface\n"
                         + "Bootstrap DNS lookup: NONE (numeric IP)\n"
                         + "TLS: default trust + selected DNS hostname validation\n"
-                        + "RFC 8484 DNS wireformat POST: verified IPv4 answers " + answers + "\n"
+                        + wireformat + ": verified IPv4 answers " + answers + "\n"
                         + "No route, firewall, DNS or kernel interface settings changed. "
                         + "No alternate interface, proxy, redirect or plaintext fallback. "
                         + "This verifies ONE query, NOT system-wide DNS or leak-freedom.";
@@ -838,7 +851,7 @@ final class RootMultiKernelSession {
                 // Never display URLs, domain names, cert details, IPs or keys
                 // from third-party exception text.
                 result = "PRODUCT BATCH D — ROOT DNS TRANSPORT FAILED\n"
-                        + "The selected interface did not return a verified DoH answer. "
+                        + "The selected interface did not return a verified encrypted DNS answer. "
                         + "No alternate route or resolver was tried; device policy unchanged.";
             }
             finish(callback, ok, result);

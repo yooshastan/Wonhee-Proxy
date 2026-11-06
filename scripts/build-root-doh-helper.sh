@@ -8,6 +8,10 @@ assets_dir="$project_dir/app/src/main/assets"
 command -v go >/dev/null || { echo 'Go 1.23+ is required to build the optional root DoH helper.' >&2; exit 1; }
 (
   cd "$helper_dir"
+  # The pinned quic-go module is checked against Go's public checksum DB;
+  # release CI must not disable the module checksum verifier.
+  go mod tidy
+  go mod verify
   go test ./...
 )
 mkdir -p "$assets_dir"

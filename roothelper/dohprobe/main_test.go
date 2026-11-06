@@ -37,6 +37,25 @@ func TestStrictConfigurations(t *testing.T) {
 	if _, err := parseConfig("wnm68fe81200daa;reboot", good[0].endpoint, good[0].ip); err == nil {
 		t.Fatal("malicious interface accepted")
 	}
+	for _, tc := range []struct{ protocol, endpoint string }{
+		{"doq", "quic://dns.example:853"},
+		{"doq", "quic://dns.example"},
+		{"doh3", "https://cloudflare-dns.com/dns-query"},
+	} {
+		if _, err := parseConfigForProtocol(tc.protocol, "wnm68fe81200daa", tc.endpoint, "1.1.1.1"); err != nil {
+			t.Fatalf("valid protocol config %s: %v", tc.protocol, err)
+		}
+	}
+	for _, tc := range []struct{ protocol, endpoint string }{
+		{"doq", "https://dns.example/dns-query"},
+		{"doq", "quic://dns.example/secret"},
+		{"doh3", "http://dns.example/dns-query"},
+		{"h3", "https://dns.example/dns-query"},
+	} {
+		if _, err := parseConfigForProtocol(tc.protocol, "wnm68fe81200daa", tc.endpoint, "1.1.1.1"); err == nil {
+			t.Fatalf("invalid protocol config accepted: %s %s", tc.protocol, tc.endpoint)
+		}
+	}
 }
 
 func TestWireformatVerification(t *testing.T) {

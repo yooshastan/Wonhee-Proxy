@@ -23,6 +23,7 @@ import (
 )
 
 type config struct {
+	protocol      string
 	interfaceName string
 	endpointURL   string
 	bootstrapIP   string
@@ -32,7 +33,14 @@ type config struct {
 }
 
 func parseConfig(device, endpoint, bootstrap string) (config, error) {
+	return parseConfigForProtocol("doh", device, endpoint, bootstrap)
+}
+
+func parseConfigForProtocol(protocol, device, endpoint, bootstrap string) (config, error) {
 	var c config
+	if protocol != "doh" && protocol != "doq" && protocol != "doh3" {
+		return c, errors.New("protocol")
+	}
 	if !strings.HasPrefix(device, "wnm") || len(device) != 15 {
 		return c, errors.New("interface")
 	}
@@ -45,16 +53,25 @@ func parseConfig(device, endpoint, bootstrap string) (config, error) {
 		return c, errors.New("endpoint")
 	}
 	u, err := url.Parse(endpoint)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Host == "" {
+	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Host == "" {
+		return c, errors.New("endpoint")
+	}
+	if protocol == "doq" && (u.Scheme != "quic" || u.EscapedPath() != "") {
+		return c, errors.New("endpoint")
+	}
+	if protocol != "doq" && u.Scheme != "https" {
 		return c, errors.New("endpoint")
 	}
 	host := strings.ToLower(u.Hostname())
-	if !validHost(host) || u.EscapedPath() == "" || len(u.EscapedPath()) > 1024 || u.EscapedPath()[0] != '/' {
+	if !validHost(host) {
+		return c, errors.New("endpoint")
+	}
+	if protocol != "doq" && (u.EscapedPath() == "" || len(u.EscapedPath()) > 1024 || u.EscapedPath()[0] != '/') {
 		return c, errors.New("endpoint")
 	}
 	port := u.Port()
 	if port == "" {
-		port = "443"
+		if protocol == "doq" { port = "853" } else { port = "443" }
 	}
 	value, err := strconv.Atoi(port)
 	if err != nil || value < 1 || value > 65535 {
@@ -63,7 +80,7 @@ func parseConfig(device, endpoint, bootstrap string) (config, error) {
 	if ip := net.ParseIP(bootstrap); ip == nil || strings.Contains(bootstrap, "%") {
 		return c, errors.New("bootstrap")
 	}
-	c = config{device, u.String(), bootstrap, host, port, u.EscapedPath()}
+	c = config{protocol, device, u.String(), bootstrap, host, port, u.EscapedPath()}
 	return c, nil
 }
 
@@ -161,6 +178,9 @@ func run(c config) (int, string) {
 	if _, err := net.InterfaceByName(c.interfaceName); err != nil {
 		return 0, "INTERFACE_UNAVAILABLE"
 	}
+	if c.protocol == "doq" || c.protocol == "doh3" {
+		return runQuicProbe(c)
+	}
 	question, err := dnsQuestion()
 	if err != nil {
 		return 0, "QUERY_UNAVAILABLE"
@@ -239,6 +259,7 @@ func run(c config) (int, string) {
 }
 
 func main() {
+	protocol := flag.String("protocol", "doh", "one of doh, doq, doh3")
 	device := flag.String("interface", "", "exact kernel WireGuard interface")
 	endpoint := flag.String("url", "", "DoH HTTPS URL")
 	bootstrap := flag.String("bootstrap", "", "numeric upstream IP")
@@ -247,7 +268,7 @@ func main() {
 		fmt.Println("REFUSED CONFIG")
 		os.Exit(2)
 	}
-	c, err := parseConfig(*device, *endpoint, *bootstrap)
+	c, err := parseConfigForProtocol(*protocol, *device, *endpoint, *bootstrap)
 	if err != nil {
 		fmt.Println("REFUSED CONFIG")
 		os.Exit(2)
