@@ -61,6 +61,10 @@ public final class RootMultiKernelActivity extends Activity {
     private Button dnsEnable;
     private Button dnsDisable;
     private Button dnsEnforcementAudit;
+    private Button failClosedEnable;
+    private Button failClosedAudit;
+    private Button failClosedDisable;
+    private TextView failClosedStatus;
     private TextView dnsEnforcementStatus;
     private TextView trackerStatus;
     private CheckBox trackerFilter;
@@ -108,12 +112,13 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Product Batch E · optional local tracker blocking over Product D encrypted DNS", 14, WHITE);
+        label(page, "Product Batch F · opt-in experimental root fail-closed guard", 14, WHITE);
         label(page, "EXPERIMENTAL: this multi-profile lab is separate from the older "
                 + "wnhome0/wnair0 pair. Stop that legacy pair first. Root changes "
                 + "may interrupt Internet access. Keep Termux root or USB recovery ready. "
-                + "DNS interception and tracker filtering require explicit opt-in; "
-                + "there is no all-traffic kill switch. Routing overrides also require separate consent.", 13, PINK);
+                + "DNS interception, tracker filtering and Batch F's root OUTPUT guard "
+                + "each require separate explicit opt-in. The kill switch is OFF by default; "
+                + "it has no reboot-time guarantee. Routing changes require separate consent.", 13, PINK);
 
         LinearLayout configs = card(page);
         label(configs, "SELECT ACTIVE PROFILES", 18, PINK);
@@ -149,7 +154,8 @@ public final class RootMultiKernelActivity extends Activity {
                 + "the next safe action. It never changes a route, DNS setting or firewall "
                 + "rule without separate consent.", 13, MUTED);
         guidedStatus = label(guided, RootSafetyGuide.summary(guidedFindings)
-                + "\nKILL SWITCH: OFF · DNS POLICY LEDGER: " + session.dnsLedgerStatus(), 14, WHITE);
+                + "\nKILL SWITCH: " + session.guardLedgerStatus()
+                + " · DNS POLICY LEDGER: " + session.dnsLedgerStatus(), 14, WHITE);
         guidedAudit = button(guided, "Run guided safety check · read only");
         guidedAudit.setOnClickListener(v -> startGuidedAudit());
         guidedDetails = button(guided, "Review safety check details");
@@ -163,7 +169,7 @@ public final class RootMultiKernelActivity extends Activity {
         });
         label(guided, "Advanced controls contain recovery, routing rules, DNS probes and "
                 + "network diagnostics. They remain available, but are hidden until needed. "
-                + "This assistant does not enable a kill switch or guarantee leak-free traffic.", 13, PINK);
+                + "The guided audit never enables the experimental kill switch or guarantees leak-free traffic.", 13, PINK);
 
         advancedGroup = new LinearLayout(this);
         advancedGroup.setOrientation(LinearLayout.VERTICAL);
@@ -456,6 +462,50 @@ public final class RootMultiKernelActivity extends Activity {
                         run("Disable Batch D DNS protection", true, session::disableRootDns))
                 .show());
 
+        LinearLayout failClosed = card(advancedGroup);
+        label(failClosed, "PRODUCT BATCH F · FAIL-CLOSED FIREWALL PROTOTYPE", 18, PINK);
+        label(failClosed, "HIGH-RISK EXPERIMENTAL ROOT OUTPUT FIREWALL. Default OFF. "
+                + "Both IPv4/IPv6 deny traffic outside selected kernel tunnels, except "
+                + "loopback and exact marked WireGuard UDP endpoints. This may disable "
+                + "Wi-Fi/cellular, Android services or Internet access. Keep WORKING USB ADB "
+                + "connected and a recovery shell open. First disable Batch D/E DNS "
+                + "enforcement and Batch C auto recovery; keep selected tunnels UP. "
+                + "Do not reboot, change or disconnect tunnels until the first rollback "
+                + "passes. This prototype does NOT start at boot, prevent every possible "
+                + "DNS leak or guarantee seamless handoffs.", 13, MUTED);
+        failClosedStatus = label(failClosed,
+                "KILL SWITCH LEDGER: " + session.guardLedgerStatus(), 14, PINK);
+        failClosedEnable = button(failClosed, "Review + enable experimental kill switch · opt in");
+        failClosedEnable.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Batch F: activate root fail-closed guard?")
+                .setMessage("Only for a controlled test with USB ADB already connected. "
+                        + "This installs app-owned IPv4/IPv6 firewall chains and can "
+                        + "cut off all normal Internet connectivity. Your chosen Home "
+                        + "and AirVPN tunnels must be UP, identity-verified and have distinct "
+                        + "UDP transport marks and numeric endpoints. Both the DNS guard "
+                        + "and automatic recovery must be OFF. A rollback record is saved "
+                        + "BEFORE any firewall change. Do not disconnect or reboot until "
+                        + "you audit and disable this prototype. "
+                        + "There is NO boot-time protection guarantee. Enable now?")
+                .setNegativeButton("Cancel · keep OFF", null)
+                .setPositiveButton("I have USB ADB · enable F", (dialog, which) ->
+                        run("Enable Batch F root guard", false, session::enableGuard))
+                .show());
+        failClosedAudit = button(failClosed, "Audit owned IPv4/IPv6 kill-switch rules · read only");
+        failClosedAudit.setOnClickListener(v ->
+                run("Audit Batch F guard", true, session::auditGuard));
+        failClosedDisable = button(failClosed, "Disable Batch F guard + verify exact rollback");
+        failClosedDisable.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Remove Batch F firewall guard?")
+                .setMessage("Remove only the app-owned IPv4/IPv6 OUTPUT anchors and "
+                        + "chains documented in the saved rollback ledger, then verify "
+                        + "removal. Unknown rules are never flushed. "
+                        + "Kernel tunnel and Android DNS settings remain unchanged.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Disable + verify", (dialog, which) ->
+                        run("Disable Batch F guard", true, session::disableGuard))
+                .show());
+
         LinearLayout privacy = card(advancedGroup);
         label(privacy, "NETWORK PROTECTION · READ ONLY", 18, PINK);
         label(privacy, "Privacy Guard is a readiness report, NOT an active kill switch. "
@@ -665,8 +715,8 @@ public final class RootMultiKernelActivity extends Activity {
         if (step == RootSafetyGuide.STEP_COUNT) {
             guidedRunning = false;
             String summary = RootSafetyGuide.summary(guidedFindings);
-            guidedStatus.setText(summary + "\nKILL SWITCH: OFF · DNS POLICY LEDGER: "
-                    + session.dnsLedgerStatus());
+            guidedStatus.setText(summary + "\nKILL SWITCH: " + session.guardLedgerStatus()
+                    + " · DNS POLICY LEDGER: " + session.dnsLedgerStatus());
             output.setText("GUIDED READ-ONLY CHECK COMPLETE\n" + summary
                     + "\nTap Review safety check details for each audit.");
             journal.record("RESULT", "Guided read-only audit completed, "
@@ -771,34 +821,45 @@ public final class RootMultiKernelActivity extends Activity {
     private void updateButtons() {
         boolean idle = !session.isBusy() && !guidedRunning;
         boolean ready = idle && !selected().isEmpty();
+        boolean firewallUnlocked = "OFF".equals(session.guardLedgerStatus());
         for (CheckBox checkbox : selection.values()) checkbox.setEnabled(idle);
-        if (connect != null) connect.setEnabled(ready);
-        if (disconnect != null) disconnect.setEnabled(ready);
+        if (connect != null) connect.setEnabled(ready && firewallUnlocked);
+        if (disconnect != null) disconnect.setEnabled(ready && firewallUnlocked);
         if (preview != null) preview.setEnabled(ready);
         if (inspect != null) inspect.setEnabled(idle);
         if (audit != null) audit.setEnabled(ready);
-        if (apply != null) apply.setEnabled(ready);
-        if (recover != null) recover.setEnabled(ready);
+        if (apply != null) apply.setEnabled(ready && firewallUnlocked);
+        if (recover != null) recover.setEnabled(ready && firewallUnlocked);
         if (guardReadiness != null) guardReadiness.setEnabled(ready);
         if (dnsAudit != null) dnsAudit.setEnabled(ready);
         if (transportAudit != null) transportAudit.setEnabled(ready);
         if (serviceProbe != null) serviceProbe.setEnabled(ready);
         if (packetObserve != null) packetObserve.setEnabled(ready);
         if (guardModel != null) guardModel.setEnabled(ready);
-        if (remove != null) remove.setEnabled(idle);
-        if (enableRecovery != null) enableRecovery.setEnabled(ready);
-        if (checkRecovery != null) checkRecovery.setEnabled(idle);
+        if (remove != null) remove.setEnabled(idle && firewallUnlocked);
+        if (enableRecovery != null) enableRecovery.setEnabled(ready && firewallUnlocked);
+        if (checkRecovery != null) checkRecovery.setEnabled(idle && firewallUnlocked);
         if (dohProbe != null) dohProbe.setEnabled(ready);
         if (rootDohProbe != null) rootDohProbe.setEnabled(ready);
         if (dohTunnel != null) dohTunnel.setEnabled(idle);
         if (dnsProtocol != null) dnsProtocol.setEnabled(idle);
         if (dohUrl != null) dohUrl.setEnabled(idle);
         if (dohBootstrap != null) dohBootstrap.setEnabled(idle);
-        if (dnsEnable != null) dnsEnable.setEnabled(ready && "OFF".equals(session.dnsLedgerStatus()));
+        if (dnsEnable != null) dnsEnable.setEnabled(ready && firewallUnlocked
+                && "OFF".equals(session.dnsLedgerStatus()));
         if (dnsDisable != null) dnsDisable.setEnabled(idle && !"OFF".equals(session.dnsLedgerStatus()));
         if (dnsEnforcementAudit != null) dnsEnforcementAudit.setEnabled(idle);
         if (dnsEnforcementStatus != null) {
             dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
+        }
+        if (failClosedEnable != null) failClosedEnable.setEnabled(ready
+                && "OFF".equals(session.guardLedgerStatus())
+                && "OFF".equals(session.dnsLedgerStatus()));
+        if (failClosedAudit != null) failClosedAudit.setEnabled(idle);
+        if (failClosedDisable != null) failClosedDisable.setEnabled(idle
+                && !"OFF".equals(session.guardLedgerStatus()));
+        if (failClosedStatus != null) {
+            failClosedStatus.setText("KILL SWITCH LEDGER: " + session.guardLedgerStatus());
         }
         boolean trackerEditable = idle && "OFF".equals(session.dnsLedgerStatus());
         if (trackerFilter != null) trackerFilter.setEnabled(trackerEditable);

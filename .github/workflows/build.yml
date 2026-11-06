@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.5 Product Batch E Local Tracker Filtering
+name: Wonhee Proxy 0.15.6 Product Batch F Experimental Fail-Closed Guard
 
 on:
   push:
@@ -65,6 +65,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/DoHProbePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootDnsProbePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootDnsFirewallPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootFailClosedFirewallPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTrackerPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/DoHWireMessage.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootSafetyGuide.java \
@@ -104,6 +105,7 @@ jobs:
             core-tests/DoHProbePolicyTest.java \
             core-tests/RootDnsProbePolicyTest.java \
             core-tests/RootDnsFirewallPlanTest.java \
+            core-tests/RootFailClosedFirewallPlanTest.java \
             core-tests/RootTrackerPolicyTest.java \
             core-tests/DoHWireMessageTest.java \
             core-tests/RootSafetyGuideTest.java
@@ -143,6 +145,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHProbePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsProbePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsFirewallPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootFailClosedFirewallPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTrackerPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHWireMessageTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSafetyGuideTest
@@ -154,7 +157,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0155-product-e-local-tracker-blocking-alpha-debug-apk
+          name: wonhee-0156-product-f-experimental-failclosed-alpha-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
