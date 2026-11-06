@@ -29,7 +29,8 @@ Android network IDs. Existing Android/netd policy rules are not altered.
 
 ## Test A — baseline and safe preflight (no policy writes)
 
-1. Install the new debug APK as an update; verify version `0.10.1-batchB-split-route-lab`.
+1. Install the current Batch B debug APK as an update; recovery-safety test
+   version `0.10.2-batchB-recovery-safety` adds guarded orphan-rule handling.
 2. Verify the original Home + AirVPN controls still open. Stop their tunnels
    before entering the experimental Multi-Tunnel Lab.
 3. Select `wgs_client1` and `AirVPNEurope`, preview routes and confirm no conflict.
@@ -95,6 +96,39 @@ Android network IDs. Existing Android/netd policy rules are not altered.
 - No crash/reboot persistence of routes is promised: the ledger persists, but
   kernel routes may disappear after restart. Cleanup treats absent owned rules
   as already removed; it refuses to delete a rule with unexpected contents.
+
+## Batch B recovery-safety regression (0.10.2)
+
+The Pixel 8a recorded a 3/3 Home route audit and working Navidrome, while
+its routing ledger claimed **EMPTY**. A separate ADB read-only inspection
+confirmed priorities 12500, 12501 and 12502 were still installed, and both
+selected experimental interfaces showed UP / public-identity MATCH. No
+automatic cause of the missing ledger has been established.
+
+1. **Before upgrading:** do not stop experimental tunnels while rules may be
+   orphaned. Have USB ADB available and export your encrypted profiles safely.
+2. After installing 0.10.2, select the matching Home and Internet profiles.
+   Use **Audit effective routes**. It should print the count of live rules
+   in reserved priority 12500–12799 and explicitly warn if the ledger is empty.
+3. Tap **Verify + recover matching routing rules** only after inspecting the
+   confirmation. Wonhee must independently match the selected live WireGuard
+   interface public identities and **all** reserved kernel rules against the
+   deterministic selected-profile plan. It must refuse any mismatch or extra
+   rule without touching any interface, route or firewall.
+4. If recovery succeeds, a second read-only audit must show a **three-rule
+   rollback ledger**. The current routes must remain active, including
+   Navidrome Home and AirVPN Internet. Recovery itself changes **no** kernel
+   configuration.
+5. Use **Remove Wonhee routing overrides**. This must remove the three exact
+   matching rules, verify that none remains, and clear the ledger. Read-only
+   audit should then show zero reserved rules. Only now use **Disconnect
+   selected tunnels**.
+6. When a ledger is empty but reserved policy rules remain, normal Remove must
+   **refuse** instead of falsely reporting "0 removed"; experimental Connect
+   and Disconnect must refuse until the orphan state is resolved.
+7. Revisit the UI: long buttons should expand vertically instead of truncating
+   their text, and route previews must not assert that rules are uninstalled
+   merely because they are displaying a plan.
 
 ## Gate to subsequent privacy batch
 

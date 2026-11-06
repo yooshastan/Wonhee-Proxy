@@ -11,13 +11,16 @@ tunnel library. It does not host the Telegram proxy on the phone.
 
 The opt-in **Multi-Tunnel Lab** on rooted/kernel-WireGuard devices can start
 and independently stop multiple encrypted profiles with unique interfaces.
-**Batch B 0.10.1** introduces a separate, explicitly confirmed split-route
+**Batch B 0.10.2** introduces a separate, explicitly confirmed split-route
 priority correction for the case where Android's default-exit policy wins
 before a private Home route can be considered. It includes read-only root route
 audits, guarded rule installation, collision checks, a persistent owned-rule
 rollback ledger, and verified removal. It does **not** implement a kill switch,
 DNS leak protection, or guaranteed routing for every app; the original
 Home + AirVPN controller remains separate.
+The recovery-safety update detects reserved routing rules missing from the
+local rollback ledger and offers separately confirmed, exact-identity
+reconciliation before any cleanup.
 
 See [Batch A](docs/ROOT_MULTI_TUNNEL_BATCH_A_TEST_PLAN.md) and the
 [Batch B routing test plan](docs/ROOT_MULTI_TUNNEL_BATCH_B_ROUTING_TEST_PLAN.md).

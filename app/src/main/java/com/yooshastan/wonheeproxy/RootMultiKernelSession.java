@@ -241,6 +241,17 @@ final class RootMultiKernelSession {
                 List<RootSplitRouteRules.Rule> stored = RootSplitRouteRules.decode(savedRules());
                 report.append("Wonhee rollback ledger: ").append(stored.isEmpty()
                         ? "EMPTY" : stored.size() + " proposed/installed rule(s)").append('\n');
+                int reserved = countReservedRules();
+                report.append("Live reserved-priority rules: ").append(reserved).append('\n');
+                if (stored.isEmpty() && reserved > 0) {
+                    report.append("WARNING — UNTRACKED ROUTING RULES: policy priorities "
+                            + "12500–12799 exist, but Wonhee has no rollback ledger. "
+                            + "Do not disconnect tunnels. Use Verify + recover matching "
+                            + "rules before normal cleanup; ownership is not assumed.\n");
+                } else if (!stored.isEmpty() && reserved != stored.size()) {
+                    report.append("WARNING — RULE COUNT DIFFERS FROM ROLLBACK LEDGER. "
+                            + "Inspect before changing tunnels.\n");
+                }
                 int matched = 0;
                 for (RootSplitRouteRules.Rule rule : planned) {
                     String actual = routeDevice(rule.family, rule.probe);
@@ -370,14 +381,73 @@ final class RootMultiKernelSession {
             try {
                 rootReady();
                 int count = RootSplitRouteRules.decode(savedRules()).size();
+                if (count == 0 && countReservedRules() > 0) {
+                    throw new IllegalStateException("Untracked reserved-priority rules need recovery first.");
+                }
                 removeOwnedRules();
                 ok = true;
                 result = "Removed/verified " + count + " Wonhee-owned routing override(s). "
                         + "No tunnel was disconnected and no unknown routing rules were changed.";
             } catch (Exception | LinkageError ignoredFailure) {
-                result = "ROUTING CLEANUP NOT VERIFIED. Ledger retained. A nonmatching "
-                        + "kernel rule was not removed. Inspect UID-0 routing and use USB ADB "
-                        + "before changing tunnels.";
+                result = "ROUTING CLEANUP REFUSED/NOT VERIFIED. If the ledger is empty "
+                        + "while priority-12500+ rules are present, select the matching "
+                        + "profiles and use Verify + recover matching rules first. "
+                        + "No unknown rule was intentionally removed.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    /**
+     * Explicit recovery of exact Wonhee-shaped rules after a lost app ledger.
+     * A matching interface name alone is never enough: both WireGuard public
+     * identities, selected CIDRs, every live priority and rule flags must agree.
+     * No kernel route is created, deleted or changed by this action.
+     */
+    void recoverRouting(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                if (!savedRules().isEmpty()) {
+                    throw new IllegalStateException("Existing rollback record requires normal removal.");
+                }
+                List<Active> selected = loadAll(profiles);
+                List<RootSplitRouteRules.Rule> expected = RootSplitRouteRules.plan(routeEntries(selected));
+                if (expected.isEmpty()) {
+                    throw new IllegalStateException("Selection has no split-route priority rules.");
+                }
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                for (Active active : selected) {
+                    if (!running.contains(active.device)
+                            || !matches(new NamedTunnel(active.device), active)) {
+                        throw new IllegalStateException("Selected interface identity is unverified.");
+                    }
+                }
+                // Refuse adoption if ANY extra reserved rule exists, even if it
+                // happens to share a destination or interface with this plan.
+                if (countReservedRules() != expected.size()) {
+                    throw new IllegalStateException("Unknown rules occupy the reserved priority range.");
+                }
+                for (RootSplitRouteRules.Rule rule : expected) {
+                    if (!rulePresent(rule)) {
+                        throw new IllegalStateException("An expected rule does not match the live kernel.");
+                    }
+                }
+                saveRules(RootSplitRouteRules.encode(expected));
+                ok = true;
+                result = "Recovered rollback ownership record for " + expected.size()
+                        + " exact matching kernel rule(s), after verifying both "
+                        + "WireGuard public identities per selected profile. "
+                        + "NO kernel rule or tunnel changed. The existing routes remain "
+                        + "active; Remove Wonhee routing overrides is now available "
+                        + "for explicit cleanup.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Recovery refused: live priorities, selected encrypted "
+                        + "profiles, or kernel identities did not match exactly. "
+                        + "Nothing was adopted or changed. Keep USB ADB available.";
             }
             finish(callback, ok, result);
         });
@@ -389,6 +459,18 @@ final class RootMultiKernelSession {
             throw new IllegalStateException("Cannot inspect policy rules.");
         }
         return output;
+    }
+
+    private int countReservedRules() throws Exception {
+        int count = 0;
+        for (int family : new int[] {4, 6}) {
+            for (String line : readRules(family)) {
+                int priority = RootSplitRouteRules.parsePriority(line);
+                if (priority >= RootSplitRouteRules.FIRST_PRIORITY
+                        && priority <= RootSplitRouteRules.LAST_PRIORITY) count++;
+            }
+        }
+        return count;
     }
 
     private boolean rulePresent(RootSplitRouteRules.Rule rule) throws Exception {
@@ -452,6 +534,9 @@ final class RootMultiKernelSession {
                 validate(combined);
                 stage = "root preflight";
                 rootReady();
+                if (countReservedRules() != 0) {
+                    throw new IllegalStateException("Reserved policy rules are present; inspect ownership first.");
+                }
                 Set<String> running = backend.getRunningTunnelNames();
                 if (running.contains("wnhome0") || running.contains("wnair0")) {
                     throw new IllegalStateException("Stop the legacy Home + AirVPN test first. Nothing was changed.");
@@ -538,6 +623,12 @@ final class RootMultiKernelSession {
                     }
                 }
                 rootReady();
+                if (countReservedRules() != 0) {
+                    finish(callback, false, "Reserved routing priority rules are still present. "
+                            + "Removing tunnels now could strand Home routes. "
+                            + "Verify/recover owned rules and remove them before disconnecting.");
+                    return;
+                }
                 Set<String> running = backend.getRunningTunnelNames();
                 for (Active active : selected) {
                     if (running.contains(active.device)

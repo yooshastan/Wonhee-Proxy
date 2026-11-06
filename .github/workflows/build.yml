@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.10.1 Batch B Split-Route Lab
+name: Wonhee Proxy 0.10.2 Batch B Recovery Safety
 
 on:
   push:
@@ -110,7 +110,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0101-batch-b-split-route-debug-apk
+          name: wonhee-0102-batch-b-recovery-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

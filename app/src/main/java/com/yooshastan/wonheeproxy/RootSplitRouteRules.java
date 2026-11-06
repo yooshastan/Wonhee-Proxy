@@ -180,7 +180,7 @@ final class RootSplitRouteRules {
         if (rules.isEmpty()) {
             return "No cross-tunnel split-route priority adjustments are needed by this plan.";
         }
-        StringBuilder text = new StringBuilder("PROPOSED ROUTING RULES — NOT INSTALLED\n");
+        StringBuilder text = new StringBuilder("ROUTING POLICY PLAN (installation status checked separately)\n");
         for (Rule rule : rules) {
             text.append(rule.priority).append(" · IPv").append(rule.family)
                     .append(" · ").append(rule.destination).append(" → ")
