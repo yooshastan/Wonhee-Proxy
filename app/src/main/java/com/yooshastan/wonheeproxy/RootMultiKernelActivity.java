@@ -6,11 +6,13 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowInsets;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -50,8 +52,12 @@ public final class RootMultiKernelActivity extends Activity {
     private Button enableRecovery;
     private Button disableRecovery;
     private Button checkRecovery;
+    private Button dohProbe;
     private TextView recoveryStatus;
     private EditText serviceTarget;
+    private EditText dohUrl;
+    private EditText dohBootstrap;
+    private Spinner dohTunnel;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -79,7 +85,7 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Product Batch C · opt-in connection recovery (includes diagnostic Batch E)", 14, WHITE);
+        label(page, "Product Batch D · opt-in DNS infrastructure probe (retains Product C recovery)", 14, WHITE);
         label(page, "EXPERIMENTAL: this multi-profile lab is separate from the older "
                 + "wnhome0/wnair0 pair. Stop that legacy pair first. Root changes "
                 + "may interrupt Internet access. Keep Termux root or USB recovery ready. No firewall, kill switch, per-app "
@@ -196,6 +202,57 @@ public final class RootMultiKernelActivity extends Activity {
                         run("Remove owned routing rules", true, session::removeRouting))
                 .show());
 
+        LinearLayout encryptedDns = card(page);
+        label(encryptedDns, "PRODUCT BATCH D · ENCRYPTED DNS TRANSPORT", 18, PINK);
+        label(encryptedDns, "Choose ANY one of the checked, identity-verified, running tunnels "
+                + "for one RFC 8484 DNS-over-HTTPS POST. Enter your own HTTPS DoH resolver "
+                + "URL and its NUMERIC bootstrap IP. Strict probe refuses if Android cannot "
+                + "bind a socket to that exact kernel interface, if the root route disagrees, "
+                + "or if TLS/response verification fails. No default/direct or plaintext "
+                + "fallback. This does NOT configure system-wide DNS, DoQ/DoH3, intercept "
+                + "other apps, or turn on a kill switch.", 13, MUTED);
+        dohTunnel = new Spinner(this);
+        encryptedDns.addView(dohTunnel);
+        dohUrl = new EditText(this);
+        dohUrl.setSingleLine(true);
+        dohUrl.setTextColor(WHITE);
+        dohUrl.setHintTextColor(MUTED);
+        dohUrl.setHint("https://your-resolver.example/dns-query");
+        dohUrl.setText("https://cloudflare-dns.com/dns-query");
+        dohUrl.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        encryptedDns.addView(dohUrl);
+        dohBootstrap = new EditText(this);
+        dohBootstrap.setSingleLine(true);
+        dohBootstrap.setTextColor(WHITE);
+        dohBootstrap.setHintTextColor(MUTED);
+        dohBootstrap.setHint("Numeric bootstrap IP (no DNS lookup)");
+        dohBootstrap.setText("1.1.1.1");
+        dohBootstrap.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        encryptedDns.addView(dohBootstrap);
+        dohProbe = button(encryptedDns, "Test selected-tunnel DoH · explicit opt-in");
+        dohProbe.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Send one encrypted DNS test query?")
+                .setMessage("Wonhee will send an RFC 8484 query for example.com (A) to your "
+                        + "chosen DNS provider ONLY if it can bind to the selected verified "
+                        + "tunnel. The provider sees the query and your exit IP. "
+                        + "TLS certificate/hostname must validate. No plaintext DNS, "
+                        + "default-network retry, redirect, DNS settings or firewall changes. "
+                        + "This diagnostic is not a system-wide DNS service.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Test encrypted DNS", (dialog, which) -> {
+                    Object selectedTunnel = dohTunnel.getSelectedItem();
+                    String profileName = selectedTunnel == null ? "" : selectedTunnel.toString();
+                    String url = dohUrl.getText().toString();
+                    String ip = dohBootstrap.getText().toString();
+                    run("Product D DoH probe", false, (profiles, cb) ->
+                            session.probeDoH(profiles, profileName, url, ip, cb));
+                }).show());
+        label(encryptedDns, "Defaults are a Cloudflare example only; replace BOTH fields "
+                + "for a custom resolver. No endpoint preferences are saved. Root-only "
+                + "WireGuard links may not appear as bindable Android Networks: "
+                + "an UNAVAILABLE result is safe refusal, not a reason to allow fallback.", 13, PINK);
+
         LinearLayout privacy = card(page);
         label(privacy, "NETWORK PROTECTION · READ ONLY", 18, PINK);
         label(privacy, "Privacy Guard is a readiness report, NOT an active kill switch. "
@@ -284,6 +341,8 @@ public final class RootMultiKernelActivity extends Activity {
     }
 
     private void reloadProfiles() {
+        String previousDoHTunnel = dohTunnel == null || dohTunnel.getSelectedItem() == null
+                ? "" : dohTunnel.getSelectedItem().toString();
         List<String> checked = new ArrayList<>();
         for (Map.Entry<String, CheckBox> entry : selection.entrySet()) {
             if (entry.getValue().isChecked()) checked.add(entry.getKey());
@@ -306,11 +365,20 @@ public final class RootMultiKernelActivity extends Activity {
                 profileRows.addView(checkbox);
                 selection.put(profile.name, checkbox);
             }
+            List<String> names = new ArrayList<>();
+            for (SecureTunnelProfileStore.Profile profile : saved) names.add(profile.name);
+            ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_item, names);
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            dohTunnel.setAdapter(adapter);
+            int prior = names.indexOf(previousDoHTunnel);
+            if (prior >= 0) dohTunnel.setSelection(prior);
             if (saved.isEmpty()) label(profileRows, "Import a WireGuard .conf to begin.", 13, MUTED);
         } catch (Exception unavailable) {
             saved.clear();
             selection.clear();
             profileRows.removeAllViews();
+            dohTunnel.setAdapter(null);
             label(profileRows, "Could not open encrypted profiles. Check Keystore availability.",
                     13, PINK);
         }
@@ -351,7 +419,9 @@ public final class RootMultiKernelActivity extends Activity {
         operation.invoke(list, (ok, result) -> {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
-            journal.record("RESULT", result);
+            // DNS destinations/probe outcomes must not persist into diagnostics.
+            journal.record("RESULT", action.startsWith("Product D DoH")
+                    ? "Product D DoH probe " + (ok ? "verified" : "refused") : result);
             updateButtons();
         });
         updateButtons();
@@ -395,6 +465,8 @@ public final class RootMultiKernelActivity extends Activity {
         if (remove != null) remove.setEnabled(!session.isBusy());
         if (enableRecovery != null) enableRecovery.setEnabled(ready);
         if (checkRecovery != null) checkRecovery.setEnabled(!session.isBusy());
+        if (dohProbe != null) dohProbe.setEnabled(ready);
+        if (dohTunnel != null) dohTunnel.setEnabled(!session.isBusy());
         if (disableRecovery != null) disableRecovery.setEnabled(true);
         if (recoveryStatus != null) recoveryStatus.setText(session.recoveryStatus());
     }

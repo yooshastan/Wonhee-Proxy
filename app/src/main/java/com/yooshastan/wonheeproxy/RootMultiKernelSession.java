@@ -699,6 +699,83 @@ final class RootMultiKernelSession {
         });
     }
 
+    /**
+     * Product D stage 1: a single explicit, TLS-authenticated DNS wireformat
+     * query over one *exactly bound* tunnel. No Android/system DNS interception.
+     */
+    void probeDoH(List<SecureTunnelProfileStore.Profile> profiles, String profileName,
+                  String endpointUrl, String bootstrapIp, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String message;
+            try {
+                DoHProbePolicy policy = DoHProbePolicy.parse(endpointUrl, bootstrapIp);
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                Active chosen = null;
+                for (Active item : selected) {
+                    if (item.profileName.equals(profileName)) {
+                        if (chosen != null) throw new IllegalStateException("Ambiguous selected DNS tunnel.");
+                        chosen = item;
+                    }
+                }
+                if (chosen == null) {
+                    throw new IllegalStateException("Choose a DNS tunnel that is checked in the profile list.");
+                }
+                rootReady();
+                verifyRecoveryRules();
+                // Check every selected profile's public identity before
+                // binding; never adopt unknown kernel interfaces here.
+                for (Active item : selected) {
+                    NamedTunnel link = new NamedTunnel(item.device);
+                    if (backend.getState(link) != Tunnel.State.UP || !matches(link, item)) {
+                        throw new IllegalStateException("A selected tunnel is DOWN or its public identity changed.");
+                    }
+                }
+                String routed = routeDevice(policy.family, policy.bootstrapAddress);
+                ConnectivityManager connectivity = (ConnectivityManager) appContext
+                        .getSystemService(Context.CONNECTIVITY_SERVICE);
+                Network bound = RootBoundDoHProbe.exactNetwork(connectivity, chosen.device);
+                String androidDevice = bound == null || connectivity == null ? "" :
+                        connectivity.getLinkProperties(bound) == null ? "" :
+                        connectivity.getLinkProperties(bound).getInterfaceName();
+                if (!DoHProbePolicy.approvedTunnel(true, true, true, chosen.device,
+                        routed, androidDevice)) {
+                    throw new IllegalStateException("No verified, identical root route and Android "
+                            + "Network binding for the selected tunnel. No direct fallback attempted.");
+                }
+                int answers = RootBoundDoHProbe.probe(bound, policy);
+                ok = true;
+                message = "PRODUCT BATCH D — OPT-IN ENCRYPTED DNS PROBE\n"
+                        + "Selected independently verified profiles: " + selected.size() + "\n"
+                        + "Chosen DoH tunnel: " + chosen.profileName + " (" + chosen.device + ")\n"
+                        + "Numeric upstream route: SELECTED TUNNEL MATCH\n"
+                        + "Android app socket: BOUND to exact selected Network\n"
+                        + "HTTPS: trusted certificate + hostname validated\n"
+                        + "RFC 8484 DoH POST: HTTP 200, DNS transaction and question matched\n"
+                        + "example.com A answers reported: " + answers + "\n"
+                        + "No resolver settings, routes, firewall or kill-switch rules changed. "
+                        + "This verifies one probe, NOT system-wide DNS, DoQ/DoH3, "
+                        + "per-app resolver use, or leak prevention.";
+            } catch (IllegalArgumentException input) {
+                message = "PRODUCT BATCH D — PROBE REFUSED\n" + input.getMessage()
+                        + "\nNo default-network or plaintext DNS fallback was attempted.";
+            } catch (IllegalStateException gate) {
+                message = "PRODUCT BATCH D — PROBE REFUSED\n" + gate.getMessage()
+                        + "\nNo default-network or plaintext DNS fallback was attempted.";
+            } catch (Exception transport) {
+                // TLS/HTTP/network error messages may include a configured
+                // private DNS hostname; never journal or display them.
+                message = "PRODUCT BATCH D — TRANSPORT/TLS/DNS RESPONSE FAILED\n"
+                        + "The exact-bound encrypted probe did not complete. "
+                        + "No alternate server, plaintext DNS or direct route was tried. "
+                        + "No device configuration changed.";
+            }
+            finish(callback, ok, message);
+        });
+    }
+
     /** Per-profile WireGuard UDP endpoint egress and Android DNS-mode inventory. */
     void auditTransportPaths(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
         if (!begin(callback)) return;
