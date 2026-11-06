@@ -38,4 +38,17 @@ final class RootWireGuardEndpoint {
         int number = Integer.parseInt(port);
         return number > 0 && number <= 65535;
     }
+
+    /** Return only a validated numeric destination; never include the peer key. */
+    static RootTcpProbeTarget numericTarget(List<String> lines) {
+        if (!hasSingleNumericEndpoint(lines)) return null;
+        String[] fields = lines.get(0).trim().split("\\s+");
+        try {
+            return RootTcpProbeTarget.parse(fields[1]);
+        } catch (IllegalArgumentException invalid) {
+            // Scoped IPv6 addresses cannot be safely routed by our literal
+            // `ip route get` diagnostic; refuse rather than infer an interface.
+            return null;
+        }
+    }
 }

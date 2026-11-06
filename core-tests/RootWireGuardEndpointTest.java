@@ -11,6 +11,10 @@ public final class RootWireGuardEndpointTest {
     public static void main(String[] ignored) {
         expect("publickey\t192.0.2.10:51820", true);
         expect("publickey\t[2001:db8::1]:51820", true);
+        if (RootWireGuardEndpoint.numericTarget(Arrays.asList(
+                "publickey\t192.0.2.10:51820")).family != 4) throw new AssertionError();
+        if (RootWireGuardEndpoint.numericTarget(Arrays.asList(
+                "publickey\t[2001:db8::1]:51820")).family != 6) throw new AssertionError();
         expect("publickey\t(none)", false);
         expect("publickey\tvpn.example.com:51820", false);
         expect("publickey\t999.0.2.10:51820", false);

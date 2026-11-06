@@ -44,6 +44,18 @@ from Wonhee's own app UID. It sends no HTTP request or DNS lookup; no root
 firewall, routing or tunnel changes are made. No kill switch has been installed.
 See the [Batch C.1 test plan](docs/ROOT_MULTI_TUNNEL_BATCH_C1_PATH_DIAGNOSTICS_TEST_PLAN.md).
 
+### Batch D 0.12.0 — read-only endpoint and traffic evidence
+
+For every identity-verified selected kernel tunnel, a new check inspects the
+numeric UDP endpoint's marked root-route egress, Android's configured Private
+DNS mode (without exposing the provider hostname), and whether IPv4/IPv6 exit
+defaults are configured. The app TCP probe now records each selected tunnel's
+WireGuard RX/TX counter change around its connection, including for more than
+two tunnels. Counter movement may be background traffic: it is **evidence,
+not packet-path proof**. No root routing, firewall, network settings, or
+WireGuard state is changed by these diagnostics. The kill switch remains OFF.
+See the [Batch D test plan](docs/ROOT_MULTI_TUNNEL_BATCH_D_TRAFFIC_EVIDENCE_TEST_PLAN.md).
+
 See [Batch A](docs/ROOT_MULTI_TUNNEL_BATCH_A_TEST_PLAN.md) and the
 [Batch B routing test plan](docs/ROOT_MULTI_TUNNEL_BATCH_B_ROUTING_TEST_PLAN.md).
 The older offline packet-engine experiment described below is historical and
