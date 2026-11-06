@@ -1,5 +1,5 @@
-// Wonhee one-shot root-bound DoH probe. This is deliberately NOT a DNS daemon,
-// system resolver, firewall or generic root command runner.
+// Wonhee strictly bound encrypted DNS helper: a one-shot probe or an opt-in
+// localhost-only DNS forwarder. The helper NEVER installs firewall rules.
 package main
 
 import (
@@ -259,6 +259,7 @@ func run(c config) (int, string) {
 }
 
 func main() {
+	serve := flag.Bool("serve", false, "run localhost-only encrypted DNS forwarding")
 	protocol := flag.String("protocol", "doh", "one of doh, doq, doh3")
 	device := flag.String("interface", "", "exact kernel WireGuard interface")
 	endpoint := flag.String("url", "", "DoH HTTPS URL")
@@ -272,6 +273,13 @@ func main() {
 	if err != nil {
 		fmt.Println("REFUSED CONFIG")
 		os.Exit(2)
+	}
+	if *serve {
+		if err := serveDNS(c); err != nil {
+			fmt.Println("REFUSED RELAY_UNAVAILABLE")
+			os.Exit(1)
+		}
+		return
 	}
 	answers, status := run(c)
 	if status != "OK" {

@@ -23,4 +23,4 @@ mkdir -p "$assets_dir"
     -trimpath -ldflags='-s -w' \
     -o "$assets_dir/wonhee-doh-arm64" .
 )
-echo 'Built ARM64 one-shot root DoH probe asset.'
+echo 'Built ARM64 root-bound DoH/DoQ/DoH3 probe and opt-in DNS relay asset.'
