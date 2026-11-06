@@ -124,8 +124,9 @@ func runDoH3(ctx context.Context, c config, question []byte) (int, string) {
 	if err != nil { return 0, "TLS_OR_CONNECT_FAILED" }
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK { return 0, "HTTP_NOT_200" }
-	if strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0]))
-		!= "application/dns-message" { return 0, "WRONG_CONTENT_TYPE" }
+	if strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])) != "application/dns-message" {
+		return 0, "WRONG_CONTENT_TYPE"
+	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4097))
 	if err != nil || len(body) > 4096 { return 0, "DNS_REPLY_TOO_LARGE" }
 	answers, err := verifiedAAnswers(question, body)
