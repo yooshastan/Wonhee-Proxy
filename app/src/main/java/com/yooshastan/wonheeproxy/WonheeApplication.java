@@ -21,5 +21,9 @@ public final class WonheeApplication extends Application {
                 // Android lockdown, when enabled, blocks traffic if VPN is down.
             }
         });
+        // Only restores root multi-kernel links after explicit Product Batch C
+        // opt-in. No root operation is performed merely by app startup.
+        RootMultiRecoveryScheduler.update(this);
+        RootMultiRecoveryMonitor.update(this);
     }
 }
