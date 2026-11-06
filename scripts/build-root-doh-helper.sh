@@ -11,14 +11,12 @@ command -v go >/dev/null || { echo 'Go 1.23+ is required to build the optional r
   go test ./...
 )
 mkdir -p "$assets_dir"
-for platform in arm64:arm64 amd64:amd64 arm:arm 386:386; do
-  arch="${platform%%:*}"
-  target="${platform#*:}"
-  (
-    cd "$helper_dir"
-    CGO_ENABLED=0 GOOS=android GOARCH="$arch" GOARM=7 go build \
-      -trimpath -ldflags='-s -w' \
-      -o "$assets_dir/wonhee-doh-$target" .
-  )
-done
-echo 'Built four architecture-specific one-shot root DoH probe assets.'
+# ARM64 is supported by the Pixel 8a/A36 stage-2 test devices. Other Android
+# ABIs require Android NDK external linking; don't publish unverified binaries.
+(
+  cd "$helper_dir"
+  CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build \
+    -trimpath -ldflags='-s -w' \
+    -o "$assets_dir/wonhee-doh-arm64" .
+)
+echo 'Built ARM64 one-shot root DoH probe asset.'

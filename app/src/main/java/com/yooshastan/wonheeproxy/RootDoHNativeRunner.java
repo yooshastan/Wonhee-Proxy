@@ -73,9 +73,6 @@ final class RootDoHNativeRunner {
     private static String assetForDevice() {
         for (String abi : Build.SUPPORTED_ABIS) {
             if ("arm64-v8a".equals(abi)) return "wonhee-doh-arm64";
-            if ("armeabi-v7a".equals(abi)) return "wonhee-doh-arm";
-            if ("x86_64".equals(abi)) return "wonhee-doh-amd64";
-            if ("x86".equals(abi)) return "wonhee-doh-386";
         }
         return null;
     }

@@ -12,6 +12,7 @@
 - A short timeout limits helper execution; it leaves no persistent service. The executable is discarded after each attempt. Java reports generic error codes without logging the DNS provider address. The provider sees the diagnostic query and tunnel exit IP when successful.
 - This probe is designed for **multiple independent root tunnels** and never assumes a particular pair or profile name. It still does **not** install Android resolver policy, DNS interception, DoQ/DoH3, tracker blocking or a kill switch; it does not prove DNS leaks are impossible.
 - A packaged Go executable may fail to run on a hardened device because of app-data execution/SELinux restrictions, unavailable system certificate roots or missing kernel bind privilege. Those are **device-test failures**, not permission to bypass TLS or use a default network. Keep a previously tested build installed side by side.
+- This stage-2 preview packages **ARM64 only**, matching the Pixel 8a and Samsung A36 test devices. Other ABIs need Android NDK-linked binaries and separate device validation before being advertised as supported.
 
 ## Stage 1: exact-tunnel DNS-over-HTTPS probe
 
