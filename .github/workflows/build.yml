@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.1 Product Batch D Root DNS Transport
+name: Wonhee Proxy 0.15.2 Product Batch D Guided Security
 
 on:
   push:
@@ -64,6 +64,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootMultiRecoveryPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/DoHProbePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/DoHWireMessage.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootSafetyGuide.java \
             core-tests/ProxyEndpointTest.java \
             core-tests/ProxyProbeTest.java \
             core-tests/UltgramPackagesTest.java \
@@ -98,7 +99,8 @@ jobs:
             core-tests/RootGuardDryRunTest.java \
             core-tests/RootMultiRecoveryPolicyTest.java \
             core-tests/DoHProbePolicyTest.java \
-            core-tests/DoHWireMessageTest.java
+            core-tests/DoHWireMessageTest.java \
+            core-tests/RootSafetyGuideTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
           java -cp /tmp/wonhee-classes ProxyProbeTest
           java -cp /tmp/wonhee-classes UltgramPackagesTest
@@ -134,6 +136,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiRecoveryPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHProbePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHWireMessageTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSafetyGuideTest
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
@@ -142,7 +145,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0151-product-d-root-doh-debug-apk
+          name: wonhee-0152-product-d-guided-security-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
