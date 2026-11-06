@@ -21,9 +21,15 @@ final class RootDoHNativeRunner {
 
     static int probe(Context context, RootShell shell, String verifiedInterface,
                      DoHProbePolicy endpoint) throws Exception {
+        return probe(context, shell, verifiedInterface,
+                RootDnsProbePolicy.parse("doh", endpoint.url, endpoint.bootstrapAddress));
+    }
+
+    static int probe(Context context, RootShell shell, String verifiedInterface,
+                     RootDnsProbePolicy endpoint) throws Exception {
         String asset = assetForDevice();
         if (asset == null) {
-            throw new IllegalStateException("No root DoH helper for this device architecture.");
+            throw new IllegalStateException("No root encrypted DNS helper for this architecture.");
         }
         File binary = File.createTempFile("wonhee-doh-", ".bin", context.getCodeCacheDir());
         try {
@@ -41,6 +47,7 @@ final class RootDoHNativeRunner {
             }
             List<String> output = new ArrayList<>();
             String command = "timeout 17 " + quote(binary.getAbsolutePath())
+                    + " --protocol " + quote(endpoint.protocol)
                     + " --interface " + quote(verifiedInterface)
                     + " --url " + quote(endpoint.url)
                     + " --bootstrap " + quote(endpoint.bootstrapAddress);

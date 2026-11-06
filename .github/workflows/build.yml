@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.2 Product Batch D Guided Security
+name: Wonhee Proxy 0.15.3 Product Batch D Multi-Protocol DNS
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-      - name: Verify and compile root-bound DoH helpers
+      - name: Verify and compile strict root-bound encrypted DNS helper
         run: bash scripts/build-root-doh-helper.sh
       - name: Run standalone proxy core tests
         run: |
@@ -63,6 +63,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardDryRun.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMultiRecoveryPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/DoHProbePolicy.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootDnsProbePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/DoHWireMessage.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootSafetyGuide.java \
             core-tests/ProxyEndpointTest.java \
@@ -99,6 +100,7 @@ jobs:
             core-tests/RootGuardDryRunTest.java \
             core-tests/RootMultiRecoveryPolicyTest.java \
             core-tests/DoHProbePolicyTest.java \
+            core-tests/RootDnsProbePolicyTest.java \
             core-tests/DoHWireMessageTest.java \
             core-tests/RootSafetyGuideTest.java
           java -cp /tmp/wonhee-classes ProxyEndpointTest
@@ -135,6 +137,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardDryRunTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiRecoveryPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHProbePolicyTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsProbePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHWireMessageTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSafetyGuideTest
       - uses: android-actions/setup-android@v4
@@ -145,7 +148,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0152-product-d-guided-security-debug-apk
+          name: wonhee-0153-product-d-doh-doq-doh3-probes-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -164,7 +167,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-      - name: Verify and compile root-bound DoH helpers
+      - name: Verify and compile strict root-bound encrypted DNS helper
         run: bash scripts/build-root-doh-helper.sh
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
