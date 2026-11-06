@@ -559,10 +559,14 @@ Not affiliated with Telegram or any recording artist. See:
 
 # Product Batch D DNS infrastructure preview
 
-Product Batch D stage 1 adds an explicitly opted-in, strict, exact-tunnel
-DNS-over-HTTPS wireformat probe with configurable resolver URL and numeric
-bootstrap IP. It retains Product C recovery and the multi-profile routing
-baseline. It is **not** a system resolver, fail-closed kill switch, tracker
-blocker, DoQ or DoH3 implementation. For known Android-network binding
-limitations, Termux checks, and the remaining D milestones, see
+Product Batch D stage 2 adds a separately opted-in **root-bound** one-shot
+DNS-over-HTTPS wireformat probe for kernel WireGuard interfaces. Unlike the
+original Android `Network`-bound diagnostic (which safely refused on root-only
+`wnm*` links), the new helper uses Linux `SO_BINDTODEVICE`, numeric upstream
+addresses, and normal hostname-validated TLS. The helper is compiled from
+`roothelper/dohprobe` by `scripts/build-root-doh-helper.sh` before packaging
+the APK. No routing, firewall or DNS state is installed. It retains Product C
+recovery and multi-profile routing. It is **not** a system resolver, kill
+switch, tracker blocker, DoQ or DoH3 implementation. For paired Termux/ADB
+checks, device-boundary cautions, and remaining D milestones, see
 [Product Batch D DNS test plan](docs/PRODUCT_BATCH_D_DNS_INFRASTRUCTURE_TEST_PLAN.md).

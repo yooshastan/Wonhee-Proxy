@@ -53,6 +53,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button disableRecovery;
     private Button checkRecovery;
     private Button dohProbe;
+    private Button rootDohProbe;
     private TextView recoveryStatus;
     private EditText serviceTarget;
     private EditText dohUrl;
@@ -85,7 +86,7 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Product Batch D · opt-in DNS infrastructure probe (retains Product C recovery)", 14, WHITE);
+        label(page, "Product Batch D · root-bound DNS transport preview (retains Product C recovery)", 14, WHITE);
         label(page, "EXPERIMENTAL: this multi-profile lab is separate from the older "
                 + "wnhome0/wnair0 pair. Stop that legacy pair first. Root changes "
                 + "may interrupt Internet access. Keep Termux root or USB recovery ready. No firewall, kill switch, per-app "
@@ -230,7 +231,7 @@ public final class RootMultiKernelActivity extends Activity {
         dohBootstrap.setText("1.1.1.1");
         dohBootstrap.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
         encryptedDns.addView(dohBootstrap);
-        dohProbe = button(encryptedDns, "Test selected-tunnel DoH · explicit opt-in");
+        dohProbe = button(encryptedDns, "Test ANDROID-bound DoH · framework baseline");
         dohProbe.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Send one encrypted DNS test query?")
                 .setMessage("Wonhee will send an RFC 8484 query for example.com (A) to your "
@@ -248,10 +249,34 @@ public final class RootMultiKernelActivity extends Activity {
                     run("Product D DoH probe", false, (profiles, cb) ->
                             session.probeDoH(profiles, profileName, url, ip, cb));
                 }).show());
+        rootDohProbe = button(encryptedDns,
+                "Test ROOT-bound DoH on selected tunnel · opt in");
+        rootDohProbe.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Run one root-bound DNS-over-HTTPS probe?")
+                .setMessage("Product D will execute a short-lived packaged helper as root. "
+                        + "It binds its TCP socket directly to the selected, identity-verified "
+                        + "WireGuard kernel interface and numeric bootstrap IP, then uses "
+                        + "normal TLS certificate validation for the DoH hostname. "
+                        + "Only example.com A will be queried; the DNS provider can see "
+                        + "the query and tunnel exit address. If interface binding, TLS "
+                        + "or DNS verification fails, it REFUSES with no other network, "
+                        + "proxy or plaintext fallback. No routing, DNS or firewall "
+                        + "settings are installed. Not a system resolver or kill switch.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Test root-bound DoH", (dialog, which) -> {
+                    Object selectedTunnel = dohTunnel.getSelectedItem();
+                    String profileName = selectedTunnel == null ? "" : selectedTunnel.toString();
+                    String url = dohUrl.getText().toString();
+                    String ip = dohBootstrap.getText().toString();
+                    run("Product D DoH root-bound probe", false, (profiles, cb) ->
+                            session.probeRootDoH(profiles, profileName, url, ip, cb));
+                }).show());
         label(encryptedDns, "Defaults are a Cloudflare example only; replace BOTH fields "
                 + "for a custom resolver. No endpoint preferences are saved. Root-only "
-                + "WireGuard links may not appear as bindable Android Networks: "
-                + "an UNAVAILABLE result is safe refusal, not a reason to allow fallback.", 13, PINK);
+                + "WireGuard links may not appear as bindable Android Networks: the "
+                + "original app-bound probe will refuse. Use the separate ROOT-bound "
+                + "test to check the kernel interface explicitly. Root execution is "
+                + "one-shot, with no route, DNS or firewall mutation.", 13, PINK);
 
         LinearLayout privacy = card(page);
         label(privacy, "NETWORK PROTECTION · READ ONLY", 18, PINK);
@@ -466,6 +491,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (enableRecovery != null) enableRecovery.setEnabled(ready);
         if (checkRecovery != null) checkRecovery.setEnabled(!session.isBusy());
         if (dohProbe != null) dohProbe.setEnabled(ready);
+        if (rootDohProbe != null) rootDohProbe.setEnabled(ready);
         if (dohTunnel != null) dohTunnel.setEnabled(!session.isBusy());
         if (disableRecovery != null) disableRecovery.setEnabled(true);
         if (recoveryStatus != null) recoveryStatus.setText(session.recoveryStatus());
