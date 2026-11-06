@@ -556,3 +556,13 @@ has been built and audited.
 Not affiliated with Telegram or any recording artist. See:
 - https://core.telegram.org/proxy
 - https://core.telegram.org/api/sponsored-messages
+
+# Product Batch D DNS infrastructure preview
+
+Product Batch D stage 1 adds an explicitly opted-in, strict, exact-tunnel
+DNS-over-HTTPS wireformat probe with configurable resolver URL and numeric
+bootstrap IP. It retains Product C recovery and the multi-profile routing
+baseline. It is **not** a system resolver, fail-closed kill switch, tracker
+blocker, DoQ or DoH3 implementation. For known Android-network binding
+limitations, Termux checks, and the remaining D milestones, see
+[Product Batch D DNS test plan](docs/PRODUCT_BATCH_D_DNS_INFRASTRUCTURE_TEST_PLAN.md).

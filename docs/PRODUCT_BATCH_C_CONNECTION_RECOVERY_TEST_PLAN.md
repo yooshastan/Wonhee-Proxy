@@ -2,7 +2,7 @@
 
 **Schedule identity:** Product Batch C in the canonical [A–I product roadmap](https://github.com/yooshastan/Wonhee-Proxy/blob/main/docs/PRODUCT_BATCH_ROADMAP_A_I.md). Diagnostic PRs #28–#31 reused the letters C/D/E for read-only experiments; those are separate and do **not** complete product C/D/E.
 
-**Status:** experimental implementation; awaiting Pixel 8a/Termux validation. Product Batch D (DNS infrastructure) does not start until this batch is tested and corrected.
+**Status:** user-reported Pixel 8a PASS on 2026-11-06 for the agreed Wi-Fi/cellular handoff, process restart, reboot, and manual-stop recovery checks. Product Batch D (DNS infrastructure) now follows on its own test branch; Product C's outstanding negative/security limitations below remain in scope and **do not** imply a kill switch.
 
 ## Boundaries and expected behavior
 
