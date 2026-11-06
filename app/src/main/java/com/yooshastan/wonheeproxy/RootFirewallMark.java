@@ -34,6 +34,11 @@ final class RootFirewallMark {
         return home > 0 && internet > 0 && home != internet;
     }
 
+    static String display(long mark) {
+        return mark > 0 && mark <= 0xffffffffL
+                ? "0x" + Long.toHexString(mark) : "OFF/UNVERIFIED";
+    }
+
     static boolean sharedAndroidProtectBit(long home, long internet) {
         return home == ANDROID_PROTECTED_FROM_VPN
                 && internet == ANDROID_PROTECTED_FROM_VPN;

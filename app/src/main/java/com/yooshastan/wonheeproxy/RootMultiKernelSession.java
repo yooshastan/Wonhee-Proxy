@@ -16,7 +16,13 @@ import com.wireguard.config.Peer;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.net.ConnectException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NoRouteToHostException;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -332,7 +338,7 @@ final class RootMultiKernelSession {
                     allEndpoints &= numericEndpoint;
                     report.append(active.profileName).append(" (" + active.device + "): ")
                             .append(identity ? "UP / PUBLIC IDENTITY MATCH" : "DOWN OR IDENTITY UNVERIFIED")
-                            .append("; UDP mark ").append(mark > 0 ? "SET" : "OFF/UNVERIFIED")
+                            .append("; UDP mark ").append(RootFirewallMark.display(mark))
                             .append("; endpoint ").append(numericEndpoint ? "NUMERIC" : "UNVERIFIED")
                             .append("; last handshake ").append(identity
                                     ? handshakeAge(active.device) : "unavailable").append('\n');
@@ -394,6 +400,9 @@ final class RootMultiKernelSession {
                         .append("; all numeric UDP endpoints: ")
                         .append(allEndpoints ? "YES" : "NO/UNVERIFIED")
                         .append('\n');
+                if (!distinctMarks) report.append("Shared or missing transport marks "
+                        + "cannot identify individual tunnel exceptions safely. "
+                        + "This does NOT mean the tunnels are disconnected.\n");
                 boolean prerequisites = allMatched && !extra && consistent
                         && !occupied && firewall4 && firewall6 && mark4 && mark6
                         && routeMatches == split.size()
@@ -461,6 +470,69 @@ final class RootMultiKernelSession {
             } catch (Exception | LinkageError ignored) {
                 result = "Could not audit selected configured resolver routes. "
                         + "No DNS settings or policy rules changed.";
+            }
+            finish(callback, inspected, result);
+        });
+    }
+
+    /** App-UID TCP connect plus an independently labeled UID-0 route prediction. */
+    void probeService(List<SecureTunnelProfileStore.Profile> profiles, String rawTarget,
+                      Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean inspected = false;
+            String result;
+            try {
+                RootTcpProbeTarget target = RootTcpProbeTarget.parse(rawTarget);
+                List<Active> selected = loadAll(profiles);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                RootMultiTunnelPlan.validate(entries);
+                String expected = RootProtectionPolicy.expectedDevice(entries, target.address);
+                String rootRoute = "UNAVAILABLE";
+                try {
+                    rootReady();
+                    String selectedDevice = routeDevice(target.family, target.address);
+                    rootRoute = selectedDevice.isEmpty() ? "NO ROOT ROUTE" : selectedDevice;
+                } catch (Exception | LinkageError ignored) {
+                    // App socket reachability is still informative if su starts slowly.
+                }
+                String tcpResult;
+                try (Socket socket = new Socket()) {
+                    socket.connect(new InetSocketAddress(InetAddress.getByName(target.address),
+                            target.port), 3500);
+                    tcpResult = "CONNECTED (TCP handshake only)";
+                } catch (SocketTimeoutException timeout) {
+                    tcpResult = "TIMED OUT (host, firewall, or path may be blocking)";
+                } catch (ConnectException refused) {
+                    tcpResult = "CONNECTION REFUSED (no accepting service or active reject)";
+                } catch (NoRouteToHostException missing) {
+                    tcpResult = "NO ROUTE TO HOST";
+                } catch (SecurityException denied) {
+                    tcpResult = "APP SOCKET DENIED";
+                } catch (IOException invalid) {
+                    tcpResult = "SOCKET FAILED (network or remote endpoint error)";
+                }
+                StringBuilder report = new StringBuilder("READ-ONLY APP SERVICE PATH PROBE\n");
+                report.append("Target: ").append(target.label()).append('\n')
+                        .append("Profiles used for expected routing: ").append(selected.size()).append('\n')
+                        .append("Expected selected tunnel: ")
+                        .append(expected.isEmpty() ? "NONE IN SELECTION" : expected).append('\n')
+                        .append("UID-0 kernel route lookup: ").append(rootRoute).append('\n')
+                        .append("Wonhee app-UID TCP socket: ").append(tcpResult).append('\n')
+                        .append("No HTTP request, credentials, or DNS lookup were sent. ")
+                        .append("A TCP success does not prove the socket used the expected ")
+                        .append("tunnel, and it does not prove HTTP works. An IP target ")
+                        .append("does not test DNS. App fwmarks, packet path, ")
+                        .append("firewall leaks and kill switch are unverified. ")
+                        .append("No device routing or firewall configuration changed.");
+                result = report.toString();
+                inspected = true;
+            } catch (IllegalArgumentException invalid) {
+                result = "Path probe refused: " + invalid.getMessage()
+                        + " No device settings changed.";
+            } catch (Exception | LinkageError ignored) {
+                result = "Could not run the app service path probe with selected "
+                        + "profile definitions. No device settings changed.";
             }
             finish(callback, inspected, result);
         });
