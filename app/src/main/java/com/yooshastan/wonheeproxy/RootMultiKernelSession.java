@@ -776,6 +776,75 @@ final class RootMultiKernelSession {
         });
     }
 
+    /**
+     * Product D stage 2: explicitly chosen one-shot root-side TLS transport.
+     * Does not require Android ConnectivityManager to register kernel WG links.
+     */
+    void probeRootDoH(List<SecureTunnelProfileStore.Profile> profiles, String profileName,
+                      String endpointUrl, String bootstrapIp, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                DoHProbePolicy policy = DoHProbePolicy.parse(endpointUrl, bootstrapIp);
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                Active chosen = null;
+                for (Active item : selected) {
+                    if (item.profileName.equals(profileName)) {
+                        if (chosen != null) {
+                            throw new IllegalStateException("Ambiguous selected DNS tunnel.");
+                        }
+                        chosen = item;
+                    }
+                }
+                if (chosen == null) {
+                    throw new IllegalStateException("Choose one checked profile for root DoH.");
+                }
+                rootReady();
+                verifyRecoveryRules();
+                for (Active item : selected) {
+                    NamedTunnel link = new NamedTunnel(item.device);
+                    if (backend.getState(link) != Tunnel.State.UP || !matches(link, item)) {
+                        throw new IllegalStateException("A selected tunnel is DOWN or its public identity changed.");
+                    }
+                }
+                String routed = routeDevice(policy.family, policy.bootstrapAddress);
+                if (!chosen.device.equals(routed)) {
+                    throw new IllegalStateException("Numeric DoH upstream route does not match "
+                            + "the chosen tunnel. No root helper was launched.");
+                }
+                int answers = RootDoHNativeRunner.probe(appContext, shell, chosen.device, policy);
+                ok = true;
+                result = "PRODUCT BATCH D — ROOT-BOUND ENCRYPTED DNS PROBE\n"
+                        + "Independently identity-verified selected profiles: " + selected.size() + "\n"
+                        + "Chosen tunnel: " + chosen.profileName + " (" + chosen.device + ")\n"
+                        + "Kernel route: NUMERIC UPSTREAM MATCH\n"
+                        + "Root transport: SO_BINDTODEVICE enforced for selected interface\n"
+                        + "Bootstrap DNS lookup: NONE (numeric IP)\n"
+                        + "TLS: default trust + selected DNS hostname validation\n"
+                        + "RFC 8484 DNS wireformat POST: verified IPv4 answers " + answers + "\n"
+                        + "No route, firewall, DNS or kernel interface settings changed. "
+                        + "No alternate interface, proxy, redirect or plaintext fallback. "
+                        + "This verifies ONE query, NOT system-wide DNS or leak-freedom.";
+            } catch (IllegalArgumentException invalid) {
+                result = "PRODUCT BATCH D — ROOT DNS REFUSED\n" + invalid.getMessage()
+                        + "\nNo alternate DNS route attempted.";
+            } catch (IllegalStateException gate) {
+                result = "PRODUCT BATCH D — ROOT DNS REFUSED\n" + gate.getMessage()
+                        + "\nNo direct or plaintext fallback attempted.";
+            } catch (Exception transport) {
+                // Never display URLs, domain names, cert details, IPs or keys
+                // from third-party exception text.
+                result = "PRODUCT BATCH D — ROOT DNS TRANSPORT FAILED\n"
+                        + "The selected interface did not return a verified DoH answer. "
+                        + "No alternate route or resolver was tried; device policy unchanged.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
     /** Per-profile WireGuard UDP endpoint egress and Android DNS-mode inventory. */
     void auditTransportPaths(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
         if (!begin(callback)) return;

@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.0 Product Batch D DNS Infrastructure
+name: Wonhee Proxy 0.15.1 Product Batch D Root DNS Transport
 
 on:
   push:
@@ -19,6 +19,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Verify and compile root-bound DoH helpers
+        run: bash scripts/build-root-doh-helper.sh
       - name: Run standalone proxy core tests
         run: |
           mkdir -p /tmp/wonhee-classes
@@ -137,7 +142,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0150-product-d-doh-probe-debug-apk
+          name: wonhee-0151-product-d-root-doh-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -153,6 +158,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Verify and compile root-bound DoH helpers
+        run: bash scripts/build-root-doh-helper.sh
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android SDK
