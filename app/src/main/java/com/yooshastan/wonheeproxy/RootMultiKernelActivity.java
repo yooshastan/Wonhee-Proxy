@@ -64,6 +64,8 @@ public final class RootMultiKernelActivity extends Activity {
     private Button failClosedEnable;
     private Button failClosedAudit;
     private Button failClosedDisable;
+    private Button failClosedGuidedTest;
+    private Button failClosedUnderlayChallenge;
     private TextView failClosedStatus;
     private TextView dnsEnforcementStatus;
     private TextView trackerStatus;
@@ -500,6 +502,29 @@ public final class RootMultiKernelActivity extends Activity {
                 "Verify live IPv4/IPv6 guard + rollback ledger · read only");
         failClosedAudit.setOnClickListener(v ->
                 run("Audit Batch F guard", true, session::auditGuard));
+        failClosedGuidedTest = button(failClosed,
+                "Batch F guided preflight · read only, no test packets");
+        failClosedGuidedTest.setOnClickListener(v ->
+                run("Review Batch F guided safety checks", false, session::reviewGuardTest));
+        failClosedUnderlayChallenge = button(failClosed,
+                "Test IPv4 + IPv6 physical-underlay rejection · opt in");
+        failClosedUnderlayChallenge.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Send two bounded underlay test packets?")
+                .setMessage("HIGH-RISK ROOT EXPERIMENT. Only when Batch F is ACTIVE, "
+                        + "both tunnels are UP and working USB ADB recovery is connected. "
+                        + "Wonhee will attempt ONE ICMP echo each to fixed numeric IPv4 "
+                        + "and IPv6 addresses, bound to the verified physical underlay. "
+                        + "If the guard is broken, a packet COULD leave outside the VPN. "
+                        + "No DNS lookup or private payload will be sent. The test reads "
+                        + "exact guard REJECT counters before and after; other traffic may "
+                        + "also change those counters. It does NOT disconnect or switch "
+                        + "tunnels, install or remove firewall rules, test Home failure, "
+                        + "or claim leak freedom. Keep USB ADB open. Proceed?")
+                .setNegativeButton("Cancel · no packets", null)
+                .setPositiveButton("USB ADB ready · send 2", (dialog, which) ->
+                        run("Batch F bounded underlay challenge", false,
+                                session::challengeGuardUnderlay))
+                .show());
         failClosedDisable = button(failClosed, "Disable Batch F guard + verify exact rollback");
         failClosedDisable.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Remove Batch F firewall guard?")
@@ -862,6 +887,9 @@ public final class RootMultiKernelActivity extends Activity {
                 && "OFF".equals(session.guardLedgerStatus())
                 && "OFF".equals(session.dnsLedgerStatus()));
         if (failClosedAudit != null) failClosedAudit.setEnabled(idle);
+        if (failClosedGuidedTest != null) failClosedGuidedTest.setEnabled(ready);
+        if (failClosedUnderlayChallenge != null) failClosedUnderlayChallenge.setEnabled(ready
+                && !"OFF".equals(session.guardLedgerStatus()));
         if (failClosedDisable != null) failClosedDisable.setEnabled(idle
                 && !"OFF".equals(session.guardLedgerStatus()));
         if (failClosedStatus != null) {

@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.9 Product Batch F Live Rollback Audit
+name: Wonhee Proxy 0.15.10 Product Batch F Guided Safety Tests
 
 on:
   push:
@@ -66,6 +66,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootDnsProbePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootDnsFirewallPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootFailClosedFirewallPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootGuardProbeEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTrackerPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/DoHWireMessage.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootSafetyGuide.java \
@@ -106,6 +107,7 @@ jobs:
             core-tests/RootDnsProbePolicyTest.java \
             core-tests/RootDnsFirewallPlanTest.java \
             core-tests/RootFailClosedFirewallPlanTest.java \
+            core-tests/RootGuardProbeEvidenceTest.java \
             core-tests/RootTrackerPolicyTest.java \
             core-tests/DoHWireMessageTest.java \
             core-tests/RootSafetyGuideTest.java
@@ -146,6 +148,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsProbePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsFirewallPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootFailClosedFirewallPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardProbeEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTrackerPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHWireMessageTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSafetyGuideTest
@@ -157,7 +160,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0159-product-f-live-rollback-audit-alpha-debug-apk
+          name: wonhee-01510-product-f-guided-safety-tests-alpha-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

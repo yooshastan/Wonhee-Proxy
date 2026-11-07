@@ -1,4 +1,4 @@
-# Wonhee Proxy 0.15.9 — Product Batch F (experimental endpoint-pinned root guard)
+# Wonhee Proxy 0.15.10 — Product Batch F (guided experimental root-guard testing)
 
 Status: **test APK / opt-in prototype**. No unattended activation. No default firewall modification. Product roadmap A→I remains unchanged: F is root firewall; G handles future background coordination; H UI consolidation; I beta qualification.
 
@@ -12,16 +12,21 @@ Status: **test APK / opt-in prototype**. No unattended activation. No default fi
 
 ## One test cycle (phone UI)
 
-- [ ] Install the debug APK as an update only if the installed signature matches. Record app version `0.15.9-productBatchF-live-off-audit-alpha` (versionCode 56).
+- [ ] Install the debug APK as an update only if the installed signature matches. Record app version `0.15.10-productBatchF-guided-test-alpha` (versionCode 57).
 - [ ] Multi-Tunnel Lab → select Home and AirVPN → connect/verify exactly the same chosen tunnel identities and routes.
 - [ ] Open *Advanced security controls* → **Product Batch F · Fail-closed firewall prototype**. It must read **KILL SWITCH LEDGER: OFF** before any action.
 - [ ] Press **Verify live IPv4/IPv6 guard + rollback ledger**. When OFF, it must check both the ledger **AND** live root firewall: **owned ledger OFF; no Wonhee OUTPUT anchors or reserved guard chains**. A missing root shell or stray guard artifact must return CHECK REQUIRED. This does not exclude third-party firewall rules.
+- [ ] Press **Batch F guided preflight · read only**. It checks the selected live tunnel identities, exact endpoint marks, current physical underlay routes, per-profile routes, DNS guard/recovery status, and the absence of app-owned F rules. It sends no packets and installs nothing. If it refuses, do not enable F.
 - [ ] Press **Review + enable experimental kill switch · opt in**. Read the recovery warning, including the shared-mark limitations, and explicitly confirm only while connected to USB ADB. If a gate refuses, preserve the error and stop.
 - [ ] If activation reports **rolled back and verified**, preserve the new preceding **failed at** stage (family, command step, and rule number, without endpoint addresses). It indicates which iptables operation failed. Do not retry repeatedly if the stage persists. No kill switch should be active after verified rollback.
 - [ ] If enabled, press **Audit**. Require two OUTPUT anchors, exact chain rules and terminal IPv4/IPv6 rejects to match the ownership ledger. Leave Home/AirVPN connected.
+- [ ] Press **Batch F guided preflight** again while F is active. It must confirm the saved F plan still exactly matches the selected current kernel profiles and that both IPv4/IPv6 live rules match the plan.
+- [ ] **Optional, with working USB ADB and explicit consent only:** press **Test IPv4 + IPv6 physical-underlay rejection**. It sends at most two numeric-only ICMP echo attempts, one per family, bound to the physical interface; if the guard fails, an actual packet could escape. A successful ping is **potential direct escape** and needs immediate review. A rejected ping with an increased terminal reject counter is **limited blocking evidence**, not proof of the probe's packet specifically because other packets can increment the counter. No counter increase is **inconclusive** (the ping might have failed earlier). The UI never disconnects tunnels or changes the firewall in this test.
 - [ ] While F is active, check a small benign Internet request and an authorized Home-only request. Both should travel only through their chosen interfaces; *successful requests alone do not prove no leak*. Do not deliberately drop the only working underlay without additional safe rollback access.
 - [ ] Press **Disable Batch F guard + verify exact rollback**. Require a positive result. Press **Audit** again: owned ledger **OFF**. Confirm no Wonhee guard chain/tag exists. Tunnel profiles remain UP.
 - [ ] Only after exact cleanup is verified may you test tunnel changes, network handoffs or reboots, with F **OFF**. Re-enable F only for a separate controlled test.
+
+Do not mark independent Home-tunnel-loss behavior, DNS fail-closed behavior, Android app traffic isolation, reboot protection, or general IPv6 leak freedom as validated by the two ICMP challenges. Those require separate packet capture and controlled failure tests with a dedicated independent recovery path.
 
 ## Read-only shell evidence: Termux on device
 
