@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3c 0.15.17 — ICMPv6 subtype + static OUTPUT inventory (2026-11-07)
+
+- User completed 0.15.16 F.3b.1 opt-in capture: one anonymous outbound ICMPv6 candidate (parsed/captured 1/1, kernel drops 0, selected physical underlay wlan0), selected WireGuard identities 2/2, split route ownership 3 recorded/3 live MATCH, Batch F owned guard OFF/ABSENT. User explicitly confirmed both Navidrome streaming and public Internet browsing functional after capture. **Actual ICMPv6 subtype and packet's Android OUTPUT provenance were unknown.**
+- New isolated branch `feature/batch-f3c-icmpv6-output-audit-01517`, draft [PR #48](https://github.com/yooshastan/Wonhee-Proxy/pull/48), version **0.15.17** (code **65**). One-shot consented **read-only** header sampling with existing F.3b preflight; new conservative ICMPv6 subtype counts identify explicitly printed router solicitation/advertisement (133/134), neighbor solicitation/advertisement (135/136), redirect (137), echo request/reply, other known types, or UNKNOWN. Do not infer from an IPv6 multicast address.
+- Uses `iptables -S OUTPUT` and `ip6tables -S OUTPUT` only to read current IPv4/IPv6 OUTPUT rule inventories. Report contains rule count, jump/goto entry count and recognized default policy only; raw addresses, owner UIDs, rule targets/chain names never displayed or persisted. **This cannot demonstrate that the sampled ICMPv6 packet passed through local OUTPUT**; no counters or rules are installed.
+- Same strict dual-kernel identity, exact owned routing ledger and live Batch F guard OFF/ABSENT checks, consent, five-second/32-header cap, no pcap/payload, no network probes, no firewalls/tunnel/DNS/routing changes. Root capture output is transient and sanitized; persistent journal only records a generic result.
+- Pure Java regression coverage added: `RootF3cEvidenceTest` and previous `RootUnderlayControlEvidenceTest`; docs `docs/PRODUCT_BATCH_F3C_ICMPV6_OUTPUT_INSPECTION_TEST_PLAN.md`. CI initiated [Android run 42426367124](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42426367124) and [native run 42426367142](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42426367142); final results must pass on final commit before sharing an APK link.
+- Original connectivity incident [#41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) is OPEN. No attribution of packet creator/UID, OUTPUT hook traversal, safe source-bound WireGuard transport identity, endpoint rotation, physical handoff or fail-closed behavior. **Batch F guard activation and optional packet challenge remain hard-disabled.**
+
 ## Batch F.3b.1 post-capture functional stability PASS (2026-11-07)
 
 - User explicitly confirmed **private Navidrome streaming and public Internet browsing both work** after the 0.15.16 opt-in passive capture. Together with prior 1/1 parsed/captured ICMPv6 candidate and exact guard OFF/route 3/3, this completes the **F.3b.1 diagnostic execution + functional no-regression device acceptance**.
