@@ -107,6 +107,17 @@ Last updated: 2026-11-07
 - Next controlled gate, **only with confirmed USB ADB and root recovery**: snapshot current IPv4 and IPv6 OUTPUT rules; ensure both tunnels still UP and route audit remains valid; explicitly enable Batch F guard once; immediately audit live exact IPv4/IPv6 anchors/chains + rollback ownership, then rerun the guided preflight while guard is active. Keep tunnels connected and do not reboot. Review results before running optional two-packet challenge. If guard refuses, preserve the error stage and do not retry blindly. When appropriate, explicitly disable Batch F and verify exact rollback.
 - Moka private HTTP integration remains a separate issue and is not a blocker to Batch F firewall ownership testing. Do not imply real-app protection or full fail-closed capability based on guard plan/preflight checks alone.
 
+## Batch F active guard preflight PASS — first activation (2026-11-07)
+
+- Pixel 8a user screenshot: **BATCH F — GUIDED DUAL-TUNNEL TEST PREFLIGHT COMPLETE** while **Live exact IPv4/IPv6 guard: ACTIVE · MATCH**.
+- Selected independent kernel tunnel identities: **2 VERIFIED**. Endpoint marks and current underlay routes: **VERIFIED**. Selected split/default routes: **MATCH**.
+- Current underlay reported **`rmnet16` (route prediction only)**, whereas the earlier preflight used **`wlan0`**. This is consistent with cellular becoming the underlay, but the screenshot alone does **not** establish when or why it changed, or certify handoff safety.
+- Separate DNS guard OFF; unattended recovery OFF; configured Android Private DNS OFF.
+- Preflight sent **no packets** and changed **no policies**. This validates active rule shape/state against the app's plan, not packet-level drop behavior or fail-closed tunnel loss.
+- Next safest device step: **Verify live IPv4/IPv6 guard + rollback ledger** independently while guard is active. Only with functional USB ADB recovery and explicit consent should the optional one-packet-per-family challenge be considered. Otherwise **Disable Batch F guard + verify exact rollback** now, then run guard read-only audit requiring ownership ledger OFF and no app-reserved OUTPUT anchors or chains.
+- While guard ACTIVE: do not disconnect tunnels, reboot or intentionally force a Wi-Fi/cellular handoff. Do not assume local Termux alone is an independent recovery channel.
+- Batch F must not be marked fully fail-closed tested until controlled packet blocking and exact rollback are both verified, and broader disconnect/handoff behavior remains a separate gate.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
