@@ -2187,14 +2187,24 @@ final class RootMultiKernelSession {
                 if (countReservedRules() != expected.size()) {
                     throw new IllegalStateException("Unknown rules occupy the reserved priority range.");
                 }
-                for (RootSplitRouteRules.Rule rule : expected) {
-                    if (!rulePresent(rule)) {
-                        throw new IllegalStateException("An expected rule does not match the live kernel.");
+                List<RootSplitRouteRules.Rule> adopted = expected;
+                if (!rulesMatchExactly(expected)) {
+                    // 0.15.11 and earlier installed the legacy 0x0/0x2ffff selector.
+                    // Recover that exact command only when every reserved rule matches it.
+                    List<RootSplitRouteRules.Rule> legacy = new ArrayList<>();
+                    for (RootSplitRouteRules.Rule rule : expected) {
+                        legacy.add(new RootSplitRouteRules.Rule(rule.family, rule.priority,
+                                rule.destination, rule.device, rule.probe,
+                                RootSplitRouteRules.LEGACY_MARK));
                     }
+                    if (!rulesMatchExactly(legacy)) {
+                        throw new IllegalStateException("Neither current nor legacy owned rules match the live kernel.");
+                    }
+                    adopted = legacy;
                 }
-                saveRules(RootSplitRouteRules.encode(expected));
+                saveRules(RootSplitRouteRules.encode(adopted));
                 ok = true;
-                result = "Recovered rollback ownership record for " + expected.size()
+                result = "Recovered rollback ownership record for " + adopted.size()
                         + " exact matching kernel rule(s), after verifying both "
                         + "WireGuard public identities per selected profile. "
                         + "NO kernel rule or tunnel changed. The existing routes remain "
@@ -2227,6 +2237,20 @@ final class RootMultiKernelSession {
             }
         }
         return count;
+    }
+
+    private boolean rulesMatchExactly(List<RootSplitRouteRules.Rule> expected) throws Exception {
+        for (RootSplitRouteRules.Rule rule : expected) {
+            int matches = 0;
+            for (String line : readRules(rule.family)) {
+                if (RootSplitRouteRules.parsePriority(line) == rule.priority) {
+                    if (!rule.matchesListing(line)) return false;
+                    matches++;
+                }
+            }
+            if (matches != 1) return false;
+        }
+        return true;
     }
 
     private boolean rulePresent(RootSplitRouteRules.Rule rule) throws Exception {
