@@ -573,9 +573,9 @@ public final class RootMultiKernelActivity extends Activity {
         passiveHealth.setOnClickListener(v -> run("F.2 manual passive health snapshot",
                 false, session::snapshotPassiveHealth));
         passiveUnderlay = button(privacy,
-                "Batch F.3c · Inspect ICMPv6 types + OUTPUT rules · read only");
+                "Batch F.3d · Compare existing OUTPUT counters · read only");
         passiveUnderlay.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("Inspect ICMPv6 types and read-only OUTPUT rules?")
+                .setTitle("Compare existing OUTPUT counters read only?")
                 .setMessage("Batch F must remain OFF. Only after exact tunnel/route "
                         + "ownership checks, Wonhee observes up to 32 outgoing "
                         + "packet HEADERS on the current physical Wi-Fi/cellular "
@@ -583,14 +583,17 @@ public final class RootMultiKernelActivity extends Activity {
                         + "an Android OUTPUT-chain or UID attribution test. "
                         + "Wonhee reports only aggregate candidate counts, "
                         + "tcpdump capture status, interface TX counters, ICMPv6 "
-                        + "subtypes, and the count of pre-existing OUTPUT rules. "
+                        + "subtypes, and before/after counters from existing "
+                        + "IPv4/IPv6 OUTPUT rules. Counters may include unrelated "
+                        + "traffic and cannot prove that the observed packet "
+                        + "crossed OUTPUT. No counter is installed or reset. "
                         + "A quiet window is not proof of no network traffic. "
                         + "Raw addresses and packet data are not displayed or saved. "
                         + "No packets are generated, and no policies change. "
                         + "Root tcpdump + timeout must already be available.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Observe headers", (dialog, which) ->
-                        run("F.3c passive underlay header observation", false,
+                        run("F.3d passive underlay and OUTPUT counter observation", false,
                                 session::observePhysicalControlHeaders))
                 .show());
         label(privacy, "Manual on-device snapshot of verified WireGuard handshake age, "
@@ -872,8 +875,9 @@ public final class RootMultiKernelActivity extends Activity {
                     : action.startsWith("F.2 manual passive health")
                             ? "F.2 manual snapshot " + (ok ? "completed" : "check required")
                     : (action.startsWith("F.3b passive underlay")
-                            || action.startsWith("F.3c passive underlay"))
-                            ? "F.3c anonymous header and OUTPUT inventory "
+                            || action.startsWith("F.3c passive underlay")
+                            || action.startsWith("F.3d passive underlay"))
+                            ? "F.3d anonymous header and OUTPUT counter comparison "
                                     + (ok ? "completed" : "check required")
                             : result);
             updateButtons();
