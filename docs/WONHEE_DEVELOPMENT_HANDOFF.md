@@ -82,6 +82,14 @@ Last updated: 2026-11-07
 - With both tunnels still connected and Batch F OFF, verify ledger EMPTY and no reserved-priority rules. If confirmed, explicitly reapply the new correction via Wonhee, then run the read-only route audit. Required: ledger 3, live rules 3, private 3/3, public IPv4/IPv6 MATCH, Android mark-aware 70/70 (or all probes currently discovered), protected-from-VPN 3/3. Do not enable Batch F before these gates.
 - If app-level recovery/ledger status mismatches the kernel snapshot, do not manually edit rules or disconnect tunnels; investigate before reapply.
 
+## Full ledger-empty rollback audit confirmed (2026-11-07)
+
+- Following removal of the new 0.15.12 three-rule correction via the Wonhee UI, a fresh **read-only routing audit** showed **Wonhee rollback ledger EMPTY** and **Live reserved-priority rules: 0**.
+- The private HOME destinations `10.0.0.0/24`, `10.6.0.0/24`, and `10.77.0.0/24` again resolved to AirVPN, marked **MISMATCH** as expected without the split correction.
+- Public IPv4 and IPv6 remained on AirVPN, both **MATCH**. The earlier Termux `ip -4 rule show` also confirmed only Android's four priority-13000 rules remained and no 12500–12502 rules.
+- This independently verifies both the **kernel-rule removal** and **application rollback ledger clearing** portions of Batch B.1. A `CHECK REQUIRED` label in the audit is expected while no split rules are installed; it does not indicate cleanup failure.
+- Next: with both tunnels still connected and Batch F OFF, explicitly **Apply split-route correction · experimental** to reinstall the 0.15.12 mark-aware HOME rules. Re-audit HOME 3/3, Android mark-aware simulations all passing (70/70 if same marks), protectedFromVpn 3/3, public IPv4/IPv6 AirVPN, and ledger/live priority counts both 3. Verify application access again. Do not enable Batch F before this validation.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
