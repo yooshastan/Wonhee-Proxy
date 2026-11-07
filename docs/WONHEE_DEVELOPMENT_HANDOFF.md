@@ -35,6 +35,14 @@ Last updated: 2026-11-07
 - The screenshot is from the **read-only audit before the user has confirmed removing old routing overrides and applying the new 0x0/0x20000 rules**. Do not interpret 31/70 as a post-install failure of the new selector.
 - Next safe gate: confirm rollback ledger and live reserved priorities match, remove only the exact old Wonhee rules via the app, inspect the resulting RPDB, then explicitly apply the new selector and retest. Batch F remains OFF; do not manually flush Android rules or disconnect tunnels.
 
+## 0.15.12 post-cleanup preflight refusal (2026-11-07)
+
+- User successfully recovered the **three** legacy priority-12500–12502 rules using the exact matching-rule recovery UI, then removed them through Wonhee. A Termux `ip -4 rule show` inspection confirmed priorities 12500–12502 absent while all four Android priority-13000 rules remained unchanged.
+- On selecting **Apply split-route correction · experimental**, Wonhee displayed **ROUTING PREFLIGHT REFUSED. NO ROUTING RULES CHANGED**. There is no evidence the new mark-aware rules were installed.
+- The failure reason is **not yet identified**: `applyRouting()` catches all preflight exceptions and previously displayed only a generic message. Possible gates include DNS/Batch F ownership ledger, selected WireGuard identities, numeric endpoint availability and overlap, marked endpoint physical-underlay routing, or a reserved IPv4/IPv6 priority collision. Do not assume which one failed.
+- The development branch now reports a **non-sensitive preflight stage label** in the refusal message; it does not disclose endpoints, IP addresses, public keys or arbitrary exception messages.
+- Device can run the existing **Inspect UDP endpoint egress + Private DNS** read-only audit and **Audit owned DNS enforcement** before trying any mutation. Preserve active HOME and AirVPN tunnels and keep Batch F OFF.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
