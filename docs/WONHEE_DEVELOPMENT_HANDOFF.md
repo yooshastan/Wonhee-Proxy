@@ -118,6 +118,16 @@ Last updated: 2026-11-07
 - While guard ACTIVE: do not disconnect tunnels, reboot or intentionally force a Wi-Fi/cellular handoff. Do not assume local Termux alone is an independent recovery channel.
 - Batch F must not be marked fully fail-closed tested until controlled packet blocking and exact rollback are both verified, and broader disconnect/handoff behavior remains a separate gate.
 
+## Batch F active-guard connectivity loss — BLOCKER (2026-11-07)
+
+- After Batch F guided preflight showed **ACTIVE · MATCH** for both IPv4 and IPv6 owned guard chains, user reported: **"I lost connection while that was active so I had to disable it."**
+- User took recovery action by disabling the guard. **Post-disable ledger/OUTPUT-chain absence and connectivity restoration are not yet independently confirmed** in the conversation.
+- Earlier active preflight reported physical underlay as `rmnet16` (cellular), versus `wlan0` in the earlier guard-off preflight. This is a lead for underlay transition/control-plane trouble, **not proof of the cause**.
+- Implementation audit: Batch F OUTPUT guard permits loopback, exact WireGuard UDP endpoint tuple + mark, selected tunnel-interface traffic and configured peer CIDRs, then terminal REJECT. Its preflight verifies static rule ownership and predicted routes, not ongoing connectivity/underlay handoff. The terminal REJECT could block Android underlay-related/control traffic; dynamic endpoint/underlay changes could also break tunnels. No unverified automatic firewall exemption should be installed.
+- **Batch F testing BLOCKED pending post-disable verification and root-cause investigation. DO NOT RE-ENABLE** just to reproduce without independent USB ADB recovery and a revised test plan. Do not mark F fail-closed validated.
+- GitHub tracking issue: https://github.com/yooshastan/Wonhee-Proxy/issues/41.
+- Next safe checks: run Wonhee **Verify live IPv4/IPv6 guard + rollback ledger** and require OFF ledger, absent OUTPUT anchors and chains. Termux read-only checks can additionally inspect the three split-route rules and current connectivity; share whether HOME, public Internet, or both failed. Retain HOME/AirVPN if functioning and preserve Batch B.1 routing policy.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
