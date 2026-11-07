@@ -567,6 +567,12 @@ final class RootMultiKernelSession {
                         ? "EMPTY" : stored.size() + " proposed/installed rule(s)").append('\n');
                 int reserved = countReservedRules();
                 report.append("Live reserved-priority rules: ").append(reserved).append('\n');
+                // Exact kernel rules and recorded ownership must match before
+                // a route MATCH can count as a successful ownership audit.
+                boolean ownedExact = !stored.isEmpty() && reserved == stored.size()
+                        && rulesMatchExactly(stored);
+                boolean ownershipOk = RootSplitRouteRules.auditOwnershipConsistent(
+                        planned, stored, reserved, ownedExact);
                 if (stored.isEmpty() && reserved > 0) {
                     report.append("WARNING — UNTRACKED ROUTING RULES: policy priorities "
                             + "12500–12799 exist, but Wonhee has no rollback ledger. "
@@ -575,6 +581,11 @@ final class RootMultiKernelSession {
                 } else if (!stored.isEmpty() && reserved != stored.size()) {
                     report.append("WARNING — RULE COUNT DIFFERS FROM ROLLBACK LEDGER. "
                             + "Inspect before changing tunnels.\n");
+                } else if (!ownershipOk) {
+                    report.append("WARNING — ROUTING OWNERSHIP NOT VERIFIED: "
+                            + "ledger, selected profiles or exact live rule selectors "
+                            + "do not agree. Keep tunnels connected and investigate "
+                            + "before changing rules; do not assume ownership.\n");
                 }
                 int matched = 0;
                 for (RootSplitRouteRules.Rule rule : planned) {
@@ -606,7 +617,7 @@ final class RootMultiKernelSession {
                         + "UID-10000 fwmark route simulations, NOT actual app sockets, DNS, "
                         + "packet capture or kill-switch tests.");
                 result = report.toString();
-                ok = matched == planned.size() && markAwareOk;
+                ok = ownershipOk && matched == planned.size() && markAwareOk;
             } catch (Exception | LinkageError ignored) {
                 result = "Route audit could not complete. Verify root, saved profiles, "
                         + "and any owned-rule ledger. No routes were changed.";
