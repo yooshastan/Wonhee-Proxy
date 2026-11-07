@@ -2051,7 +2051,21 @@ final class RootMultiKernelSession {
                     if (shell.run(marks, "wg show " + active.device + " fwmark") != 0
                             || marks.size() != 1
                             || !RootSplitRouteRules.transportMarkHasIdentity(marks.get(0))) {
-                        throw new IllegalStateException("WireGuard endpoint fwmark is not safely excluded.");
+                        throw new IllegalStateException("WireGuard transport mark is missing or lacks routing identity bits.");
+                    }
+                    long transportMark = RootFirewallMark.parse(marks);
+                    List<String> endpointOutput = new ArrayList<>();
+                    RootTcpProbeTarget endpoint = shell.run(endpointOutput,
+                            "wg show " + active.device + " endpoints") == 0
+                            ? RootWireGuardEndpoint.numericTarget(endpointOutput) : null;
+                    if (endpoint == null || !RootSplitRouteRules.endpointOutsideSplitRoutes(
+                            endpoint.address, rules)) {
+                        throw new IllegalStateException("Numeric WireGuard endpoint is unavailable or overlaps a HOME split prefix.");
+                    }
+                    String underlay = routeDeviceMarked(endpoint.family, endpoint.address, transportMark);
+                    if (!underlay.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
+                            || expected.contains(underlay)) {
+                        throw new IllegalStateException("WireGuard endpoint does not route through a physical underlay.");
                     }
                 }
                 if (RootSplitRouteRules.reservedPriorityPresent(readRules(4))
@@ -2069,13 +2083,17 @@ final class RootMultiKernelSession {
                 }
                 for (RootSplitRouteRules.Rule rule : rules) {
                     if (!rule.device.equals(routeDevice(rule.family, rule.probe))) {
-                        throw new IllegalStateException("Post-install route selection is still incorrect.");
+                        throw new IllegalStateException("Post-install root route selection is still incorrect.");
                     }
+                }
+                if (!appendMarkAwareRouteAudit(routeEntries(selected), rules, new StringBuilder())) {
+                    throw new IllegalStateException("Post-install Android fwmark route simulations failed.");
                 }
                 ok = true;
                 result = "Installed " + rules.size() + " Wonhee-owned split priority rule(s), "
-                        + "verified against UID-0 route lookups. Android app routes, encrypted "
-                        + "DNS, real packet paths and fail-closed behavior remain UNVERIFIED. "
+                        + "verified against UID-0 and representative UID-10000 Android fwmark "
+                        + "route simulations. Actual app sockets, encrypted DNS, packet paths "
+                        + "and fail-closed behavior remain UNVERIFIED. "
                         + "Use Remove routing overrides before changing tunnels. No kill switch.";
             } catch (Exception | LinkageError ignored) {
                 if (ledgerCommitted) {
