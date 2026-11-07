@@ -74,6 +74,14 @@ Last updated: 2026-11-07
 - Interpret the result as **no matching direct cleartext Navidrome traffic observed during this capture**. A definitive negative conclusion requires confirming that the browser refresh occurred while the physical capture was active; this single filter does not establish complete leak prevention during disconnects, handoffs, other interfaces or other destinations.
 - Next device gate: inspect ledger (3 owned) and live reserved rules (3), perform **Remove Wonhee routing overrides** in UI with both tunnels connected, Batch F OFF and root/ADB recovery available. Verify priorities 12500–12502 disappear, Android's four priority-13000 rules remain, and ledger clears. If continuing tests, reapply through the guarded Wonhee UI (never by hand) and re-audit the 70/70 marked-route selection.
 
+## New-selector kernel rollback verified (2026-11-07)
+
+- After testing the 0.15.12 rules with successful 70/70 Android mark-route simulations and a successful HOME Navidrome packet capture, the user ran `ip -4 rule show` after using Wonhee's cleanup flow.
+- **Priorities 12500, 12501, 12502 are absent**. The four original Android **priority-13000 rules are still present**, unchanged in the reported output.
+- This verifies exact **kernel-rule removal** for the three new overrides. The app-level rollback ledger clearing has **not** yet been independently reported; a read-only Wonhee routing audit is needed.
+- With both tunnels still connected and Batch F OFF, verify ledger EMPTY and no reserved-priority rules. If confirmed, explicitly reapply the new correction via Wonhee, then run the read-only route audit. Required: ledger 3, live rules 3, private 3/3, public IPv4/IPv6 MATCH, Android mark-aware 70/70 (or all probes currently discovered), protected-from-VPN 3/3. Do not enable Batch F before these gates.
+- If app-level recovery/ledger status mismatches the kernel snapshot, do not manually edit rules or disconnect tunnels; investigate before reapply.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
