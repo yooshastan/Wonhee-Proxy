@@ -267,13 +267,15 @@ final class RootSplitRouteRules {
         StringBuilder text = new StringBuilder("ROUTING POLICY PLAN (installation status checked separately)\n");
         for (Rule rule : rules) {
             text.append(rule.priority).append(" · IPv").append(rule.family)
+                    .append(" · fwmark ").append(rule.mark)
                     .append(" · ").append(rule.destination).append(" → ")
                     .append(rule.device).append("\n");
         }
-        return text.append("These priority-12500+ rules would be owned by Wonhee and "
-                + "precede Android's priority-13000 default selection. Device-specific "
-                + "root routing, app fwmarks, transport marks, DNS and rollback "
-                + "must be verified before calling the result safe.").toString();
+        return text.append("These priority-12500+ rules are Wonhee-owned and precede "
+                + "Android's priority-13000 VPN defaults. The selector matches locally "
+                + "generated traffic not protectedFromVpn; protected sockets bypass it. "
+                + "Actual app sockets, endpoint egress, DNS and rollback still require "
+                + "device verification.").toString();
     }
 
     private static int prefix(String cidr) {
