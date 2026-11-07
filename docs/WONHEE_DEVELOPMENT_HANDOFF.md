@@ -2,6 +2,13 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b.1 Pixel 8a outgoing ICMPv6 observed (2026-11-07)
+
+- User shared 0.15.16 diagnostic screenshot: **COMPLETE**, **HEADERS_OBSERVED**, exact selected WireGuard identities 2/2, predicted underlay `wlan0`, routing ledger/live **3/3 EXACT MATCH**, Batch F guard **OFF/ABSENT**.
+- One outgoing matching physical interface packet header classified as **ICMPv6 candidate 1**; DHCPv4/DNS TCP+UDP/HTTP80/other candidate totals all 0. **Parsed 1 / tcpdump captured 1**, zero parser gaps, capture startup YES, tcpdump received-by-filter 4 (not four captured outgoing packets), kernel drops 0, physical TX delta +1.
+- F.3b.1 capture telemetry **device PASS**. ICMPv6 subtype, Android process/UID, local OUTPUT traversal and firewall relevance are **UNVERIFIED**. The result retains the old `BATCH F.3b` heading although F.3b.1 metrics are present; cosmetic report-label correction can be applied in a later patch.
+- No active guard or packet generation. Post-this-sample browsing/Navidrome continuity not separately rechecked; prior 0.15.15 post-capture continuity PASS remains documented. Keep Batch F activation hard-blocked, issue #41 unresolved, and investigate read-only OUTPUT provenance before changing packet allowances.
+
 ## Batch F.3b.1 0.15.16 — Capture coverage confidence and parser regression (2026-11-07)
 
 - New draft [PR #47](https://github.com/yooshastan/Wonhee-Proxy/pull/47) on `feature/batch-f3b1-capture-diagnostics-01516` builds from the functioning 0.15.15 F.3b passive device diagnostic. Version **0.15.16**, versionCode **64**, artifact `wonhee-01516-f3b1-capture-coverage-debug-apk` when CI succeeds.
