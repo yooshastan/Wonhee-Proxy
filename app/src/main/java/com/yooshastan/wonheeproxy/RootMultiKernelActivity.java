@@ -219,19 +219,22 @@ public final class RootMultiKernelActivity extends Activity {
 
         LinearLayout routing = card(advancedGroup);
         label(routing, "EXPERIMENTAL ROUTING OVERRIDES", 18, PINK);
-        label(routing, "Batch B addresses the observed Home split route choosing the "
-                + "AirVPN default. Inspect the read-only audit first. The optional fix "
-                + "adds narrowly scoped Wonhee-owned rules ahead of Android's default "
-                + "selection, records a persistent rollback ledger, and verifies root "
-                + "route lookups. It is NOT a leak test or kill switch.", 13, MUTED);
+        label(routing, "Batch B.1 fixes Android network-mark precedence: HOME destination "
+                + "rules match locally generated traffic that is not protectedFromVpn, "
+                + "regardless of its network ID. Protected sockets are preserved and "
+                + "Android/netd rules are not changed. The read-only audit checks root "
+                + "routes plus representative Android fwmark simulations; it is NOT "
+                + "proof of actual app sockets, a leak test or a kill switch.", 13, MUTED);
         audit = button(routing, "Audit effective routes · read only");
-        audit.setOnClickListener(v -> run("Audit UID-0 routes", false, session::auditRouting));
+        audit.setOnClickListener(v -> run("Audit root and Android-mark routes", false, session::auditRouting));
         apply = button(routing, "Apply split-route correction · experimental");
         apply.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Install owned routing priority rules?")
                 .setMessage("Only selected, identity-verified running tunnels can be used. "
-                        + "Wonhee will refuse policy-rule collisions and unsafe WireGuard "
-                        + "endpoint marks, save a rollback ledger, then check root routes. "
+                        + "Wonhee will refuse policy-rule collisions, protected-socket conflicts "
+                        + "and unsafe WireGuard endpoint paths. It installs HOME destination "
+                        + "rules using Android's protectedFromVpn bit, saves an exact rollback "
+                        + "ledger, then checks root and representative app-UID mark routes. "
                         + "This changes device routing and may interrupt connectivity. "
                         + "Keep USB ADB recovery ready. No kill switch is installed.")
                 .setNegativeButton("Cancel", null)

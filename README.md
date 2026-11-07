@@ -22,6 +22,23 @@ The recovery-safety update detects reserved routing rules missing from the
 local rollback ledger and offers separately confirmed, exact-identity
 reconciliation before any cleanup.
 
+### Product Batch B.1 0.15.12 — Android mark-aware split routing (draft)
+
+The Pixel 8a device test exposed that the earlier `fwmark 0x0/0x2ffff`
+selector matched root/unmarked lookups but excluded application sockets carrying
+Android network-ID marks. The replacement destination-specific HOME rules use
+`fwmark 0x0/0x20000` (Android's protectedFromVpn bit 17), so locally generated
+traffic that is not protected from VPN can use HOME private prefixes regardless
+of network ID, while protected sockets remain outside the override. Public
+traffic continues to use the selected AirVPN default. The new audit simulates
+representative unprotected marks discovered from live IPv4/IPv6 policy rules
+for app UID 10000, checks public defaults and verifies protectedFromVpn bypass.
+It does **not** prove actual app socket paths or packet egress. Numeric WireGuard
+endpoints must remain outside HOME prefixes and route through a physical
+underlay. Old five-field 0.15.11 rollback ledgers retain their original selector
+for exact cleanup and orphan-rule recovery. Batch F remains OFF pending device
+validation. See the [Batch B.1 test plan](docs/ROOT_MULTI_TUNNEL_BATCH_B_ROUTING_TEST_PLAN.md).
+
 ### Batch C 0.11.0 — network protection readiness (read-only)
 
 The opt-in lab now inspects selected multi-kernel tunnel identities, UDP socket

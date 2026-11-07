@@ -68,6 +68,8 @@ final class RootMultiKernelSession {
     private static final String ROUTE_LEDGER_KEY = "pending_or_installed_rules_v1";
     private static final String DNS_LEDGER_KEY = "pending_dns_policy_v1";
     private static final String GUARD_LEDGER_KEY = "pending_guard_v1";
+    // Representative app UID inside the Android user range owned by split rules.
+    private static final int MARK_AUDIT_UID = 10000;
     // Only links started and identity-verified by this process are in this map.
     private final Map<String, Active> managed = new LinkedHashMap<>();
     private volatile boolean busy;
@@ -598,11 +600,13 @@ final class RootMultiKernelSession {
                         }
                     }
                 }
+                boolean markAwareOk = appendMarkAwareRouteAudit(routeEntries(selected), planned, report);
                 report.append("Split-route matches: ").append(matched).append('/')
-                        .append(planned.size()).append(". These are UID-0 route queries, "
-                        + "NOT app traffic, DNS, endpoint, packet-capture or kill-switch tests.");
+                        .append(planned.size()).append(". These are UID-0 and representative "
+                        + "UID-10000 fwmark route simulations, NOT actual app sockets, DNS, "
+                        + "packet capture or kill-switch tests.");
                 result = report.toString();
-                ok = true;
+                ok = matched == planned.size() && markAwareOk;
             } catch (Exception | LinkageError ignored) {
                 result = "Route audit could not complete. Verify root, saved profiles, "
                         + "and any owned-rule ledger. No routes were changed.";
@@ -630,7 +634,7 @@ final class RootMultiKernelSession {
                 Set<String> running = backend.getRunningTunnelNames();
                 boolean allMatched = true;
                 boolean allEndpoints = true;
-                boolean transportBypass = true;
+                boolean transportMarkIdentity = true;
                 boolean distinctMarks = true;
                 Set<Long> observedMarks = new LinkedHashSet<>();
                 StringBuilder report = new StringBuilder("BATCH C — READ-ONLY NETWORK PROTECTION GATE\n");
@@ -643,9 +647,15 @@ final class RootMultiKernelSession {
                     boolean markRead = identity && shell.run(markOutput,
                             "wg show " + active.device + " fwmark") == 0;
                     long mark = markRead ? RootFirewallMark.parse(markOutput) : 0;
-                    boolean exempt = mark > 0 && (mark & RootSplitRouteRules.MARK_MASK) != 0;
-                    transportBypass &= exempt;
-                    if (mark == 0 || !observedMarks.add(mark)) distinctMarks = false;
+                    boolean hasIdentity = mark > 0
+                            && (mark & RootSplitRouteRules.TRANSPORT_MARK_IDENTITY_MASK) != 0;
+                    transportMarkIdentity &= hasIdentity;
+                    if (mark == 0) {
+                        distinctMarks = false;
+                    } else if (!observedMarks.add(mark)
+                            && mark != RootFirewallMark.ANDROID_PROTECTED_FROM_VPN) {
+                        distinctMarks = false;
+                    }
                     List<String> endpointOutput = new ArrayList<>();
                     boolean numericEndpoint = identity && shell.run(endpointOutput,
                             "wg show " + active.device + " endpoints") == 0
@@ -674,6 +684,7 @@ final class RootMultiKernelSession {
                 }
                 report.append("Home/private split root routes: ").append(routeMatches)
                         .append('/').append(split.size()).append(" matched\n");
+                boolean markAwareRoutes = appendMarkAwareRouteAudit(entries, split, report);
                 for (int family : new int[] {4, 6}) {
                     String address = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
                     String expected = RootProtectionPolicy.expectedDevice(entries, address);
@@ -708,9 +719,9 @@ final class RootMultiKernelSession {
                 report.append("Owned routing ledger matches live priority rules: ")
                         .append(consistent ? "YES" : "NO — recover before any mutation")
                         .append('\n');
-                report.append("Transport marks exclude unmarked route rules: ")
-                        .append(transportBypass ? "YES (routing only)" : "NOT PROVEN")
-                        .append("; distinct nonzero marks: ")
+                report.append("WireGuard transport marks carry routing identity bits: ")
+                        .append(transportMarkIdentity ? "YES" : "NOT PROVEN")
+                        .append("; distinct marks or shared Android protected mark: ")
                         .append(distinctMarks ? "YES" : "NO/UNVERIFIED")
                         .append("; all numeric UDP endpoints: ")
                         .append(allEndpoints ? "YES" : "NO/UNVERIFIED")
@@ -723,7 +734,7 @@ final class RootMultiKernelSession {
                         && routeMatches == split.size()
                         && RootProtectionPolicy.hasInternetDefault(entries, 4)
                         && RootProtectionPolicy.hasInternetDefault(entries, 6)
-                        && transportBypass && distinctMarks && allEndpoints;
+                        && transportMarkIdentity && distinctMarks && allEndpoints && markAwareRoutes;
                 report.append("Protection design preconditions: ")
                         .append(prerequisites ? "PARTIAL PASS" : "INCOMPLETE")
                         .append(". Even a partial pass is NOT safe to arm.\n")
@@ -1092,6 +1103,11 @@ final class RootMultiKernelSession {
                 validate(selected);
                 rootReady();
                 verifyRecoveryRules();
+                List<RootMultiTunnelPlan.Entry> selectedRoutes = routeEntries(selected);
+                List<RootSplitRouteRules.Rule> splitRules = RootSplitRouteRules.plan(selectedRoutes);
+                if (!appendMarkAwareRouteAudit(selectedRoutes, splitRules, new StringBuilder())) {
+                    throw new IllegalStateException("Android mark-aware split-route simulations failed.");
+                }
                 Set<String> running = backend.getRunningTunnelNames();
                 List<String> devices = new ArrayList<>();
                 for (Active active : selected) devices.add(active.device);
@@ -1129,10 +1145,9 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("Unable to inspect WireGuard transport mark.");
                     }
                     long mark = RootFirewallMark.parse(rawMark);
-                    if (mark == 0 || !RootSplitRouteRules.transportBypassesRules(
+                    if (mark == 0 || !RootSplitRouteRules.transportMarkHasIdentity(
                                     "0x" + Long.toHexString(mark))) {
-                        throw new IllegalStateException("Transport mark absent or unsafe; "
-                                + "no broad physical-network exception will be installed.");
+                        throw new IllegalStateException("WireGuard transport mark is missing or lacks routing identity bits; refusing endpoint exception.");
                     }
                     if (!marks.add(mark)) {
                         if (mark != RootFirewallMark.ANDROID_PROTECTED_FROM_VPN) {
@@ -1145,9 +1160,9 @@ final class RootMultiKernelSession {
                     RootTcpProbeTarget endpoint = shell.run(rawEndpoint,
                             "wg show " + active.device + " endpoints") == 0
                             ? RootWireGuardEndpoint.numericTarget(rawEndpoint) : null;
-                    if (endpoint == null) {
-                        throw new IllegalStateException("WireGuard UDP endpoint is not a verified "
-                                + "numeric address and port.");
+                    if (endpoint == null || !RootSplitRouteRules.endpointOutsideSplitRoutes(
+                            endpoint.address, splitRules)) {
+                        throw new IllegalStateException("WireGuard UDP endpoint is unavailable or overlaps a HOME split prefix.");
                     }
                     String underlay = routeDeviceMarked(endpoint.family, endpoint.address, mark);
                     if (!underlay.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
@@ -1274,7 +1289,12 @@ final class RootMultiKernelSession {
         }
         List<Active> selected = loadAll(profiles);
         validate(selected);
+        List<RootMultiTunnelPlan.Entry> selectedRoutes = routeEntries(selected);
+        List<RootSplitRouteRules.Rule> splitRules = RootSplitRouteRules.plan(selectedRoutes);
         rootReady();
+        if (!appendMarkAwareRouteAudit(selectedRoutes, splitRules, new StringBuilder())) {
+            throw new IllegalStateException("Android mark-aware split-route simulations failed.");
+        }
         Set<String> running = backend.getRunningTunnelNames();
         Set<String> chosenDevices = new LinkedHashSet<>();
         for (Active active : selected) chosenDevices.add(active.device);
@@ -1308,16 +1328,17 @@ final class RootMultiKernelSession {
                 throw new IllegalStateException("WireGuard transport mark is unavailable.");
             }
             long mark = RootFirewallMark.parse(marks);
-            if (mark == 0 || !RootSplitRouteRules.transportBypassesRules(
+            if (mark == 0 || !RootSplitRouteRules.transportMarkHasIdentity(
                     "0x" + Long.toHexString(mark))) {
-                throw new IllegalStateException("WireGuard transport mark is missing or unsafe.");
+                throw new IllegalStateException("WireGuard transport mark is missing or lacks routing identity bits.");
             }
             List<String> endpoints = new ArrayList<>();
             RootTcpProbeTarget endpoint = shell.run(endpoints,
                     "wg show " + active.device + " endpoints") == 0
                     ? RootWireGuardEndpoint.numericTarget(endpoints) : null;
-            if (endpoint == null) {
-                throw new IllegalStateException("Numeric WireGuard UDP endpoint is unavailable.");
+            if (endpoint == null || !RootSplitRouteRules.endpointOutsideSplitRoutes(
+                    endpoint.address, splitRules)) {
+                throw new IllegalStateException("Numeric WireGuard endpoint is unavailable or overlaps a HOME split prefix.");
             }
             String egress = routeDeviceMarked(endpoint.family, endpoint.address, mark);
             if (!egress.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
@@ -2014,17 +2035,23 @@ final class RootMultiKernelSession {
             boolean ok = false;
             String result;
             boolean ledgerCommitted = false;
+            // Human-readable, non-sensitive failure stage. Never reveal endpoints, keys, or exceptions.
+            String preflightStage = "DNS or Batch F policy ownership";
             try {
                 requireDnsDisabledForTunnelMutation();
+                preflightStage = "existing routing rollback ledger";
                 if (!savedRules().isEmpty()) {
                     throw new IllegalStateException("Existing rollback ledger must be reviewed/removed first.");
                 }
+                preflightStage = "profile decoding and route plan";
                 List<Active> selected = loadAll(profiles);
                 List<RootSplitRouteRules.Rule> rules = RootSplitRouteRules.plan(routeEntries(selected));
                 if (rules.isEmpty()) {
                     throw new IllegalStateException("No conflicting default and split-route selections to correct.");
                 }
+                preflightStage = "root tools and kernel capability";
                 rootReady();
+                preflightStage = "running tunnel inventory";
                 Set<String> running = backend.getRunningTunnelNames();
                 if (running.contains("wnhome0") || running.contains("wnair0")) {
                     throw new IllegalStateException("Legacy pair must be stopped first.");
@@ -2037,39 +2064,66 @@ final class RootMultiKernelSession {
                     }
                 }
                 for (Active active : selected) {
+                    preflightStage = "selected WireGuard tunnel identity";
                     Tunnel link = new NamedTunnel(active.device);
                     if (!running.contains(active.device) || !matches(link, active)) {
                         throw new IllegalStateException("A selected interface is down or fails identity verification.");
                     }
+                    preflightStage = "WireGuard transport mark";
                     List<String> marks = new ArrayList<>();
                     if (shell.run(marks, "wg show " + active.device + " fwmark") != 0
                             || marks.size() != 1
-                            || !RootSplitRouteRules.transportBypassesRules(marks.get(0))) {
-                        throw new IllegalStateException("WireGuard endpoint fwmark is not safely excluded.");
+                            || !RootSplitRouteRules.transportMarkHasIdentity(marks.get(0))) {
+                        throw new IllegalStateException("WireGuard transport mark is missing or lacks routing identity bits.");
+                    }
+                    long transportMark = RootFirewallMark.parse(marks);
+                    preflightStage = "numeric WireGuard UDP endpoint and split-prefix overlap";
+                    List<String> endpointOutput = new ArrayList<>();
+                    RootTcpProbeTarget endpoint = shell.run(endpointOutput,
+                            "wg show " + active.device + " endpoints") == 0
+                            ? RootWireGuardEndpoint.numericTarget(endpointOutput) : null;
+                    if (endpoint == null || !RootSplitRouteRules.endpointOutsideSplitRoutes(
+                            endpoint.address, rules)) {
+                        throw new IllegalStateException("Numeric WireGuard endpoint is unavailable or overlaps a HOME split prefix.");
+                    }
+                    preflightStage = "marked WireGuard endpoint physical-underlay route";
+                    String underlay = routeDeviceMarked(endpoint.family, endpoint.address, transportMark);
+                    if (!underlay.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
+                            || expected.contains(underlay)) {
+                        throw new IllegalStateException("WireGuard endpoint does not route through a physical underlay.");
                     }
                 }
+                preflightStage = "reserved routing-priority collision (IPv4 and IPv6)";
                 if (RootSplitRouteRules.reservedPriorityPresent(readRules(4))
                         || RootSplitRouteRules.reservedPriorityPresent(readRules(6))) {
                     throw new IllegalStateException("Priority 12500–12799 is already occupied; refusing collision.");
                 }
                 // Crash-safe intent record BEFORE any root mutation. Never delete rules
                 // without this ledger and an exact kernel listing match.
+                preflightStage = "persisting exact rollback ownership";
                 saveRules(RootSplitRouteRules.encode(rules));
                 ledgerCommitted = true;
+                preflightStage = "installing exact owned routing rules";
                 for (RootSplitRouteRules.Rule rule : rules) {
                     if (shell.run(null, rule.add()) != 0 || !rulePresent(rule)) {
                         throw new IllegalStateException("Owned rule install/verification failed.");
                     }
                 }
+                preflightStage = "post-install unmarked routing verification";
                 for (RootSplitRouteRules.Rule rule : rules) {
                     if (!rule.device.equals(routeDevice(rule.family, rule.probe))) {
-                        throw new IllegalStateException("Post-install route selection is still incorrect.");
+                        throw new IllegalStateException("Post-install root route selection is still incorrect.");
                     }
+                }
+                preflightStage = "post-install Android fwmark routing verification";
+                if (!appendMarkAwareRouteAudit(routeEntries(selected), rules, new StringBuilder())) {
+                    throw new IllegalStateException("Post-install Android fwmark route simulations failed.");
                 }
                 ok = true;
                 result = "Installed " + rules.size() + " Wonhee-owned split priority rule(s), "
-                        + "verified against UID-0 route lookups. Android app routes, encrypted "
-                        + "DNS, real packet paths and fail-closed behavior remain UNVERIFIED. "
+                        + "verified against UID-0 and representative UID-10000 Android fwmark "
+                        + "route simulations. Actual app sockets, encrypted DNS, packet paths "
+                        + "and fail-closed behavior remain UNVERIFIED. "
                         + "Use Remove routing overrides before changing tunnels. No kill switch.";
             } catch (Exception | LinkageError ignored) {
                 if (ledgerCommitted) {
@@ -2083,9 +2137,9 @@ final class RootMultiKernelSession {
                                 + "Do not change tunnels until recovered.";
                     }
                 } else {
-                    result = "Routing preflight refused. No routing rules changed. "
-                            + "Confirm live selected identities, endpoint marks, and an empty "
-                            + "reserved priority range before retrying.";
+                    result = "Routing preflight refused at: " + preflightStage + ". "
+                            + "No routing rules changed. Check this specific safety condition "
+                            + "using read-only audits. No secrets or endpoint addresses are shown.";
                 }
             }
             finish(callback, ok, result);
@@ -2152,14 +2206,24 @@ final class RootMultiKernelSession {
                 if (countReservedRules() != expected.size()) {
                     throw new IllegalStateException("Unknown rules occupy the reserved priority range.");
                 }
-                for (RootSplitRouteRules.Rule rule : expected) {
-                    if (!rulePresent(rule)) {
-                        throw new IllegalStateException("An expected rule does not match the live kernel.");
+                List<RootSplitRouteRules.Rule> adopted = expected;
+                if (!rulesMatchExactly(expected)) {
+                    // 0.15.11 and earlier installed the legacy 0x0/0x2ffff selector.
+                    // Recover that exact command only when every reserved rule matches it.
+                    List<RootSplitRouteRules.Rule> legacy = new ArrayList<>();
+                    for (RootSplitRouteRules.Rule rule : expected) {
+                        legacy.add(new RootSplitRouteRules.Rule(rule.family, rule.priority,
+                                rule.destination, rule.device, rule.probe,
+                                RootSplitRouteRules.LEGACY_MARK));
                     }
+                    if (!rulesMatchExactly(legacy)) {
+                        throw new IllegalStateException("Neither current nor legacy owned rules match the live kernel.");
+                    }
+                    adopted = legacy;
                 }
-                saveRules(RootSplitRouteRules.encode(expected));
+                saveRules(RootSplitRouteRules.encode(adopted));
                 ok = true;
-                result = "Recovered rollback ownership record for " + expected.size()
+                result = "Recovered rollback ownership record for " + adopted.size()
                         + " exact matching kernel rule(s), after verifying both "
                         + "WireGuard public identities per selected profile. "
                         + "NO kernel rule or tunnel changed. The existing routes remain "
@@ -2194,6 +2258,20 @@ final class RootMultiKernelSession {
         return count;
     }
 
+    private boolean rulesMatchExactly(List<RootSplitRouteRules.Rule> expected) throws Exception {
+        for (RootSplitRouteRules.Rule rule : expected) {
+            int matches = 0;
+            for (String line : readRules(rule.family)) {
+                if (RootSplitRouteRules.parsePriority(line) == rule.priority) {
+                    if (!rule.matchesListing(line)) return false;
+                    matches++;
+                }
+            }
+            if (matches != 1) return false;
+        }
+        return true;
+    }
+
     private boolean rulePresent(RootSplitRouteRules.Rule rule) throws Exception {
         int matches = 0;
         for (String line : readRules(rule.family)) {
@@ -2222,6 +2300,95 @@ final class RootMultiKernelSession {
         if (shell.run(output, "ip -" + family + " route get " + address
                 + " mark 0x" + Long.toHexString(mark)) != 0) return "";
         return RootKernelRouteAudit.selectedDevice(output);
+    }
+
+    /** Route lookup for a representative application UID and a live Android fwmark. */
+    private String routeDeviceMarkedForUid(int family, String address, int uid, long mark)
+            throws Exception {
+        if (uid < 0 || uid > 99999 || mark < 0 || mark > 0xffffffffL) return "";
+        List<String> output = new ArrayList<>();
+        String command = "ip -" + family + " route get " + address + " uid " + uid
+                + " mark 0x" + Long.toHexString(mark);
+        if (shell.run(output, command) != 0) return "";
+        return RootKernelRouteAudit.selectedDevice(output);
+    }
+
+    /**
+     * Verify the proposed destination split against actual unprotected fwmark
+     * values found in Android's IPv4/IPv6 policy rules. UID 10000 is a
+     * representative app UID inside Wonhee's 0-99999 policy range; this remains
+     * a route simulation, not proof of actual application socket behavior.
+     */
+    private boolean appendMarkAwareRouteAudit(List<RootMultiTunnelPlan.Entry> entries,
+            List<RootSplitRouteRules.Rule> split, StringBuilder report) throws Exception {
+        if (split.isEmpty()) {
+            report.append("Android mark-aware split-route simulations: NOT REQUIRED (no cross-tunnel split routes).\n");
+            return true;
+        }
+        List<String> policyRules = new ArrayList<>();
+        policyRules.addAll(readRules(4));
+        policyRules.addAll(readRules(6));
+        List<Long> marks = RootSplitRouteRules.unprotectedMarkProbes(policyRules);
+        if (marks.isEmpty()) {
+            report.append("Android unprotected fwmark probes: NONE — UNVERIFIED.\n");
+            return false;
+        }
+        int matched = 0;
+        int total = 0;
+        for (long mark : marks) {
+            for (RootSplitRouteRules.Rule rule : split) {
+                String actual = routeDeviceMarkedForUid(
+                        rule.family, rule.probe, MARK_AUDIT_UID, mark);
+                total++;
+                if (rule.device.equals(actual)) {
+                    matched++;
+                } else {
+                    report.append("MARK ROUTE MISMATCH · UID ").append(MARK_AUDIT_UID)
+                            .append(" · mark 0x").append(Long.toHexString(mark))
+                            .append(" · ").append(rule.destination)
+                            .append(" · expected ").append(rule.device)
+                            .append(" · got ").append(actual.isEmpty() ? "NO ROUTE" : actual)
+                            .append('\n');
+                }
+            }
+            for (int family : new int[] {4, 6}) {
+                String address = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
+                String expected = RootProtectionPolicy.expectedDevice(entries, address);
+                if (expected.isEmpty()) continue;
+                String actual = routeDeviceMarkedForUid(family, address, MARK_AUDIT_UID, mark);
+                total++;
+                if (expected.equals(actual)) {
+                    matched++;
+                } else {
+                    report.append("PUBLIC MARK ROUTE MISMATCH · UID ").append(MARK_AUDIT_UID)
+                            .append(" · mark 0x").append(Long.toHexString(mark))
+                            .append(" · IPv").append(family)
+                            .append(" · expected ").append(expected)
+                            .append(" · got ").append(actual.isEmpty() ? "NO ROUTE" : actual)
+                            .append('\n');
+                }
+            }
+        }
+        int protectedBypass = 0;
+        for (RootSplitRouteRules.Rule rule : split) {
+            String actual = routeDeviceMarkedForUid(rule.family, rule.probe,
+                    MARK_AUDIT_UID, RootFirewallMark.ANDROID_PROTECTED_FROM_VPN);
+            if (!rule.device.equals(actual)) {
+                protectedBypass++;
+            } else {
+                report.append("PROTECTED SOCKET MISMATCH · HOME split route captured mark 0x20000 · ")
+                        .append(rule.destination).append('\n');
+            }
+        }
+        boolean markedRoutesPass = total > 0 && matched == total;
+        boolean protectedBypassPass = protectedBypass == split.size();
+        report.append("Android mark-aware route simulations (UID ").append(MARK_AUDIT_UID)
+                .append("): ").append(matched).append('/').append(total)
+                .append(" · ").append(marks.size()).append(" unprotected mark probe(s)")
+                .append(markedRoutesPass ? " · PASS" : " · FAIL").append('\n');
+        report.append("protectedFromVpn bypass: ").append(protectedBypass).append('/')
+                .append(split.size()).append(protectedBypassPass ? " · PASS" : " · FAIL").append('\n');
+        return markedRoutesPass && protectedBypassPass;
     }
 
     private void removeOwnedRules() throws Exception {

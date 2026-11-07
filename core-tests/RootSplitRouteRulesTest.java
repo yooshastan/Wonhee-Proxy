@@ -29,10 +29,17 @@ public final class RootSplitRouteRulesTest {
         check(RootSplitRouteRules.probe("10.77.0.0/24").equals("10.77.0.1"),
                 "Batch F must share Batch B's route probe selection");
         check(rules.get(0).device.equals(home.device), "Home needs to win for private destinations");
-        check(rules.get(0).add().contains("fwmark 0x0/0x2ffff iif lo uidrange 0-99999"),
-                "Explicit network-bound sockets should not match");
+        check(rules.get(0).add().contains("fwmark 0x0/0x20000 iif lo uidrange 0-99999"),
+                "All non-protected Android network marks must match private split routes");
+        check(RootSplitRouteRules.splitRouteMarkMatches(0x1009dL), "Wi-Fi netId mark should match");
+        check(RootSplitRouteRules.splitRouteMarkMatches(0xc489eL), "AirVPN netId mark should match");
+        check(RootSplitRouteRules.splitRouteMarkMatches(0xce8a6L), "HOME netId mark should match");
+        check(RootSplitRouteRules.splitRouteMarkMatches(0x1489eL), "Explicit network mark should match");
+        check(RootSplitRouteRules.splitRouteMarkMatches(0x1e8a6L), "HOME network mark should match");
+        check(!RootSplitRouteRules.splitRouteMarkMatches(0x20000L),
+                "protectedFromVpn sockets must bypass the HOME split rule");
         check(rules.get(0).delete().contains("pref 12500"), "Removal should be exact");
-        String kernelLine = "12500: from all to 10.0.0.0/24 fwmark 0x0/0x2ffff "
+        String kernelLine = "12500: from all to 10.0.0.0/24 fwmark 0x0/0x20000 "
                 + "iif lo uidrange 0-99999 lookup " + home.device;
         check(rules.get(0).matchesListing(kernelLine), "Owned rule must match exact listing");
         check(!rules.get(0).matchesListing(kernelLine.replace(home.device, internet.device)),
@@ -44,11 +51,37 @@ public final class RootSplitRouteRulesTest {
         check(!RootSplitRouteRules.reservedPriorityPresent(Arrays.asList(
                 "13000: from all lookup wlan0", "12000: from all lookup local_network")),
                 "Android-owned rules are not collisions");
-        check(RootSplitRouteRules.transportBypassesRules("0xcc53a"),
-                "Observed kernel fwmark must bypass unmarked routing correction");
-        check(!RootSplitRouteRules.transportBypassesRules("off"), "Off fwmark must refuse");
-        check(!RootSplitRouteRules.transportBypassesRules("0x40000"),
-                "A mark with no masked bits must refuse");
+        check(RootSplitRouteRules.transportMarkHasIdentity("0xcc53a"),
+                "Observed kernel fwmark must carry routing identity bits");
+        check(!RootSplitRouteRules.transportMarkHasIdentity("off"), "Off fwmark must refuse");
+        check(!RootSplitRouteRules.transportMarkHasIdentity("0x40000"),
+                "A mark with no identity bits must refuse");
+        List<Long> markProbes = RootSplitRouteRules.unprotectedMarkProbes(Arrays.asList(
+                "13000: from all fwmark 0xc489e/0xcffff lookup 1075",
+                "13000: from all fwmark 0xce8a6/0xcffff lookup 1076",
+                "15040: from all fwmark 0x1009d/0x1ffff lookup 1047",
+                "16000: from all fwmark 0x1489e/0x1ffff lookup 1075",
+                "16000: from all fwmark 0x1e8a6/0x1ffff lookup 1076",
+                "16000: from all fwmark 0x20000/0x20000 lookup 99",
+                "16000: from all fwmark 0x1009d/0x1ffff lookup 1047"));
+        check(markProbes.size() == 5 && markProbes.contains(0x1009dL)
+                        && markProbes.contains(0xc489eL) && markProbes.contains(0xce8a6L)
+                        && markProbes.contains(0x1489eL) && markProbes.contains(0x1e8a6L),
+                "Collect unique unprotected Android mark probes and exclude protected marks");
+        check(RootSplitRouteRules.endpointOutsideSplitRoutes("203.0.113.10", rules),
+                "Public WireGuard endpoint should not overlap HOME split routes");
+        check(!RootSplitRouteRules.endpointOutsideSplitRoutes("10.0.0.169", rules),
+                "WireGuard endpoint inside HOME split route must refuse");
+        String oldLedger = "4|12500|10.0.0.0/24|" + home.device + "|10.0.0.1\n";
+        List<RootSplitRouteRules.Rule> legacy = RootSplitRouteRules.decode(oldLedger);
+        check(legacy.size() == 1 && legacy.get(0).mark.equals(RootSplitRouteRules.LEGACY_MARK),
+                "Old five-field rollback ledgers must retain their original selector");
+        check(legacy.get(0).delete().contains("fwmark 0x0/0x2ffff"),
+                "Legacy rollback must remove the exact old fwmark rule");
+        String legacyListing = "12500: from all to 10.0.0.0/24 fwmark 0x0/0x2ffff "
+                + "iif lo uidrange 0-99999 lookup " + home.device;
+        check(legacy.get(0).matchesListing(legacyListing),
+                "Legacy ownership must still match the exact old kernel listing");
         List<RootSplitRouteRules.Rule> decoded = RootSplitRouteRules.decode(
                 RootSplitRouteRules.encode(rules));
         check(decoded.size() == rules.size(), "Persistent rules should survive restart");
@@ -65,6 +98,10 @@ public final class RootSplitRouteRulesTest {
         List<RootSplitRouteRules.Rule> ipv6Rules = RootSplitRouteRules.plan(Arrays.asList(v6, internet));
         check(ipv6Rules.size() == 1 && ipv6Rules.get(0).family == 6,
                 "IPv6 split network needs a family-specific rule");
+        check(!RootSplitRouteRules.endpointOutsideSplitRoutes("fd00:1234::8", ipv6Rules),
+                "IPv6 endpoint inside a private split prefix must refuse");
+        check(RootSplitRouteRules.endpointOutsideSplitRoutes("2001:db8::8", ipv6Rules),
+                "IPv6 endpoint outside private split prefixes should pass");
         System.out.println("RootSplitRouteRulesTest passed");
     }
 }
