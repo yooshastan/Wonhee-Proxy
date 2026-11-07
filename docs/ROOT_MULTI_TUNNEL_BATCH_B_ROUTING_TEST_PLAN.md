@@ -61,8 +61,9 @@ Brave and real packet paths still require device testing.
    ```
 
 7. If another app owns priority 12500-12799, applying Wonhee rules **must refuse**.
-   If any selected tunnel is absent, identity-mismatched, or its transport fwmark
-   can match the proposed rule, applying **must refuse**.
+   If any selected tunnel is absent or identity-mismatched, a numeric endpoint
+   overlaps a HOME split prefix, or its marked endpoint route does not use a
+   recognized physical underlay, applying **must refuse**.
 
 ## Test B — explicitly apply and verify
 
