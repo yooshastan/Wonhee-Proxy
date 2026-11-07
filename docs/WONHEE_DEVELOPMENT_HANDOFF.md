@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3a — Offline contract matrix (2026-11-07)
+
+- Following successful 0.15.14 F.2 paired health snapshots, F.3 RFC is in [draft PR #44](https://github.com/yooshastan/Wonhee-Proxy/pull/44), with **pure-code safety checks** in [draft PR #45](https://github.com/yooshastan/Wonhee-Proxy/pull/45) on `feature/batch-f3a-static-policy-matrix`.
+- Files added: `RootGuardF3PolicyMatrix.java`, `RootGuardF3PolicyMatrixTest.java`, and `docs/PRODUCT_BATCH_F3A_OFFLINE_MATRIX_TEST_PLAN.md`; workflow compiles and runs new Java test. No APK version bump, no UI/root write changes.
+- F.3a tests the existing owned-chain first-match **synthetic** IPv4/IPv6 HOME/Internet route policy, direct underlay REJECT, marked exact WireGuard endpoint, mark/port mismatch, endpoint rotation, IPv6 control-plane candidates, and physical-underlay change. It explicitly flags shared Android mark `0x20000`, unverified socket provenance and independent recovery as blocking issues.
+- **Activation remains blocked irrespective of model test result.** A matching simulated RETURN or REJECT does not prove real traffic, DNS isolation, underlying Android netd handling, or fail-closed continuity. Keep HOME/AirVPN routing untouched and Batch F OFF. Issue #41 remains open.
+- **CI PASS:** Android compilation and core tests [42422780898](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42422780898); native WireGuard tests [42422780906](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42422780906). No new APK version is needed for this test-only policy work. PR #45 stays draft until F.3b read-only traffic attribution and later F.3c/F.4 recovery gates are defined.
+- Next F.3b gate: design a *read-only*, privacy-minimizing local OUTPUT-chain attribution method on target Android before considering any scope-limited exceptions. No forced tunnel disconnections or firewall activation.
+
 ## Batch F.2 second manual snapshot PASS (2026-11-07)
 
 - Pixel 8a read-only second snapshot **COMPLETE**, 265 seconds after first. HOME `wnma292ddb4b6da`: cumulative RX 97,726,320, TX 698,572 bytes, **RX +3,032 / TX +3,400 bytes**, last handshake 83 seconds ago; IPv6 endpoint, marked physical route `wlan0`.
