@@ -7,7 +7,7 @@ import java.util.Locale;
 final class RootFirewallMark {
     // AOSP netd Fwmark bit 17. This is shared Android traffic metadata,
     // NOT an identity reserved for WireGuard transport sockets.
-    private static final long ANDROID_PROTECTED_FROM_VPN = 0x20000L;
+    static final long ANDROID_PROTECTED_FROM_VPN = 0x20000L;
 
     private RootFirewallMark() { }
 

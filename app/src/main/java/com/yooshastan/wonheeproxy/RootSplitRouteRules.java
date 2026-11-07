@@ -223,7 +223,8 @@ final class RootSplitRouteRules {
         } catch (Exception invalid) { return false; }
     }
 
-    private static String probe(String cidr) {
+    /** Shared non-network-base probe for both the routing audit and F's hard gate. */
+    static String probe(String cidr) {
         try {
             String address = cidr.substring(0, cidr.indexOf('/'));
             int prefix = prefix(cidr);

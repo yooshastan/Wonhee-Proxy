@@ -47,7 +47,8 @@ import java.util.function.BooleanSupplier;
  * Opt-in, rooted multi-tunnel experiment. Existing wnhome0/wnair0 control and
  * the Android VpnService backend are intentionally untouched. Every mutation
  * checks kernel identities. Batch D's separate explicit DNS-only opt-in can
- * install exactly owned resolver firewall rules; no full kill switch exists.
+ * install exactly owned resolver firewall rules. Batch F is a separate,
+ * explicitly opted-in experimental OUTPUT guard, OFF by default.
  */
 final class RootMultiKernelSession {
     interface Callback { void completed(boolean ok, String message); }
@@ -62,9 +63,11 @@ final class RootMultiKernelSession {
     private final WgQuickBackend backend;
     private final SharedPreferences routeLedger;
     private final SharedPreferences dnsLedger;
+    private final SharedPreferences guardLedger;
     private final RootMultiRecoveryPreferences recovery;
     private static final String ROUTE_LEDGER_KEY = "pending_or_installed_rules_v1";
     private static final String DNS_LEDGER_KEY = "pending_dns_policy_v1";
+    private static final String GUARD_LEDGER_KEY = "pending_guard_v1";
     // Only links started and identity-verified by this process are in this map.
     private final Map<String, Active> managed = new LinkedHashMap<>();
     private volatile boolean busy;
@@ -108,6 +111,7 @@ final class RootMultiKernelSession {
         backend.setMultipleTunnels(true);
         routeLedger = app.getSharedPreferences("wonhee_owned_split_routes", Context.MODE_PRIVATE);
         dnsLedger = app.getSharedPreferences("wonhee_owned_dns_policy", Context.MODE_PRIVATE);
+        guardLedger = app.getSharedPreferences("wonhee_owned_guard_policy", Context.MODE_PRIVATE);
         recovery = new RootMultiRecoveryPreferences(app);
     }
 
@@ -194,6 +198,19 @@ final class RootMultiKernelSession {
         return record == null || record.isEmpty() ? "OFF" : "OWNED POLICY RECORDED · VERIFY LIVE RULES";
     }
 
+    String guardLedgerStatus() {
+        String record = guardRecord();
+        return record == null || record.isEmpty() ? "OFF" : "OWNED · AUDIT LIVE FIREWALL";
+    }
+
+    private String guardRecord() { return guardLedger.getString(GUARD_LEDGER_KEY, ""); }
+
+    private void saveGuardRecord(String record) {
+        if (!guardLedger.edit().putString(GUARD_LEDGER_KEY, record).commit()) {
+            throw new IllegalStateException("Cannot persist kill-switch rollback ledger.");
+        }
+    }
+
     String trackerLedgerStatus() {
         String record = dnsRecord();
         if (record == null || record.isEmpty()) return "OFF";
@@ -204,6 +221,10 @@ final class RootMultiKernelSession {
     private String dnsRecord() { return dnsLedger.getString(DNS_LEDGER_KEY, ""); }
 
     private void requireDnsDisabledForTunnelMutation() {
+        if (guardRecord() != null && !guardRecord().isEmpty()) {
+            throw new IllegalStateException("Disable and audit Batch F's owned kill switch "
+                    + "before modifying tunnels or split routes. Keep USB ADB available.");
+        }
         String record = dnsRecord();
         if (record != null && !record.isEmpty()) {
             throw new IllegalStateException("First disable and verify owned DNS firewall "
@@ -871,6 +892,10 @@ final class RootMultiKernelSession {
             int spawned = -1;
             String message;
             try {
+                if (guardRecord() != null && !guardRecord().isEmpty()) {
+                    throw new IllegalStateException("Disable and audit Batch F guard before "
+                            + "enabling the separate Batch D DNS firewall policy.");
+                }
                 if (dnsRecord() != null && !dnsRecord().isEmpty()) {
                     throw new IllegalStateException("Existing DNS rollback ledger: disable/recover first.");
                 }
@@ -1018,6 +1043,7 @@ final class RootMultiKernelSession {
             try {
                 String record = dnsRecord();
                 if (record == null || record.isEmpty()) {
+                    ok = true;
                     message = "DNS enforcement: OFF in owned ledger. This is not proof "
                             + "that no outside firewall rules exist.";
                 } else {
@@ -1037,6 +1063,425 @@ final class RootMultiKernelSession {
             } catch (Exception | LinkageError refused) {
                 message = "DNS enforcement audit: OWNERSHIP MISMATCH OR UNAVAILABLE. "
                         + "Do not disconnect tunnels; inspect with ADB.";
+            }
+            finish(callback, ok, message);
+        });
+    }
+
+    /** Product F prototype: installed only by explicit confirmation in the UI. */
+    void enableGuard(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            boolean ledgerCommitted = false;
+            String message;
+            RootFailClosedFirewallPlan.Plan plan = null;
+            try {
+                if (guardRecord() != null && !guardRecord().isEmpty()) {
+                    throw new IllegalStateException("Guard ownership ledger exists; audit or disable first.");
+                }
+                if (dnsRecord() != null && !dnsRecord().isEmpty()) {
+                    throw new IllegalStateException("Disable and verify Product D/E DNS firewall "
+                            + "before this separate Batch F experiment.");
+                }
+                if (recovery.enabled()) {
+                    throw new IllegalStateException("Disable Batch C unattended recovery first; "
+                            + "F has no coordinated background tunnel restart yet.");
+                }
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                rootReady();
+                verifyRecoveryRules();
+                Set<String> running = backend.getRunningTunnelNames();
+                List<String> devices = new ArrayList<>();
+                for (Active active : selected) devices.add(active.device);
+                for (String device : running) {
+                    if (device.equals("wnhome0") || device.equals("wnair0")
+                            || (device.startsWith("wnm") && !devices.contains(device))) {
+                        throw new IllegalStateException("Unknown/legacy or unselected kernel tunnel "
+                                + "is UP. Stop it before testing F.");
+                    }
+                }
+                Set<Long> marks = new LinkedHashSet<>();
+                boolean sharedAndroidMark = false;
+                List<RootFailClosedFirewallPlan.Tunnel> transports = new ArrayList<>();
+                for (Active active : selected) {
+                    NamedTunnel link = new NamedTunnel(active.device);
+                    if (!running.contains(active.device)
+                            || backend.getState(link) != Tunnel.State.UP || !matches(link, active)) {
+                        throw new IllegalStateException("Selected kernel tunnel is DOWN or identity changed.");
+                    }
+                    for (String route : active.routes.peerRoutes) {
+                        // Use the SAME in-prefix probe as the Batch B root audit.
+                        // A CIDR's network base can follow a different special
+                        // route and must not cause a false F security pass.
+                        String address = route.equals("0.0.0.0/0") ? "1.1.1.1"
+                                : route.equals("::/0") ? "2606:4700:4700::1111"
+                                : RootSplitRouteRules.probe(route);
+                        int family = address.contains(":") ? 6 : 4;
+                        if (!active.device.equals(routeDevice(family, address))) {
+                            throw new IllegalStateException("Selected split/default route does not use "
+                                    + "its exact tunnel: " + active.profileName);
+                        }
+                    }
+                    List<String> rawMark = new ArrayList<>();
+                    if (shell.run(rawMark, "wg show " + active.device + " fwmark") != 0) {
+                        throw new IllegalStateException("Unable to inspect WireGuard transport mark.");
+                    }
+                    long mark = RootFirewallMark.parse(rawMark);
+                    if (mark == 0 || !RootSplitRouteRules.transportBypassesRules(
+                                    "0x" + Long.toHexString(mark))) {
+                        throw new IllegalStateException("Transport mark absent or unsafe; "
+                                + "no broad physical-network exception will be installed.");
+                    }
+                    if (!marks.add(mark)) {
+                        if (mark != RootFirewallMark.ANDROID_PROTECTED_FROM_VPN) {
+                            throw new IllegalStateException("Shared non-Android transport mark "
+                                    + "refused; endpoint mark identity is unverified.");
+                        }
+                        sharedAndroidMark = true;
+                    }
+                    List<String> rawEndpoint = new ArrayList<>();
+                    RootTcpProbeTarget endpoint = shell.run(rawEndpoint,
+                            "wg show " + active.device + " endpoints") == 0
+                            ? RootWireGuardEndpoint.numericTarget(rawEndpoint) : null;
+                    if (endpoint == null) {
+                        throw new IllegalStateException("WireGuard UDP endpoint is not a verified "
+                                + "numeric address and port.");
+                    }
+                    String underlay = routeDeviceMarked(endpoint.family, endpoint.address, mark);
+                    if (!underlay.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
+                            || devices.contains(underlay)) {
+                        throw new IllegalStateException("Marked UDP endpoint does not route via "
+                                + "a recognized physical underlay; possible tunnel loop.");
+                    }
+                    transports.add(new RootFailClosedFirewallPlan.Tunnel(active.device,
+                            endpoint.address, endpoint.port, mark, active.routes.peerRoutes));
+                }
+                plan = RootFailClosedFirewallPlan.build(transports);
+                RootFailClosedFirewallRuntime.preflight(shell);
+                // Durable rollback intent MUST be committed before the first
+                // iptables/ip6tables write, including chain creation.
+                saveGuardRecord(plan.encode());
+                ledgerCommitted = true;
+                RootFailClosedFirewallRuntime.install(shell, plan);
+                RootFailClosedFirewallRuntime.verify(shell, plan);
+                ok = true;
+                message = "PRODUCT BATCH F — EXPERIMENTAL FAIL-CLOSED OUTPUT GUARD ACTIVE\n"
+                        + "Exact IPv4/IPv6 app-owned chains and anchors verified. "
+                        + "Only selected tunnel egress, loopback, and exact marked WireGuard "
+                        + "UDP endpoints are permitted by this guard. Private split routes "
+                        + "cannot fall back through the default tunnel.\n"
+                        + "Verified selected tunnel identities: " + selected.size() + "\n"
+                        + (sharedAndroidMark ? "Both tunnels use Android's shared protected-from-VPN "
+                                + "mark 0x20000. Exceptions are pinned to the verified distinct "
+                                + "numeric UDP destination IP:port pairs, NOT to unique sockets. "
+                                + "Other protected packets to the same endpoints could pass; "
+                                + "this is NOT a verified leak-proof policy.\n" : "")
+                        + "Ownership ledger saved; USB ADB recovery REQUIRED. "
+                        + "Do not disconnect, switch profiles or reboot yet. "
+                        + "No boot-time enforcement or packet-leak guarantee is claimed.";
+            } catch (Exception | LinkageError failed) {
+                if (ledgerCommitted) {
+                    try {
+                        RootFailClosedFirewallRuntime.removeOwned(shell, plan);
+                        saveGuardRecord("");
+                        message = "Batch F activation failed at: "
+                                + (failed instanceof IllegalStateException
+                                        || failed instanceof IllegalArgumentException
+                                        ? failed.getMessage() : "root firewall operation unavailable")
+                                + "\nOwned firewall changes rolled back and verified. "
+                                + "No kill switch was activated.";
+                    } catch (Exception | LinkageError cleanup) {
+                        message = "BATCH F ROLLBACK NOT VERIFIED. OWNERSHIP LEDGER RETAINED. "
+                                + "Keep USB ADB connected, do NOT change or stop tunnels, "
+                                + "and use Disable Batch F; inspect live rules if it fails.";
+                    }
+                } else {
+                    message = "Batch F refused BEFORE firewall writes: "
+                            + (failed instanceof IllegalArgumentException
+                                    || failed instanceof IllegalStateException
+                                    ? failed.getMessage() : "root preflight unavailable")
+                            + ". Kill switch remains OFF.";
+                }
+            }
+            finish(callback, ok, message);
+        });
+    }
+
+    void auditGuard(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String message;
+            try {
+                String saved = guardRecord();
+                if (saved == null || saved.isEmpty()) {
+                    // An empty preferences ledger is NOT sufficient evidence of
+                    // successful rollback. Inspect both live OUTPUT chains and
+                    // app-reserved names before reporting the guard as disabled.
+                    shell.start();
+                    RootFailClosedFirewallRuntime.preflight(shell);
+                    ok = true;
+                    message = "BATCH F — VERIFIED OWNED GUARD OFF\n"
+                            + "Ownership ledger: OFF\n"
+                            + "Live IPv4/IPv6 OUTPUT anchors: ABSENT\n"
+                            + "Live app-reserved guard chains: ABSENT\n"
+                            + "This does not prove other firewall owners have no rules "
+                            + "or that other apps cannot bypass a tunnel.";
+                } else {
+                    RootFailClosedFirewallPlan.Plan plan = RootFailClosedFirewallPlan.decode(saved);
+                    shell.start();
+                    RootFailClosedFirewallRuntime.verify(shell, plan);
+                    ok = true;
+                    message = "BATCH F OWNED GUARD — LIVE RULES MATCH\n"
+                            + "IPv4 and IPv6 OUTPUT anchors: PRESENT\n"
+                            + "Exact planned rules: " + plan.rules.size() + " MATCH\n"
+                            + "Terminal default rejects: PRESENT\n"
+                            + "Kernel tunnel health, physical packet egress and reboot-time "
+                            + "protection are NOT proven by this audit.";
+                }
+            } catch (Exception | LinkageError failed) {
+                message = "BATCH F LIVE FIREWALL MISMATCH OR UNAVAILABLE. "
+                        + "Do not disconnect tunnels. Keep USB ADB available; "
+                        + "use exact owned rollback after inspecting rule differences.";
+            }
+            finish(callback, ok, message);
+        });
+    }
+
+    private static final class GuardTestSelection {
+        final List<Active> active;
+        final RootFailClosedFirewallPlan.Plan expected;
+        final String underlay;
+
+        GuardTestSelection(List<Active> active, RootFailClosedFirewallPlan.Plan expected,
+                           String underlay) {
+            this.active = active;
+            this.expected = expected;
+            this.underlay = underlay;
+        }
+    }
+
+    /** Reconstruct an exact, current guard plan before any Batch F device-side test. */
+    private GuardTestSelection checkGuardTestSelection(
+            List<SecureTunnelProfileStore.Profile> profiles) throws Exception {
+        if (dnsRecord() != null && !dnsRecord().isEmpty()) {
+            throw new IllegalStateException("Disable separate Batch D/E DNS enforcement first.");
+        }
+        if (recovery.enabled()) {
+            throw new IllegalStateException("Disable unattended Batch C recovery first.");
+        }
+        List<Active> selected = loadAll(profiles);
+        validate(selected);
+        rootReady();
+        Set<String> running = backend.getRunningTunnelNames();
+        Set<String> chosenDevices = new LinkedHashSet<>();
+        for (Active active : selected) chosenDevices.add(active.device);
+        for (String device : running) {
+            if (device.equals("wnhome0") || device.equals("wnair0")
+                    || (device.startsWith("wnm") && !chosenDevices.contains(device))) {
+                throw new IllegalStateException("Another kernel tunnel is UP; selected identities are incomplete.");
+            }
+        }
+        List<RootFailClosedFirewallPlan.Tunnel> transports = new ArrayList<>();
+        String physical = "";
+        for (Active active : selected) {
+            NamedTunnel tunnel = new NamedTunnel(active.device);
+            if (!running.contains(active.device) || backend.getState(tunnel) != Tunnel.State.UP
+                    || !matches(tunnel, active)) {
+                throw new IllegalStateException("A selected WireGuard tunnel is DOWN or changed identity.");
+            }
+            for (String route : active.routes.peerRoutes) {
+                String address = route.equals("0.0.0.0/0") ? "1.1.1.1"
+                        : route.equals("::/0") ? "2606:4700:4700::1111"
+                        : RootSplitRouteRules.probe(route);
+                if (!active.device.equals(routeDevice(address.contains(":") ? 6 : 4, address))) {
+                    throw new IllegalStateException("Selected "
+                            + (route.contains(":") ? "IPv6" : "IPv4")
+                            + " split/default route does not use its assigned tunnel. "
+                            + "Run Batch B's read-only route audit before enabling F.");
+                }
+            }
+            List<String> marks = new ArrayList<>();
+            if (shell.run(marks, "wg show " + active.device + " fwmark") != 0) {
+                throw new IllegalStateException("WireGuard transport mark is unavailable.");
+            }
+            long mark = RootFirewallMark.parse(marks);
+            if (mark == 0 || !RootSplitRouteRules.transportBypassesRules(
+                    "0x" + Long.toHexString(mark))) {
+                throw new IllegalStateException("WireGuard transport mark is missing or unsafe.");
+            }
+            List<String> endpoints = new ArrayList<>();
+            RootTcpProbeTarget endpoint = shell.run(endpoints,
+                    "wg show " + active.device + " endpoints") == 0
+                    ? RootWireGuardEndpoint.numericTarget(endpoints) : null;
+            if (endpoint == null) {
+                throw new IllegalStateException("Numeric WireGuard UDP endpoint is unavailable.");
+            }
+            String egress = routeDeviceMarked(endpoint.family, endpoint.address, mark);
+            if (!egress.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
+                    || chosenDevices.contains(egress)) {
+                throw new IllegalStateException("A marked endpoint does not use a physical underlay.");
+            }
+            if (!physical.isEmpty() && !physical.equals(egress)) {
+                throw new IllegalStateException("Multiple underlays detected; refuse single-path packet challenge.");
+            }
+            physical = egress;
+            transports.add(new RootFailClosedFirewallPlan.Tunnel(active.device,
+                    endpoint.address, endpoint.port, mark, active.routes.peerRoutes));
+        }
+        return new GuardTestSelection(selected, RootFailClosedFirewallPlan.build(transports), physical);
+    }
+
+    /** No firewall writes, tunnel changes, DNS requests, or synthetic packets. */
+    void reviewGuardTest(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String report;
+            try {
+                GuardTestSelection current = checkGuardTestSelection(profiles);
+                String saved = guardRecord();
+                boolean active = saved != null && !saved.isEmpty();
+                if (active) {
+                    RootFailClosedFirewallPlan.Plan owned = RootFailClosedFirewallPlan.decode(saved);
+                    RootFailClosedFirewallRuntime.verify(shell, owned);
+                    if (!owned.encode().equals(current.expected.encode())) {
+                        throw new IllegalStateException("Live tunnels no longer match the guard's saved plan.");
+                    }
+                } else {
+                    RootFailClosedFirewallRuntime.preflight(shell);
+                }
+                String mode = null;
+                try { mode = Settings.Global.getString(appContext.getContentResolver(),
+                        "private_dns_mode"); }
+                catch (SecurityException ignored) { /* only an optional setting inventory */ }
+                report = "BATCH F — GUIDED DUAL-TUNNEL TEST PREFLIGHT\n"
+                        + "Selected independent kernel identities: " + current.active.size() + " VERIFIED\n"
+                        + "Endpoint marks and current underlay routes: VERIFIED\n"
+                        + "Underlay: " + current.underlay + " (route prediction only)\n"
+                        + "Selected split/default routes: MATCH\n"
+                        + "Live exact IPv4/IPv6 guard: " + (active ? "ACTIVE · MATCH" : "OFF · ABSENT") + "\n"
+                        + "Separate DNS guard: OFF; unattended recovery: OFF\n"
+                        + "Configured Android Private DNS: "
+                        + (mode == null || mode.isEmpty() ? "UNREPORTED"
+                                : mode.matches("[a-z_]{1,32}") ? mode : "CUSTOM/UNVERIFIED") + "\n"
+                        + (active ? "Next: optional one-packet per-family negative challenge.\n"
+                                : "Next: enable F only with working USB ADB, then rerun preflight.\n")
+                        + "NO packets sent or policies modified. This is not packet-level "
+                        + "proof, automatic failover verification, or a reboot test.";
+                ok = true;
+            } catch (IllegalArgumentException | IllegalStateException rejected) {
+                report = "BATCH F — GUIDED PREFLIGHT REFUSED: " + rejected.getMessage()
+                        + "\nNo test packets sent or firewall settings changed.";
+            } catch (Exception | LinkageError unavailable) {
+                report = "BATCH F — PREFLIGHT UNAVAILABLE. No firewall changes or test packets. "
+                        + "Keep USB ADB available and check live tunnel and firewall state.";
+            }
+            finish(callback, ok, report);
+        });
+    }
+
+    private long guardRejectCounter(int family) throws Exception {
+        List<String> listing = new ArrayList<>();
+        if (shell.run(listing, RootFailClosedFirewallPlan.prefix(family)
+                + " -L " + RootFailClosedFirewallPlan.chain(family) + " -n -v -x") != 0) {
+            return -1;
+        }
+        return RootGuardProbeEvidence.terminalRejectPackets(listing);
+    }
+
+    /** Explicitly opted-in, bounded, numeric-only underlay ICMP challenge. */
+    void challengeGuardUnderlay(List<SecureTunnelProfileStore.Profile> profiles,
+                                Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String report;
+            try {
+                String saved = guardRecord();
+                if (saved == null || saved.isEmpty()) {
+                    throw new IllegalStateException("Guard OFF. Enable and audit F first.");
+                }
+                GuardTestSelection current = checkGuardTestSelection(profiles);
+                RootFailClosedFirewallPlan.Plan owned = RootFailClosedFirewallPlan.decode(saved);
+                if (!owned.encode().equals(current.expected.encode())) {
+                    throw new IllegalStateException("Guard ledger does not match current selected tunnels.");
+                }
+                RootFailClosedFirewallRuntime.verify(shell, owned);
+                if (shell.run(null, "command -v ping >/dev/null 2>&1") != 0) {
+                    throw new IllegalStateException("System ping unavailable; no challenge started.");
+                }
+                StringBuilder result = new StringBuilder("BATCH F — TWO BOUNDED NEGATIVE PROBES\n");
+                boolean alert = false;
+                boolean bothCountersIncreased = true;
+                for (int family : new int[]{4, 6}) {
+                    RootFailClosedFirewallRuntime.verify(shell, owned);
+                    long before = guardRejectCounter(family);
+                    if (before < 0) {
+                        throw new IllegalStateException("IPv" + family
+                                + " terminal REJECT counter unavailable; probe refused.");
+                    }
+                    String numeric = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
+                    String command = "ping " + (family == 4 ? "-4" : "-6")
+                            + " -I " + current.underlay + " -c 1 -W 2 " + numeric
+                            + " >/dev/null 2>&1";
+                    int exit = shell.run(null, command);
+                    long after = guardRejectCounter(family);
+                    String outcome = RootGuardProbeEvidence.outcome(exit, before, after);
+                    if (exit == 0) alert = true;
+                    if (before < 0 || after <= before) bothCountersIncreased = false;
+                    result.append("IPv").append(family).append(": ").append(outcome).append('\n');
+                    if (alert) {
+                        result.append("Further probes skipped after a possible escape.\n");
+                        break;
+                    }
+                }
+                RootFailClosedFirewallRuntime.verify(shell, owned);
+                report = result + (alert
+                        ? "POTENTIAL ESCAPE: keep USB ADB connected; use exact owned Disable F "
+                                + "after recording this result. Do not disconnect tunnels. "
+                        : "No successful direct-underlay ICMP reply observed. " )
+                        + "Counters may include unrelated traffic and ping may fail before OUTPUT; "
+                        + "neither outcome proves DNS safety, zero packet leaks, independent "
+                        + "tunnel failure handling, or reboot protection. Guard remains ACTIVE.";
+                ok = !alert && bothCountersIncreased;
+            } catch (IllegalArgumentException | IllegalStateException refused) {
+                report = "BATCH F — PACKET CHALLENGE REFUSED: " + refused.getMessage()
+                        + "\nNo firewall changes. Audit F and keep USB ADB connected.";
+            } catch (Exception | LinkageError unavailable) {
+                report = "BATCH F — PACKET CHALLENGE INCOMPLETE OR LIVE GUARD VERIFICATION FAILED. "
+                        + "No firewall or tunnel changes were made. Keep USB ADB connected; "
+                        + "audit F before doing anything else.";
+            }
+            finish(callback, ok, report);
+        });
+    }
+
+    void disableGuard(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String message;
+            try {
+                String saved = guardRecord();
+                if (saved == null || saved.isEmpty()) {
+                    throw new IllegalStateException("No owned kill-switch ledger. Unknown rules "
+                            + "will not be removed.");
+                }
+                RootFailClosedFirewallPlan.Plan plan = RootFailClosedFirewallPlan.decode(saved);
+                shell.start(); // recovery must work even without kernel-WG tools
+                RootFailClosedFirewallRuntime.removeOwned(shell, plan);
+                saveGuardRecord("");
+                ok = true;
+                message = "BATCH F DISABLED — BOTH OWNED FIREWALL ANCHORS AND CHAINS REMOVED. "
+                        + "Exact cleanup verified. Tunnel settings and Android DNS unchanged.";
+            } catch (Exception | LinkageError failed) {
+                message = "BATCH F DISABLE / ROLLBACK NOT VERIFIED. Ledger retained. "
+                        + "Keep USB ADB connected; do NOT change tunnels. "
+                        + (failed instanceof IllegalStateException ? failed.getMessage()
+                                : "Check root firewall access and exact ownership.");
             }
             finish(callback, ok, message);
         });
