@@ -60,6 +60,14 @@ Last updated: 2026-11-07
 - **Not yet verified:** actual packet capture proving browser traffic traverses HOME and does not travel directly on Wi-Fi; device-run exact owned-rule rollback for the new 0.15.12 rules; application-specific IPv6 egress; fail-closed tunnel interruption. Do not mark Batch B or F fully complete based on root and representative simulated route lookups alone.
 - **Next controlled test:** confirm `tcpdump` availability in Termux and collect narrowly filtered interface-level evidence while refreshing Navidrome. Preserve current routes and both connected tunnels; keep Batch F OFF. After traffic verification, perform exact owned-rule rollback via Wonhee UI and confirm Android priority-13000 rules remain unchanged.
 
+## First captured Navidrome packets on HOME (2026-11-07)
+
+- A Pixel 8a Termux read-only `tcpdump -ni any -c 24 'host 10.0.0.169 and tcp port 4533'` capture showed 24 packets on HOME interface `wnma292ddb4b6da` between client source `10.6.0.2` and server `10.0.0.169:4533`.
+- Observed outbound SYNs, inbound SYN/ACKs, client ACKs and bidirectional application-payload TCP packets. Capture summary: **24 packets captured; 116 packets received by filter; zero packets dropped by kernel**.
+- This is actual application packet-path evidence that browser Navidrome traffic traversed the HOME kernel interface, stronger than UID/mark route simulations. It does **not** independently rule out concurrent cleartext packets on the physical `wlan0` interface, nor establish that WireGuard outer UDP delivery is leak-proof under disconnection.
+- Next safe check: bounded read-only `tcpdump` on `wlan0` for cleartext destination `10.0.0.169` TCP port `4533` while refreshing the browser. Expected: no matching physical-interface cleartext packets. Keep both tunnels and all routing rules in place, Batch F off.
+- After absence of cleartext direct traffic is established, test **Remove Wonhee routing overrides** exact rollback and verify priorities 12500–12502 disappear, Android priority-13000 rules remain, and rollback ledger clears; reapply correction only via guarded app workflow if continuing tests.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
