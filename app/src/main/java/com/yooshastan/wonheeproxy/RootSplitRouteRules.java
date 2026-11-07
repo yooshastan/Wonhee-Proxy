@@ -138,8 +138,23 @@ final class RootSplitRouteRules {
             int reserved, boolean exactLiveVerified) {
         if (planned == null || recorded == null || reserved < 0) return false;
         if (recorded.isEmpty()) return reserved == 0;
-        return reserved == recorded.size() && recorded.size() == planned.size()
-                && exactLiveVerified && encode(recorded).equals(encode(planned));
+        if (!exactLiveVerified || reserved != recorded.size()
+                || recorded.size() != planned.size()) return false;
+        for (int i = 0; i < planned.size(); i++) {
+            Rule expected = planned.get(i);
+            Rule owned = recorded.get(i);
+            // A legacy selector can still be safely owned and rolled back,
+            // but only after its exact live kernel rule is verified. Do not
+            // infer ownership from matching route destinations alone.
+            if (expected.family != owned.family || expected.priority != owned.priority
+                    || !expected.destination.equals(owned.destination)
+                    || !expected.device.equals(owned.device)
+                    || !expected.probe.equals(owned.probe)
+                    || !(MARK.equals(owned.mark) || LEGACY_MARK.equals(owned.mark))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static boolean reservedPriorityPresent(List<String> lines) {
