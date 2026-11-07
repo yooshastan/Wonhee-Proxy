@@ -1420,6 +1420,87 @@ final class RootMultiKernelSession {
     }
 
     /**
+     * F.3b bounded, explicitly requested passive physical-interface snapshot.
+     *
+     * Observes outgoing packet HEADERS only (no generated traffic). Does not
+     * establish sender identity or that a packet passed the OUTPUT chain.
+     */
+    void observePhysicalControlHeaders(List<SecureTunnelProfileStore.Profile> profiles,
+                                       Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String report;
+            List<String> raw = new ArrayList<>();
+            try {
+                if (!"OFF".equals(guardLedgerStatus())) {
+                    throw new IllegalStateException("Batch F guard ownership is not OFF.");
+                }
+                GuardTestSelection selected = checkGuardTestSelection(profiles);
+                // Preflight verifies BOTH IPv4 and IPv6 owned chains are absent,
+                // not merely an empty ledger. Never collect under an active guard.
+                RootFailClosedFirewallRuntime.preflight(shell);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected.active);
+                List<RootSplitRouteRules.Rule> plan = RootSplitRouteRules.plan(entries);
+                List<RootSplitRouteRules.Rule> ledger =
+                        RootSplitRouteRules.decode(savedRules());
+                int reserved = countReservedRules();
+                boolean exactLive = !ledger.isEmpty() && ledger.size() == reserved
+                        && rulesMatchExactly(ledger);
+                if (!RootSplitRouteRules.auditOwnershipConsistent(
+                        plan, ledger, reserved, exactLive) || ledger.isEmpty()) {
+                    throw new IllegalStateException(
+                            "Split-route ownership missing or live rules inconsistent.");
+                }
+                if (shell.run(null, "command -v tcpdump >/dev/null 2>&1") != 0
+                        || shell.run(null, "command -v timeout >/dev/null 2>&1") != 0) {
+                    throw new IllegalStateException(
+                            "Root tcpdump/timeout unavailable. No capture attempted.");
+                }
+                // Command validates the interface before interpolation.
+                String command = RootUnderlayControlEvidence.command(selected.underlay);
+                int status = shell.run(raw, command);
+                RootUnderlayControlEvidence.Summary summary =
+                        RootUnderlayControlEvidence.reduce(raw);
+                // Raw packet summaries never leave this worker.
+                raw.clear();
+                if (!RootUnderlayControlEvidence.completed(status)) {
+                    throw new IllegalStateException(
+                            "Passive outgoing-header capture unsupported or interrupted.");
+                }
+                report = "BATCH F.3b — PASSIVE PHYSICAL-UNDERLAY HEADER WINDOW\n"
+                        + "Selected independent WireGuard identities: "
+                        + selected.active.size() + " VERIFIED\n"
+                        + "Physical underlay candidate: " + selected.underlay
+                        + " (marked route prediction)\n"
+                        + "Routing ownership: " + ledger.size()
+                        + " recorded / " + reserved + " live · EXACT MATCH\n"
+                        + "Batch F exact owned IPv4/IPv6 guard: OFF / ABSENT\n"
+                        + "Capture duration cap: 5 seconds; outgoing only; "
+                        + "maximum 32 packet headers; 64-byte snap length.\n"
+                        + summary.report() + "\n"
+                        + "NO probes, DNS queries, firewall, routing, tunnel or "
+                        + "system network changes. Packet headers are discarded "
+                        + "in memory; only aggregate counts are displayed. "
+                        + "This is interface observation only: it CANNOT prove "
+                        + "local OUTPUT traversal, packet creator UID, or whether "
+                        + "Android needs any observed flow. Batch F activation PAUSED.";
+                ok = true;
+            } catch (IllegalStateException | IllegalArgumentException refused) {
+                report = "BATCH F.3b PASSIVE WINDOW REFUSED: " + refused.getMessage()
+                        + "\nNo packets generated, network policies or tunnels changed.";
+            } catch (Exception | LinkageError unavailable) {
+                report = "BATCH F.3b PASSIVE WINDOW UNAVAILABLE. "
+                        + "An exact, owned routing or root capture prerequisite "
+                        + "could not be verified. No network changes performed.";
+            } finally {
+                raw.clear();
+            }
+            finish(callback, ok, report);
+        });
+    }
+
+    /**
      * Read-only, synthetic first-match model. No networking, firewall writes,
      * active underlay challenge, or timers. Does not prove actual packet paths.
      */
