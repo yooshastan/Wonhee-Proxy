@@ -65,6 +65,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button failClosedAudit;
     private Button failClosedDisable;
     private Button failClosedGuidedTest;
+    private Button failClosedControlPlaneReview;
     private Button failClosedUnderlayChallenge;
     private TextView failClosedStatus;
     private TextView dnsEnforcementStatus;
@@ -469,6 +470,10 @@ public final class RootMultiKernelActivity extends Activity {
 
         LinearLayout failClosed = card(advancedGroup);
         label(failClosed, "PRODUCT BATCH F · FAIL-CLOSED FIREWALL PROTOTYPE", 18, PINK);
+        label(failClosed, "BATCH F ACTIVATION PAUSED after a connectivity interruption. "
+                + "The 0.15.13 diagnostic build cannot activate its OUTPUT guard or "
+                + "send the optional packet challenge. Read-only audits and exact "
+                + "owned guard removal remain available. See issue #41.", 13, PINK);
         label(failClosed, "HIGH-RISK EXPERIMENTAL ROOT OUTPUT FIREWALL. Default OFF. "
                 + "Both IPv4/IPv6 deny traffic outside selected kernel tunnels, except "
                 + "loopback and exact marked WireGuard UDP endpoints. This may disable "
@@ -509,6 +514,11 @@ public final class RootMultiKernelActivity extends Activity {
                 "Batch F guided preflight · read only, no test packets");
         failClosedGuidedTest.setOnClickListener(v ->
                 run("Review Batch F guided safety checks", false, session::reviewGuardTest));
+        failClosedControlPlaneReview = button(failClosed,
+                "Preview firewall impact on Android network control · read only");
+        failClosedControlPlaneReview.setOnClickListener(v ->
+                run("Preview Batch F control-plane flow outcomes", false,
+                        session::reviewGuardControlPlaneImpact));
         failClosedUnderlayChallenge = button(failClosed,
                 "Test IPv4 + IPv6 physical-underlay rejection · opt in");
         failClosedUnderlayChallenge.setOnClickListener(v -> new AlertDialog.Builder(this)
@@ -887,11 +897,14 @@ public final class RootMultiKernelActivity extends Activity {
             dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
         }
         if (failClosedEnable != null) failClosedEnable.setEnabled(ready
+                && !RootGuardSafetyGate.activationPaused()
                 && "OFF".equals(session.guardLedgerStatus())
                 && "OFF".equals(session.dnsLedgerStatus()));
         if (failClosedAudit != null) failClosedAudit.setEnabled(idle);
         if (failClosedGuidedTest != null) failClosedGuidedTest.setEnabled(ready);
+        if (failClosedControlPlaneReview != null) failClosedControlPlaneReview.setEnabled(ready);
         if (failClosedUnderlayChallenge != null) failClosedUnderlayChallenge.setEnabled(ready
+                && !RootGuardSafetyGate.activationPaused()
                 && !"OFF".equals(session.guardLedgerStatus()));
         if (failClosedDisable != null) failClosedDisable.setEnabled(idle
                 && !"OFF".equals(session.guardLedgerStatus()));
