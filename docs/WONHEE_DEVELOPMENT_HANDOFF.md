@@ -68,6 +68,12 @@ Last updated: 2026-11-07
 - Next safe check: bounded read-only `tcpdump` on `wlan0` for cleartext destination `10.0.0.169` TCP port `4533` while refreshing the browser. Expected: no matching physical-interface cleartext packets. Keep both tunnels and all routing rules in place, Batch F off.
 - After absence of cleartext direct traffic is established, test **Remove Wonhee routing overrides** exact rollback and verify priorities 12500–12502 disappear, Android priority-13000 rules remain, and rollback ledger clears; reapply correction only via guarded app workflow if continuing tests.
 
+## Physical underlay cleartext check — no packets observed (2026-11-07)
+
+- User's Termux tcpdump on physical `wlan0` with `host 10.0.0.169 and tcp port 4533` returned **0 packets captured, 0 received by filter, 0 dropped by kernel**. This is consistent with the preceding verified bidirectional Navidrome TCP exchange on HOME kernel interface `wnma292ddb4b6da`.
+- Interpret the result as **no matching direct cleartext Navidrome traffic observed during this capture**. A definitive negative conclusion requires confirming that the browser refresh occurred while the physical capture was active; this single filter does not establish complete leak prevention during disconnects, handoffs, other interfaces or other destinations.
+- Next device gate: inspect ledger (3 owned) and live reserved rules (3), perform **Remove Wonhee routing overrides** in UI with both tunnels connected, Batch F OFF and root/ADB recovery available. Verify priorities 12500–12502 disappear, Android's four priority-13000 rules remain, and ledger clears. If continuing tests, reapply through the guarded Wonhee UI (never by hand) and re-audit the 70/70 marked-route selection.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
