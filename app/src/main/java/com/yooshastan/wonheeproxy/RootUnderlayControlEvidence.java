@@ -37,6 +37,15 @@ final class RootUnderlayControlEvidence {
         int dnsTcp;
         int http80;
         int icmp6;
+        int routerSolicitation;
+        int routerAdvertisement;
+        int neighborSolicitation;
+        int neighborAdvertisement;
+        int redirect;
+        int echoRequest;
+        int echoReply;
+        int otherKnownIcmp;
+        int unknownIcmp;
         int other;
         int samples;
         int malformedPacketRows;
@@ -67,6 +76,20 @@ final class RootUnderlayControlEvidence {
                     .append("Plain DNS TCP/53 candidate: ").append(dnsTcp).append('\n')
                     .append("HTTP TCP/80 candidate: ").append(http80).append('\n')
                     .append("ICMPv6 candidate: ").append(icmp6).append('\n')
+                    .append("ICMPv6 router solicitation (type 133): ")
+                    .append(routerSolicitation).append('\n')
+                    .append("ICMPv6 router advertisement (type 134): ")
+                    .append(routerAdvertisement).append('\n')
+                    .append("ICMPv6 neighbor solicitation (type 135): ")
+                    .append(neighborSolicitation).append('\n')
+                    .append("ICMPv6 neighbor advertisement (type 136): ")
+                    .append(neighborAdvertisement).append('\n')
+                    .append("ICMPv6 redirect candidate (type 137): ")
+                    .append(redirect).append('\n')
+                    .append("ICMPv6 echo request/reply: ")
+                    .append(echoRequest).append(" / ").append(echoReply).append('\n')
+                    .append("ICMPv6 other known/unknown: ")
+                    .append(otherKnownIcmp).append(" / ").append(unknownIcmp).append('\n')
                     .append("Other/uncategorized matching headers: ").append(other).append('\n')
                     .append("Parsed outgoing headers: ").append(samples).append('\n')
                     .append("Unrecognized IP header rows: ").append(malformedPacketRows).append('\n')
@@ -174,7 +197,20 @@ final class RootUnderlayControlEvidence {
             else if (udp && dnsPort) s.dnsUdp++;
             else if (tcp && dnsPort) s.dnsTcp++;
             else if (tcp && httpPort) s.http80++;
-            else if (lower.contains("icmp6")) s.icmp6++;
+            else if (lower.contains("icmp6") || lower.contains("icmpv6")) {
+                s.icmp6++;
+                switch (RootF3cEvidence.classifyIcmp6(t)) {
+                    case ROUTER_SOLICITATION: s.routerSolicitation++; break;
+                    case ROUTER_ADVERTISEMENT: s.routerAdvertisement++; break;
+                    case NEIGHBOR_SOLICITATION: s.neighborSolicitation++; break;
+                    case NEIGHBOR_ADVERTISEMENT: s.neighborAdvertisement++; break;
+                    case REDIRECT: s.redirect++; break;
+                    case ECHO_REQUEST: s.echoRequest++; break;
+                    case ECHO_REPLY: s.echoReply++; break;
+                    case OTHER_KNOWN: s.otherKnownIcmp++; break;
+                    default: s.unknownIcmp++; break;
+                }
+            }
             else s.other++;
         }
         return s;
