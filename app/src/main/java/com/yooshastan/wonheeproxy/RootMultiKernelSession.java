@@ -2035,17 +2035,23 @@ final class RootMultiKernelSession {
             boolean ok = false;
             String result;
             boolean ledgerCommitted = false;
+            // Human-readable, non-sensitive failure stage. Never reveal endpoints, keys, or exceptions.
+            String preflightStage = "DNS or Batch F policy ownership";
             try {
                 requireDnsDisabledForTunnelMutation();
+                preflightStage = "existing routing rollback ledger";
                 if (!savedRules().isEmpty()) {
                     throw new IllegalStateException("Existing rollback ledger must be reviewed/removed first.");
                 }
+                preflightStage = "profile decoding and route plan";
                 List<Active> selected = loadAll(profiles);
                 List<RootSplitRouteRules.Rule> rules = RootSplitRouteRules.plan(routeEntries(selected));
                 if (rules.isEmpty()) {
                     throw new IllegalStateException("No conflicting default and split-route selections to correct.");
                 }
+                preflightStage = "root tools and kernel capability";
                 rootReady();
+                preflightStage = "running tunnel inventory";
                 Set<String> running = backend.getRunningTunnelNames();
                 if (running.contains("wnhome0") || running.contains("wnair0")) {
                     throw new IllegalStateException("Legacy pair must be stopped first.");
@@ -2058,10 +2064,12 @@ final class RootMultiKernelSession {
                     }
                 }
                 for (Active active : selected) {
+                    preflightStage = "selected WireGuard tunnel identity";
                     Tunnel link = new NamedTunnel(active.device);
                     if (!running.contains(active.device) || !matches(link, active)) {
                         throw new IllegalStateException("A selected interface is down or fails identity verification.");
                     }
+                    preflightStage = "WireGuard transport mark";
                     List<String> marks = new ArrayList<>();
                     if (shell.run(marks, "wg show " + active.device + " fwmark") != 0
                             || marks.size() != 1
@@ -2069,6 +2077,7 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("WireGuard transport mark is missing or lacks routing identity bits.");
                     }
                     long transportMark = RootFirewallMark.parse(marks);
+                    preflightStage = "numeric WireGuard UDP endpoint and split-prefix overlap";
                     List<String> endpointOutput = new ArrayList<>();
                     RootTcpProbeTarget endpoint = shell.run(endpointOutput,
                             "wg show " + active.device + " endpoints") == 0
@@ -2077,30 +2086,36 @@ final class RootMultiKernelSession {
                             endpoint.address, rules)) {
                         throw new IllegalStateException("Numeric WireGuard endpoint is unavailable or overlaps a HOME split prefix.");
                     }
+                    preflightStage = "marked WireGuard endpoint physical-underlay route";
                     String underlay = routeDeviceMarked(endpoint.family, endpoint.address, transportMark);
                     if (!underlay.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
                             || expected.contains(underlay)) {
                         throw new IllegalStateException("WireGuard endpoint does not route through a physical underlay.");
                     }
                 }
+                preflightStage = "reserved routing-priority collision (IPv4 and IPv6)";
                 if (RootSplitRouteRules.reservedPriorityPresent(readRules(4))
                         || RootSplitRouteRules.reservedPriorityPresent(readRules(6))) {
                     throw new IllegalStateException("Priority 12500–12799 is already occupied; refusing collision.");
                 }
                 // Crash-safe intent record BEFORE any root mutation. Never delete rules
                 // without this ledger and an exact kernel listing match.
+                preflightStage = "persisting exact rollback ownership";
                 saveRules(RootSplitRouteRules.encode(rules));
                 ledgerCommitted = true;
+                preflightStage = "installing exact owned routing rules";
                 for (RootSplitRouteRules.Rule rule : rules) {
                     if (shell.run(null, rule.add()) != 0 || !rulePresent(rule)) {
                         throw new IllegalStateException("Owned rule install/verification failed.");
                     }
                 }
+                preflightStage = "post-install unmarked routing verification";
                 for (RootSplitRouteRules.Rule rule : rules) {
                     if (!rule.device.equals(routeDevice(rule.family, rule.probe))) {
                         throw new IllegalStateException("Post-install root route selection is still incorrect.");
                     }
                 }
+                preflightStage = "post-install Android fwmark routing verification";
                 if (!appendMarkAwareRouteAudit(routeEntries(selected), rules, new StringBuilder())) {
                     throw new IllegalStateException("Post-install Android fwmark route simulations failed.");
                 }
@@ -2122,9 +2137,9 @@ final class RootMultiKernelSession {
                                 + "Do not change tunnels until recovered.";
                     }
                 } else {
-                    result = "Routing preflight refused. No routing rules changed. "
-                            + "Confirm live selected identities, endpoint marks, and an empty "
-                            + "reserved priority range before retrying.";
+                    result = "Routing preflight refused at: " + preflightStage + ". "
+                            + "No routing rules changed. Check this specific safety condition "
+                            + "using read-only audits. No secrets or endpoint addresses are shown.";
                 }
             }
             finish(callback, ok, result);
