@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b 0.15.15 — Opt-in passive physical underlay headers (2026-11-07)
+
+- New draft PR [#46](https://github.com/yooshastan/Wonhee-Proxy/pull/46) on `feature/batch-f3b-underlay-passive-01515`; version **0.15.15**, code **63**. Separate from F.3a's test-only PR #45 and F.3 RFC #44.
+- One opt-in **5-second** outgoing physical-interface capture of up to **32** packet headers (`-s 64`), only when both selected kernel identities, exact 3-rule routing ledger/live ownership and actual IPv4/IPv6 guard-OFF preflight pass. Requires root `tcpdump`/`timeout`; absence safely refuses.
+- In-memory ephemeral `tcpdump` summaries become aggregate candidate counts only (DHCPv4 UDP, plain DNS UDP/TCP, TCP/80, ICMPv6). Raw addresses, endpoint tuples and packet summaries are never shown or recorded in Wonhee's diagnostic journal. No pcap file, generated traffic, probes, firewall/routing/tunnel/DNS changes, or forced handoffs.
+- **Limit**: observing headers on a physical interface does **not** prove that Android's own control-plane emitted them, that they traversed local OUTPUT, or that the old kill switch caused the previous interruption. A blank window is not proof of absence; packet classification is provisional. Batch F remains **hard disabled**.
+- Test-only classifier and redaction unit tests added; device protocol at `docs/PRODUCT_BATCH_F3B_PASSIVE_UNDERLAY_TEST_PLAN.md`. **CI PASS**: [Android + Java #42423508558](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42423508558), [native dual-WireGuard #42423508569](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42423508569). Installable artifact `wonhee-01515-f3b-passive-underlay-debug-apk` (ZIP with app-debug.apk); Pixel 8a consented device observation pending.
+- Keep current HOME/AirVPN split routing stable and guard OFF. Never uninstall the working app to force an APK install if debug signatures differ; doing so could erase route ownership records. Issue [#41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) remains unresolved and no live firewall activation is authorized.
+
 ## Batch F.3a — Offline contract matrix (2026-11-07)
 
 - Following successful 0.15.14 F.2 paired health snapshots, F.3 RFC is in [draft PR #44](https://github.com/yooshastan/Wonhee-Proxy/pull/44), with **pure-code safety checks** in [draft PR #45](https://github.com/yooshastan/Wonhee-Proxy/pull/45) on `feature/batch-f3a-static-policy-matrix`.
