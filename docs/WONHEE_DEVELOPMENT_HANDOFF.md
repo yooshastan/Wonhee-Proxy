@@ -2,6 +2,28 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b post-capture streaming and browsing PASS (2026-11-07)
+
+- User confirmed **Navidrome is streaming** over the working HOME path and **public Internet browsing works** after the opt-in 0.15.15 passive capture. This completes a functional no-regression post-capture smoke check.
+- Earlier same-version capture screenshot: 2 identities verified, exact route ledger 3/live 3 MATCH, owned guard OFF/ABSENT, physical underlay prediction wlan0, **0 parsed outgoing headers** within the five-second sample. Zero samples are **inconclusive** for Android control-plane origin, OUTPUT traversal or a capture/classifier coverage gap.
+- **F.3b initial device sampling and functional smoke check completed**; guard activation must remain blocked. Next: improve diagnostic observability before considering policy exceptions, without losing established HOME/AirVPN routing.
+
+## Batch F.3b — first Pixel 8a live diagnostic sample (2026-11-07)
+
+- User uploaded screenshot **COMPLETE · PASSIVE PHYSICAL-UNDERLAY HEADER WINDOW** from 0.15.15. Device gate verified **2 selected WireGuard kernel identities**, selected predicted physical underlay `wlan0`, exact routing ledger **3 / 3 MATCH**, and exact Batch F IPv4/IPv6 owned guard **OFF / ABSENT** (session's pre-capture audit).
+- A bounded read-only outgoing capture completed (5-second maximum, 32 header maximum, 64-byte snap length). Aggregate classifier reported **0 parsed outgoing packet headers**, including **0 DHCPv4**, **0 DNS UDP/53**, **0 DNS TCP/53**, **0 HTTP TCP/80**, **0 ICMPv6**, and **0 other**.
+- **Outcome: diagnostic execution / preconditions PASS, traffic evidence INCONCLUSIVE.** Zero samples in a short selected interface/filter window do not show that Android lacks such flows, identify kernel OUTPUT traverse, or rule out capture/classifier coverage limits. No generated packets, network writes, DNS changes or firewall activation. User has not yet separately confirmed post-capture Internet/Navidrome reachability.
+- Next F.3b refinement, if needed, should distinguish true empty windows from parser/output coverage gaps without generating probe packets or modifying live rules. A design for actual UID/netd/OUTPUT provenance evidence is still required before F.3c exceptions or F.4 enforcement. Issue #41 OPEN; guard activation hard-disabled.
+
+## Batch F.3b 0.15.15 — Opt-in passive physical underlay headers (2026-11-07)
+
+- New draft PR [#46](https://github.com/yooshastan/Wonhee-Proxy/pull/46) on `feature/batch-f3b-underlay-passive-01515`; version **0.15.15**, code **63**. Separate from F.3a's test-only PR #45 and F.3 RFC #44.
+- One opt-in **5-second** outgoing physical-interface capture of up to **32** packet headers (`-s 64`), only when both selected kernel identities, exact 3-rule routing ledger/live ownership and actual IPv4/IPv6 guard-OFF preflight pass. Requires root `tcpdump`/`timeout`; absence safely refuses.
+- In-memory ephemeral `tcpdump` summaries become aggregate candidate counts only (DHCPv4 UDP, plain DNS UDP/TCP, TCP/80, ICMPv6). Raw addresses, endpoint tuples and packet summaries are never shown or recorded in Wonhee's diagnostic journal. No pcap file, generated traffic, probes, firewall/routing/tunnel/DNS changes, or forced handoffs.
+- **Limit**: observing headers on a physical interface does **not** prove that Android's own control-plane emitted them, that they traversed local OUTPUT, or that the old kill switch caused the previous interruption. A blank window is not proof of absence; packet classification is provisional. Batch F remains **hard disabled**.
+- Test-only classifier and redaction unit tests added; device protocol at `docs/PRODUCT_BATCH_F3B_PASSIVE_UNDERLAY_TEST_PLAN.md`. **CI PASS**: [Android + Java #42423508558](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42423508558), [native dual-WireGuard #42423508569](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42423508569). Installable artifact `wonhee-01515-f3b-passive-underlay-debug-apk` (ZIP with app-debug.apk); Pixel 8a consented device observation pending.
+- Keep current HOME/AirVPN split routing stable and guard OFF. Never uninstall the working app to force an APK install if debug signatures differ; doing so could erase route ownership records. Issue [#41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) remains unresolved and no live firewall activation is authorized.
+
 ## Batch F.3a — Offline contract matrix (2026-11-07)
 
 - Following successful 0.15.14 F.2 paired health snapshots, F.3 RFC is in [draft PR #44](https://github.com/yooshastan/Wonhee-Proxy/pull/44), with **pure-code safety checks** in [draft PR #45](https://github.com/yooshastan/Wonhee-Proxy/pull/45) on `feature/batch-f3a-static-policy-matrix`.

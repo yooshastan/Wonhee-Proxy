@@ -51,6 +51,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button dnsAudit;
     private Button transportAudit;
     private Button passiveHealth;
+    private Button passiveUnderlay;
     private Button serviceProbe;
     private Button packetObserve;
     private Button guardModel;
@@ -571,6 +572,24 @@ public final class RootMultiKernelActivity extends Activity {
                 "Batch F.2 · Snapshot live tunnel health · read only");
         passiveHealth.setOnClickListener(v -> run("F.2 manual passive health snapshot",
                 false, session::snapshotPassiveHealth));
+        passiveUnderlay = button(privacy,
+                "Batch F.3b · Observe underlay control headers · opt in");
+        passiveUnderlay.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Capture outgoing network header summaries?")
+                .setMessage("Batch F must remain OFF. Only after exact tunnel/route "
+                        + "ownership checks, Wonhee observes up to 32 outgoing "
+                        + "packet HEADERS on the current physical Wi-Fi/cellular "
+                        + "interface for at most five seconds. The capture is NOT "
+                        + "an Android OUTPUT-chain or UID attribution test. "
+                        + "Aggregated control-traffic categories are displayed; "
+                        + "addresses, raw headers and payloads are not saved. "
+                        + "No packets are generated, and no policies change. "
+                        + "Root tcpdump + timeout must already be available.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Observe headers", (dialog, which) ->
+                        run("F.3b passive underlay header observation", false,
+                                session::observePhysicalControlHeaders))
+                .show());
         label(privacy, "Manual on-device snapshot of verified WireGuard handshake age, "
                 + "cumulative RX/TX, changed endpoint/underlay route predictions, "
                 + "and exact routing ledger ownership. Repeat the button to compare "
@@ -849,6 +868,9 @@ public final class RootMultiKernelActivity extends Activity {
                     ? "Product D DoH probe " + (ok ? "verified" : "refused")
                     : action.startsWith("F.2 manual passive health")
                             ? "F.2 manual snapshot " + (ok ? "completed" : "check required")
+                    : action.startsWith("F.3b passive underlay")
+                            ? "F.3b anonymous header totals "
+                                    + (ok ? "completed" : "check required")
                             : result);
             updateButtons();
         });
@@ -891,6 +913,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (dnsAudit != null) dnsAudit.setEnabled(ready);
         if (transportAudit != null) transportAudit.setEnabled(ready);
         if (passiveHealth != null) passiveHealth.setEnabled(ready);
+        if (passiveUnderlay != null) passiveUnderlay.setEnabled(ready);
         if (serviceProbe != null) serviceProbe.setEnabled(ready);
         if (packetObserve != null) packetObserve.setEnabled(ready);
         if (guardModel != null) guardModel.setEnabled(ready);
