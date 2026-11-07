@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 61
-        versionName '0.15.13.1-batchF1-ownership-audit-diagnostic'
+        versionCode 62
+        versionName '0.15.14-batchF2-manual-health-diagnostic'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
