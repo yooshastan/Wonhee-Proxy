@@ -1142,8 +1142,7 @@ final class RootMultiKernelSession {
                     long mark = RootFirewallMark.parse(rawMark);
                     if (mark == 0 || !RootSplitRouteRules.transportMarkHasIdentity(
                                     "0x" + Long.toHexString(mark))) {
-                        throw new IllegalStateException("Transport mark absent or unsafe; "
-                                + "no broad physical-network exception will be installed.");
+                        throw new IllegalStateException("WireGuard transport mark is missing or lacks routing identity bits; refusing endpoint exception.");
                     }
                     if (!marks.add(mark)) {
                         if (mark != RootFirewallMark.ANDROID_PROTECTED_FROM_VPN) {
@@ -1326,7 +1325,7 @@ final class RootMultiKernelSession {
             long mark = RootFirewallMark.parse(marks);
             if (mark == 0 || !RootSplitRouteRules.transportMarkHasIdentity(
                     "0x" + Long.toHexString(mark))) {
-                throw new IllegalStateException("WireGuard transport mark is missing or unsafe.");
+                throw new IllegalStateException("WireGuard transport mark is missing or lacks routing identity bits.");
             }
             List<String> endpoints = new ArrayList<>();
             RootTcpProbeTarget endpoint = shell.run(endpoints,
