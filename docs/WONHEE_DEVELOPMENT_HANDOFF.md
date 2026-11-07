@@ -2,6 +2,11 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b.1 post-capture functional stability PASS (2026-11-07)
+
+- User explicitly confirmed **private Navidrome streaming and public Internet browsing both work** after the 0.15.16 opt-in passive capture. Together with prior 1/1 parsed/captured ICMPv6 candidate and exact guard OFF/route 3/3, this completes the **F.3b.1 diagnostic execution + functional no-regression device acceptance**.
+- This does **not** establish the ICMPv6 subtype, packet creator UID, local OUTPUT traversal, no-direct-leak protection, safe handoff, or the original live kill-switch incident's root cause. Preserve working HOME/AirVPN; Batch F activation remains quarantined. Next: read-only ICMPv6 subtype/OUTPUT-chain provenance study before firewall exceptions.
+
 ## Batch F.3b.1 Pixel 8a outgoing ICMPv6 observed (2026-11-07)
 
 - User shared 0.15.16 diagnostic screenshot: **COMPLETE**, **HEADERS_OBSERVED**, exact selected WireGuard identities 2/2, predicted underlay `wlan0`, routing ledger/live **3/3 EXACT MATCH**, Batch F guard **OFF/ABSENT**.
