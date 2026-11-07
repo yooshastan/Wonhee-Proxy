@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.13 Batch F.1 Diagnostic Only · Guard Paused
+name: Wonhee Proxy 0.15.13.1 F.1 Routing Ownership Diagnostic · Guard Paused
 
 on:
   push:
@@ -166,7 +166,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01513-batch-f1-diagnostic-only-debug-apk
+          name: wonhee-01513-1-routing-ownership-diagnostic-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
