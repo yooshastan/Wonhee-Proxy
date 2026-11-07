@@ -27,6 +27,14 @@ Last updated: 2026-11-07
 - UID/mark route lookups showed all five tested marks — `0x1009d`, `0xc489e`, `0xce8a6`, `0x1489e`, `0x1e8a6` — selecting AirVPN for both the HOME address and public IPv4.
 - The original `fwmark 0x0/0x2ffff` selector excluded those marked sockets. Android's earlier priority-13000 AirVPN default lookup therefore won before the HOME rule.
 
+## First 0.15.12 device audit (2026-11-07)
+
+- User-supplied Pixel 8a screenshots show **root split-route matches 3/3** but **Android marked-route simulations 31/70 (14 discovered unprotected marks): FAIL**.
+- Failing private destination lookups at representative UID 10000 still select AirVPN interface `wnm68fe81200daa` instead of HOME interface `wnma292ddb4b6da`, including for marks `0x1009d`, `0x1489e`, `0x1e8a6` and others.
+- Protected-from-VPN lookups avoided HOME in **3/3** cases. The installed build incorrectly displayed `protectedFromVpn bypass: 3/3 · FAIL` because the label used the combined marked-route PASS flag. The indicator has been corrected on the development branch to report bypass and marked-route results separately; the installed APK still has the old label.
+- The screenshot is from the **read-only audit before the user has confirmed removing old routing overrides and applying the new 0x0/0x20000 rules**. Do not interpret 31/70 as a post-install failure of the new selector.
+- Next safe gate: confirm rollback ledger and live reserved priorities match, remove only the exact old Wonhee rules via the app, inspect the resulting RPDB, then explicitly apply the new selector and retest. Batch F remains OFF; do not manually flush Android rules or disconnect tunnels.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
