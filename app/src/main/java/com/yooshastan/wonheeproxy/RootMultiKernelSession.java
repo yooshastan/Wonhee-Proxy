@@ -1733,11 +1733,26 @@ final class RootMultiKernelSession {
                 }
                 result.append("HOME split-route lookups: ").append(matched).append('/')
                         .append(planned.size()).append(" (root simulation only)\n");
+                int publicMatched = 0;
+                int publicTotal = 0;
+                for (Active active : selected) {
+                    for (String cidr : active.routes.peerRoutes) {
+                        if (!"0.0.0.0/0".equals(cidr) && !"::/0".equals(cidr)) continue;
+                        int family = cidr.contains(":") ? 6 : 4;
+                        String target = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
+                        publicTotal++;
+                        if (active.device.equals(routeDevice(family, target))) publicMatched++;
+                    }
+                }
+                result.append("Public route lookups: ").append(publicMatched).append('/')
+                        .append(publicTotal).append(" (root simulation only)\n");
                 result.append("Batch F owned guard LEDGER: ").append(guardLedgerStatus())
                         .append(" (inspect live chains separately)\n");
                 result.append("No automatic failure diagnosis from an idle tunnel.\n");
                 Set<String> running = backend.getRunningTunnelNames();
                 int verified = 0;
+                int readable = 0;
+                int endpointResolved = 0;
                 for (Active active : selected) {
                     NamedTunnel link = new NamedTunnel(active.device);
                     if (!running.contains(active.device)
@@ -1766,11 +1781,14 @@ final class RootMultiKernelSession {
                                 .append(": transfer counter UNAVAILABLE; cannot compare.\n");
                         continue;
                     }
+                    readable++;
                     String token = endpoint == null ? ""
                             : endpoint.family + "|" + endpoint.address + "|" + endpoint.port;
                     String family = endpoint == null ? "UNVERIFIED" : "IPv" + endpoint.family;
                     String egress = endpoint == null || mark == 0 ? ""
                             : routeDeviceMarked(endpoint.family, endpoint.address, mark);
+                    if (endpoint != null && mark != 0 && !egress.isEmpty()
+                            && !egress.equals(active.device)) endpointResolved++;
                     long now = System.currentTimeMillis() / 1000L;
                     RootPassiveNetworkHealth.Snapshot current =
                             new RootPassiveNetworkHealth.Snapshot(
@@ -1784,6 +1802,10 @@ final class RootMultiKernelSession {
                 }
                 result.append("Identity-verified running tunnels: ")
                         .append(verified).append('/').append(selected.size()).append('\n');
+                result.append("Readable transfer counters: ").append(readable)
+                        .append('/').append(selected.size()).append("; endpoint underlay "
+                                + "route predictions: ").append(endpointResolved)
+                        .append('/').append(selected.size()).append('\n');
                 result.append("MANUAL ROOT SNAPSHOTS ONLY: sample comparison exists in RAM "
                         + "until app process exits. No endpoint IPs/keys shown or saved. "
                         + "No DNS queries, packet generation, active reachability checks, "
@@ -1791,7 +1813,10 @@ final class RootMultiKernelSession {
                         + "stagnation and route predictions are NOT leak or fail-closed proof. "
                         + "Batch F activation remains PAUSED.");
                 report = result.toString();
-                ok = owned && matched == planned.size() && verified == selected.size();
+                ok = owned && matched == planned.size() && publicTotal > 0
+                        && publicMatched == publicTotal && verified == selected.size()
+                        && readable == selected.size() && endpointResolved == selected.size()
+                        && "OFF".equals(guardLedgerStatus());
             } catch (Exception | LinkageError unexpected) {
                 report = "BATCH F.2 PASSIVE HEALTH SNAPSHOT UNAVAILABLE. "
                         + "Root tools, configured identities, or owned-route inspection "
