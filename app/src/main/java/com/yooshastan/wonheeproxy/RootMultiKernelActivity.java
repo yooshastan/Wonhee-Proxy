@@ -50,6 +50,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button guardReadiness;
     private Button dnsAudit;
     private Button transportAudit;
+    private Button passiveHealth;
     private Button serviceProbe;
     private Button packetObserve;
     private Button guardModel;
@@ -566,6 +567,15 @@ public final class RootMultiKernelActivity extends Activity {
         transportAudit = button(privacy, "Inspect UDP endpoint egress + Private DNS");
         transportAudit.setOnClickListener(v ->
                 run("Audit marked transport paths", false, session::auditTransportPaths));
+        passiveHealth = button(privacy,
+                "Batch F.2 · Snapshot live tunnel health · read only");
+        passiveHealth.setOnClickListener(v -> run("F.2 manual passive health snapshot",
+                false, session::snapshotPassiveHealth));
+        label(privacy, "Manual on-device snapshot of verified WireGuard handshake age, "
+                + "cumulative RX/TX, changed endpoint/underlay route predictions, "
+                + "and exact routing ledger ownership. Repeat the button to compare "
+                + "to an in-memory snapshot; no background polling, packets, DNS, "
+                + "firewall or tunnel changes. Idle traffic is not a failure.", 13, MUTED);
         label(privacy, "This new Batch D check evaluates the marked route to "
                 + "each selected tunnel's current numeric UDP endpoint without "
                 + "showing the endpoint address, then records Android's Private "
@@ -836,7 +846,10 @@ public final class RootMultiKernelActivity extends Activity {
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
             // DNS destinations/probe outcomes must not persist into diagnostics.
             journal.record("RESULT", action.startsWith("Product D DoH")
-                    ? "Product D DoH probe " + (ok ? "verified" : "refused") : result);
+                    ? "Product D DoH probe " + (ok ? "verified" : "refused")
+                    : action.startsWith("F.2 manual passive health")
+                            ? "F.2 manual snapshot " + (ok ? "completed" : "check required")
+                            : result);
             updateButtons();
         });
         updateButtons();
@@ -877,6 +890,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (guardReadiness != null) guardReadiness.setEnabled(ready);
         if (dnsAudit != null) dnsAudit.setEnabled(ready);
         if (transportAudit != null) transportAudit.setEnabled(ready);
+        if (passiveHealth != null) passiveHealth.setEnabled(ready);
         if (serviceProbe != null) serviceProbe.setEnabled(ready);
         if (packetObserve != null) packetObserve.setEnabled(ready);
         if (guardModel != null) guardModel.setEnabled(ready);
