@@ -2,6 +2,18 @@
 
 Last updated: 2026-11-07
 
+## Batch F.1 diagnostic branch (2026-11-07)
+
+- **New draft PR #42:** https://github.com/yooshastan/Wonhee-Proxy/pull/42
+- Branch `feature/batch-f1-control-plane-risk-audit-01513` derived from tested Batch B.1 PR #40.
+- Version **0.15.13**, code **60**, experimental `.rootlab` debug application.
+- **Batch F activation and optional underlay packet challenge are quarantined** at both UI and root-session level. No activation can be initiated through the diagnostic build until the code is deliberately changed and retested.
+- A new Batch F **read-only control-plane flow preview** models the owned firewall's first-match actions for exact marked WireGuard UDP endpoint exceptions, tunneled traffic, HOME anti-fallback, DHCP UDP/67, underlay HTTP/DNS and IPv6 router solicitation.
+- The modeled REJECTs are potential contributors to the observed connectivity interruption; they are not proof that these flows were emitted or that Android needed them. No broad underlay bypasses were introduced.
+- Pure-Java regression tests cover IPv4/IPv6 rule matching and activation quarantine. CI status must be checked before providing a test artifact.
+- Read-only ownership audit and **Disable Batch F + exact cleanup** are retained. Batch B.1 split routing, ledger and Android routing rules are unmodified. Issue #41 stays open.
+- Device test plan: `docs/PRODUCT_BATCH_F1_CONTROL_PLANE_DIAGNOSTIC_TEST_PLAN.md`. **No activation/packet challenge testing** with 0.15.13.
+
 ## Active development checkpoint
 
 - Current test version: **0.15.12**, versionCode **59**
