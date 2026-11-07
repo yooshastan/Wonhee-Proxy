@@ -2,6 +2,13 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b — first Pixel 8a live diagnostic sample (2026-11-07)
+
+- User uploaded screenshot **COMPLETE · PASSIVE PHYSICAL-UNDERLAY HEADER WINDOW** from 0.15.15. Device gate verified **2 selected WireGuard kernel identities**, selected predicted physical underlay `wlan0`, exact routing ledger **3 / 3 MATCH**, and exact Batch F IPv4/IPv6 owned guard **OFF / ABSENT** (session's pre-capture audit).
+- A bounded read-only outgoing capture completed (5-second maximum, 32 header maximum, 64-byte snap length). Aggregate classifier reported **0 parsed outgoing packet headers**, including **0 DHCPv4**, **0 DNS UDP/53**, **0 DNS TCP/53**, **0 HTTP TCP/80**, **0 ICMPv6**, and **0 other**.
+- **Outcome: diagnostic execution / preconditions PASS, traffic evidence INCONCLUSIVE.** Zero samples in a short selected interface/filter window do not show that Android lacks such flows, identify kernel OUTPUT traverse, or rule out capture/classifier coverage limits. No generated packets, network writes, DNS changes or firewall activation. User has not yet separately confirmed post-capture Internet/Navidrome reachability.
+- Next F.3b refinement, if needed, should distinguish true empty windows from parser/output coverage gaps without generating probe packets or modifying live rules. A design for actual UID/netd/OUTPUT provenance evidence is still required before F.3c exceptions or F.4 enforcement. Issue #41 OPEN; guard activation hard-disabled.
+
 ## Batch F.3b 0.15.15 — Opt-in passive physical underlay headers (2026-11-07)
 
 - New draft PR [#46](https://github.com/yooshastan/Wonhee-Proxy/pull/46) on `feature/batch-f3b-underlay-passive-01515`; version **0.15.15**, code **63**. Separate from F.3a's test-only PR #45 and F.3 RFC #44.
