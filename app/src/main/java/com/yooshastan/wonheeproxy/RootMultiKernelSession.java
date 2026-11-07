@@ -2259,6 +2259,94 @@ final class RootMultiKernelSession {
         return RootKernelRouteAudit.selectedDevice(output);
     }
 
+    /** Route lookup for a representative application UID and a live Android fwmark. */
+    private String routeDeviceMarkedForUid(int family, String address, int uid, long mark)
+            throws Exception {
+        if (uid < 0 || uid > 99999 || mark < 0 || mark > 0xffffffffL) return "";
+        List<String> output = new ArrayList<>();
+        String command = "ip -" + family + " route get " + address + " uid " + uid
+                + " mark 0x" + Long.toHexString(mark);
+        if (shell.run(output, command) != 0) return "";
+        return RootKernelRouteAudit.selectedDevice(output);
+    }
+
+    /**
+     * Verify the proposed destination split against actual unprotected fwmark
+     * values found in Android's IPv4/IPv6 policy rules. UID 10000 is a
+     * representative app UID inside Wonhee's 0-99999 policy range; this remains
+     * a route simulation, not proof of actual application socket behavior.
+     */
+    private boolean appendMarkAwareRouteAudit(List<RootMultiTunnelPlan.Entry> entries,
+            List<RootSplitRouteRules.Rule> split, StringBuilder report) throws Exception {
+        if (split.isEmpty()) {
+            report.append("Android mark-aware split-route simulations: NOT REQUIRED (no cross-tunnel split routes).\n");
+            return true;
+        }
+        List<String> policyRules = new ArrayList<>();
+        policyRules.addAll(readRules(4));
+        policyRules.addAll(readRules(6));
+        List<Long> marks = RootSplitRouteRules.unprotectedMarkProbes(policyRules);
+        if (marks.isEmpty()) {
+            report.append("Android unprotected fwmark probes: NONE — UNVERIFIED.\n");
+            return false;
+        }
+        int matched = 0;
+        int total = 0;
+        for (long mark : marks) {
+            for (RootSplitRouteRules.Rule rule : split) {
+                String actual = routeDeviceMarkedForUid(
+                        rule.family, rule.probe, MARK_AUDIT_UID, mark);
+                total++;
+                if (rule.device.equals(actual)) {
+                    matched++;
+                } else {
+                    report.append("MARK ROUTE MISMATCH · UID ").append(MARK_AUDIT_UID)
+                            .append(" · mark 0x").append(Long.toHexString(mark))
+                            .append(" · ").append(rule.destination)
+                            .append(" · expected ").append(rule.device)
+                            .append(" · got ").append(actual.isEmpty() ? "NO ROUTE" : actual)
+                            .append('\n');
+                }
+            }
+            for (int family : new int[] {4, 6}) {
+                String address = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
+                String expected = RootProtectionPolicy.expectedDevice(entries, address);
+                if (expected.isEmpty()) continue;
+                String actual = routeDeviceMarkedForUid(family, address, MARK_AUDIT_UID, mark);
+                total++;
+                if (expected.equals(actual)) {
+                    matched++;
+                } else {
+                    report.append("PUBLIC MARK ROUTE MISMATCH · UID ").append(MARK_AUDIT_UID)
+                            .append(" · mark 0x").append(Long.toHexString(mark))
+                            .append(" · IPv").append(family)
+                            .append(" · expected ").append(expected)
+                            .append(" · got ").append(actual.isEmpty() ? "NO ROUTE" : actual)
+                            .append('\n');
+                }
+            }
+        }
+        int protectedBypass = 0;
+        for (RootSplitRouteRules.Rule rule : split) {
+            String actual = routeDeviceMarkedForUid(rule.family, rule.probe,
+                    MARK_AUDIT_UID, RootFirewallMark.ANDROID_PROTECTED_FROM_VPN);
+            if (!rule.device.equals(actual)) {
+                protectedBypass++;
+            } else {
+                report.append("PROTECTED SOCKET MISMATCH · HOME split route captured mark 0x20000 · ")
+                        .append(rule.destination).append('\n');
+            }
+        }
+        boolean pass = total > 0 && matched == total && protectedBypass == split.size();
+        report.append("Android mark-aware route simulations (UID ").append(MARK_AUDIT_UID)
+                .append("): ").append(matched).append('/').append(total)
+                .append(" · ").append(marks.size()).append(" unprotected mark probe(s)")
+                .append(pass ? " · PASS" : " · FAIL").append('\n');
+        report.append("protectedFromVpn bypass: ").append(protectedBypass).append('/')
+                .append(split.size()).append(pass ? " · PASS" : " · FAIL").append('\n');
+        return pass;
+    }
+
     private void removeOwnedRules() throws Exception {
         List<RootSplitRouteRules.Rule> rules = RootSplitRouteRules.decode(savedRules());
         for (int i = rules.size() - 1; i >= 0; i--) {
