@@ -19,6 +19,9 @@ final class RootUnderlayControlEvidence {
             "^[0-9]+(?:\\.[0-9]+)?\\s+IP6?\\s+.+");
     private static final Pattern STATS_CAPTURED = Pattern.compile(
             "^([0-9]+)\\s+packets? captured(?:\\s+.*)?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern STATS_RECEIVED = Pattern.compile(
+            "^([0-9]+)\\s+packets? received by filter(?:\\s+.*)?$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern STATS_DROPPED = Pattern.compile(
             "^([0-9]+)\\s+packets? dropped by kernel(?:\\s+.*)?$",
             Pattern.CASE_INSENSITIVE);
@@ -40,6 +43,7 @@ final class RootUnderlayControlEvidence {
         int rawLineCount;
         boolean captureStarted;
         long tcpdumpCaptured = -1;
+        long tcpdumpReceived = -1;
         long tcpdumpDropped = -1;
 
         Evidence evidence(int exit) {
@@ -70,6 +74,10 @@ final class RootUnderlayControlEvidence {
                     .append(captureStarted ? "YES" : "NOT CONFIRMED").append('\n')
                     .append("tcpdump reported packets captured: ")
                     .append(tcpdumpCaptured >= 0 ? Long.toString(tcpdumpCaptured)
+                            : "NOT REPORTED")
+                    .append('\n')
+                    .append("tcpdump packets received by filter: ")
+                    .append(tcpdumpReceived >= 0 ? Long.toString(tcpdumpReceived)
                             : "NOT REPORTED")
                     .append('\n')
                     .append("Kernel capture drops reported: ")
@@ -137,6 +145,11 @@ final class RootUnderlayControlEvidence {
                 s.tcpdumpCaptured = positiveCounter(captured.group(1));
                 continue;
             }
+            Matcher received = STATS_RECEIVED.matcher(t);
+            if (received.matches()) {
+                s.tcpdumpReceived = positiveCounter(received.group(1));
+                continue;
+            }
             Matcher dropped = STATS_DROPPED.matcher(t);
             if (dropped.matches()) {
                 s.tcpdumpDropped = positiveCounter(dropped.group(1));
@@ -145,7 +158,7 @@ final class RootUnderlayControlEvidence {
             if (!HEADER.matcher(t).matches()) {
                 // Timestamped, but nonstandard packet header: explicitly
                 // report parser coverage gap rather than silently count zero.
-                if (t.matches("^[0-9]+(?:\\.[0-9]+)?\\s+.+")) {
+                if (t.matches("^[0-9]+\\.[0-9]+\\s+.+")) {
                     s.malformedPacketRows++;
                 }
                 continue;
