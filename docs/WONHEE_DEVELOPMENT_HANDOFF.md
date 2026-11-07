@@ -43,6 +43,14 @@ Last updated: 2026-11-07
 - The development branch now reports a **non-sensitive preflight stage label** in the refusal message; it does not disclose endpoints, IP addresses, public keys or arbitrary exception messages.
 - Device can run the existing **Inspect UDP endpoint egress + Private DNS** read-only audit and **Audit owned DNS enforcement** before trying any mutation. Preserve active HOME and AirVPN tunnels and keep Batch F OFF.
 
+## Post-install Batch B.1 device result and Moka compatibility (2026-11-07)
+
+- The Pixel 8a screenshot reports **Installed 3 Wonhee-owned split priority rules** in 0.15.12, with UID-0 and representative UID-10000 fwmark route simulations passing. This establishes that the device accepted the new destination-specific kernel policy rules; capture the full post-install root audit, exact rule listing, and rollback still remain to be independently verified.
+- The browser can now open the configured Navidrome server at `http://10.0.0.169:4533`. This proves browser reachability, **not by itself the exact tunnel packet path**, especially if the device is on the same Wi-Fi as the server.
+- Moka still reports: **Approved private Navidrome VPN route is unavailable; no direct fallback was used.** This is expected given Moka's `PrivateVpnNetworkGate`, which explicitly requires an Android `TRANSPORT_VPN` Network and matching `LinkProperties` route, not merely root kernel WireGuard interfaces or RPDB rules.
+- Do not relax Moka's private HTTP fail-closed behavior or use plain `URL.openConnection()` as a fallback. The Moka issue to track a verified implementation is https://github.com/yooshastan/MokaMusicPlayer/issues/26.
+- Next: verify kernel rule selector `0x0/0x20000`, complete a full read-only audit and exact rollback verification, and test actual tunneled traffic independently. For Moka connectivity, either use a trusted HTTPS Navidrome endpoint or implement an Android-visible VPN/network-bound tunnel data path with fail-closed tests.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
