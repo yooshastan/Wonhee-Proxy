@@ -600,13 +600,13 @@ final class RootMultiKernelSession {
                         }
                     }
                 }
-                appendMarkAwareRouteAudit(routeEntries(selected), planned, report);
+                boolean markAwareOk = appendMarkAwareRouteAudit(routeEntries(selected), planned, report);
                 report.append("Split-route matches: ").append(matched).append('/')
                         .append(planned.size()).append(". These are UID-0 and representative "
                         + "UID-10000 fwmark route simulations, NOT actual app sockets, DNS, "
                         + "packet capture or kill-switch tests.");
                 result = report.toString();
-                ok = true;
+                ok = matched == planned.size() && markAwareOk;
             } catch (Exception | LinkageError ignored) {
                 result = "Route audit could not complete. Verify root, saved profiles, "
                         + "and any owned-rule ledger. No routes were changed.";
