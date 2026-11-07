@@ -2,6 +2,12 @@
 
 Last updated: 2026-11-07
 
+## 0.15.13.1 device smoke test (2026-11-07)
+
+- User installed the diagnostic APK and reported **everything appears to be running as expected**. This confirms installation and initial observed normal operation; no fresh per-button routing/ownership or firewall audit screenshot was supplied on 0.15.13.1.
+- Do not claim live routing security tests, ongoing connectivity/underlay handoff or Batch F fail-closed behavior passed on this version. Keep Batch F activation paused.
+- Next development gate: Batch F.2 **read-only** runtime health monitoring with a manual snapshot of tunnel identities, last handshake age, RX/TX growth, endpoint/underlay changes, exact route/ledger state; never automatically modify firewall/routing or send connectivity test packets.
+
 ## Routing ownership recovered; audit status fix in progress (2026-11-07)
 
 - On the 0.15.13 diagnostic APK, first screenshot showed **guard ledger OFF**, **no IPv4/IPv6 OUTPUT anchors or app-reserved guard chains**, plus a read-only Batch F model predicting **REJECT** for direct underlay DHCPv4, HTTP validation, DNS UDP/53 and IPv6 router solicitation; selected HOME/Navidrome and public AirVPN packet models showed **RETURN**. These are hypothetical, not captured Android packets or evidence of outage causation.
