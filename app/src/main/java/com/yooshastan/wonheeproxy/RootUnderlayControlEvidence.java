@@ -127,7 +127,8 @@ final class RootUnderlayControlEvidence {
             s.rawLineCount++;
             String t = line.trim();
             String lower = t.toLowerCase(Locale.ROOT);
-            if (lower.startsWith("listening on ")) {
+            if (lower.startsWith("listening on ")
+                    || lower.startsWith("tcpdump: listening on ")) {
                 s.captureStarted = true;
                 continue;
             }
