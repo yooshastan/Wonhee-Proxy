@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.15 F.3b Passive Underlay Diagnostic · Guard Paused
+name: Wonhee Proxy 0.15.16 F.3b.1 Capture Coverage Audit · Guard Paused
 
 on:
   push:
@@ -175,7 +175,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01515-f3b-passive-underlay-debug-apk
+          name: wonhee-01516-f3b1-capture-coverage-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
