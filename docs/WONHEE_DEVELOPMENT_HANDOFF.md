@@ -51,6 +51,15 @@ Last updated: 2026-11-07
 - Do not relax Moka's private HTTP fail-closed behavior or use plain `URL.openConnection()` as a fallback. The Moka issue to track a verified implementation is https://github.com/yooshastan/MokaMusicPlayer/issues/26.
 - Next: verify kernel rule selector `0x0/0x20000`, complete a full read-only audit and exact rollback verification, and test actual tunneled traffic independently. For Moka connectivity, either use a trusted HTTPS Navidrome endpoint or implement an Android-visible VPN/network-bound tunnel data path with fail-closed tests.
 
+## Batch B.1 post-install routing audit PASS (2026-11-07)
+
+- User screenshot of the read-only root route audit reports **3/3 HOME split-route matches**, **public IPv4 and IPv6 through AirVPN: MATCH**, and **70/70 representative UID-10000 Android mark-route simulations across 14 unprotected marks: PASS**.
+- The same audit shows **protectedFromVpn bypass 3/3 PASS**, **rollback ledger 3 rules**, **live reserved-priority rules 3**. Planned rules at 12500, 12501, 12502 use `fwmark 0x0/0x20000` for `10.0.0.0/24`, `10.6.0.0/24`, and `10.77.0.0/24` to HOME interface `wnma292ddb4b6da`.
+- Separate root route simulations using Moka UID 10300 and Wi-Fi mark `0x1009d` route `10.0.0.169` through HOME and `1.1.1.1` through AirVPN.
+- Browser access to private Navidrome is working; Moka private-HTTP still fails closed because it requires an Android-recognized `TRANSPORT_VPN` Network (see Moka issue #26).
+- **Not yet verified:** actual packet capture proving browser traffic traverses HOME and does not travel directly on Wi-Fi; device-run exact owned-rule rollback for the new 0.15.12 rules; application-specific IPv6 egress; fail-closed tunnel interruption. Do not mark Batch B or F fully complete based on root and representative simulated route lookups alone.
+- **Next controlled test:** confirm `tcpdump` availability in Termux and collect narrowly filtered interface-level evidence while refreshing Navidrome. Preserve current routes and both connected tunnels; keep Batch F OFF. After traffic verification, perform exact owned-rule rollback via Wonhee UI and confirm Android priority-13000 rules remain unchanged.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
