@@ -2,6 +2,14 @@
 
 Last updated: 2026-11-07
 
+## Batch F.2 second manual snapshot PASS (2026-11-07)
+
+- Pixel 8a read-only second snapshot **COMPLETE**, 265 seconds after first. HOME `wnma292ddb4b6da`: cumulative RX 97,726,320, TX 698,572 bytes, **RX +3,032 / TX +3,400 bytes**, last handshake 83 seconds ago; IPv6 endpoint, marked physical route `wlan0`.
+- AirVPN `wnm68fe81200daa`: cumulative RX 891,161,476, TX 116,677,112 bytes, **RX +6,027,976 / TX +1,981,624 bytes**, last handshake 116 seconds ago; IPv4 endpoint, marked physical route `wlan0`.
+- No endpoint-change or underlay-change flags emitted. Both tunnel identities **2/2**, counters **2/2**, endpoint route predictions **2/2**. Exact owned routing MATCH: ledger **3**, live **3**, HOME root **3/3**, public root **2/2**. Batch F ledger OFF; separate live guard audit confirmed owned anchors and chains absent.
+- **F.2 first + second stable-Wi-Fi manual snapshot device milestone PASS.** This is not automatic outage detection, real endpoint packet-path verification, network-handoff testing or fail-closed proof. Batch F remains hard-disabled.
+- Next engineering stage: F.3 offline policy/spec and controlled rollback/fail-closed test matrix, without altering running kernel rules.
+
 ## Batch F owned guard OFF reverified during F.2 testing (2026-11-07)
 
 - User uploaded a separate read-only Batch F exact guard audit: **COMPLETE · VERIFIED OWNED GUARD OFF**; ownership ledger **OFF**, live IPv4/IPv6 OUTPUT anchors **ABSENT**, and app-reserved guard chains **ABSENT**.
