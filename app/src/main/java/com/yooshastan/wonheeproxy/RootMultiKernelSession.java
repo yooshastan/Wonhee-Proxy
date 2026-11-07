@@ -1098,6 +1098,11 @@ final class RootMultiKernelSession {
                 validate(selected);
                 rootReady();
                 verifyRecoveryRules();
+                List<RootMultiTunnelPlan.Entry> selectedRoutes = routeEntries(selected);
+                List<RootSplitRouteRules.Rule> splitRules = RootSplitRouteRules.plan(selectedRoutes);
+                if (!appendMarkAwareRouteAudit(selectedRoutes, splitRules, new StringBuilder())) {
+                    throw new IllegalStateException("Android mark-aware split-route simulations failed.");
+                }
                 Set<String> running = backend.getRunningTunnelNames();
                 List<String> devices = new ArrayList<>();
                 for (Active active : selected) devices.add(active.device);
@@ -1151,9 +1156,9 @@ final class RootMultiKernelSession {
                     RootTcpProbeTarget endpoint = shell.run(rawEndpoint,
                             "wg show " + active.device + " endpoints") == 0
                             ? RootWireGuardEndpoint.numericTarget(rawEndpoint) : null;
-                    if (endpoint == null) {
-                        throw new IllegalStateException("WireGuard UDP endpoint is not a verified "
-                                + "numeric address and port.");
+                    if (endpoint == null || !RootSplitRouteRules.endpointOutsideSplitRoutes(
+                            endpoint.address, splitRules)) {
+                        throw new IllegalStateException("WireGuard UDP endpoint is unavailable or overlaps a HOME split prefix.");
                     }
                     String underlay = routeDeviceMarked(endpoint.family, endpoint.address, mark);
                     if (!underlay.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
@@ -1280,7 +1285,12 @@ final class RootMultiKernelSession {
         }
         List<Active> selected = loadAll(profiles);
         validate(selected);
+        List<RootMultiTunnelPlan.Entry> selectedRoutes = routeEntries(selected);
+        List<RootSplitRouteRules.Rule> splitRules = RootSplitRouteRules.plan(selectedRoutes);
         rootReady();
+        if (!appendMarkAwareRouteAudit(selectedRoutes, splitRules, new StringBuilder())) {
+            throw new IllegalStateException("Android mark-aware split-route simulations failed.");
+        }
         Set<String> running = backend.getRunningTunnelNames();
         Set<String> chosenDevices = new LinkedHashSet<>();
         for (Active active : selected) chosenDevices.add(active.device);
@@ -1322,8 +1332,9 @@ final class RootMultiKernelSession {
             RootTcpProbeTarget endpoint = shell.run(endpoints,
                     "wg show " + active.device + " endpoints") == 0
                     ? RootWireGuardEndpoint.numericTarget(endpoints) : null;
-            if (endpoint == null) {
-                throw new IllegalStateException("Numeric WireGuard UDP endpoint is unavailable.");
+            if (endpoint == null || !RootSplitRouteRules.endpointOutsideSplitRoutes(
+                    endpoint.address, splitRules)) {
+                throw new IllegalStateException("Numeric WireGuard endpoint is unavailable or overlaps a HOME split prefix.");
             }
             String egress = routeDeviceMarked(endpoint.family, endpoint.address, mark);
             if (!egress.matches("(wlan|rmnet|eth|usb|clat)[A-Za-z0-9_.-]*")
