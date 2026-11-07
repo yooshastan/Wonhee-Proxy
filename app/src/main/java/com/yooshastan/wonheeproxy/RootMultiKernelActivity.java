@@ -573,16 +573,18 @@ public final class RootMultiKernelActivity extends Activity {
         passiveHealth.setOnClickListener(v -> run("F.2 manual passive health snapshot",
                 false, session::snapshotPassiveHealth));
         passiveUnderlay = button(privacy,
-                "Batch F.3b · Observe underlay control headers · opt in");
+                "Batch F.3b.1 · Inspect passive capture coverage · opt in");
         passiveUnderlay.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("Capture outgoing network header summaries?")
+                .setTitle("Inspect passive physical capture coverage?")
                 .setMessage("Batch F must remain OFF. Only after exact tunnel/route "
                         + "ownership checks, Wonhee observes up to 32 outgoing "
                         + "packet HEADERS on the current physical Wi-Fi/cellular "
                         + "interface for at most five seconds. The capture is NOT "
                         + "an Android OUTPUT-chain or UID attribution test. "
-                        + "Aggregated control-traffic categories are displayed; "
-                        + "addresses, raw headers and payloads are not saved. "
+                        + "Wonhee reports only aggregate candidate counts, "
+                        + "tcpdump capture status, and physical TX counter changes. "
+                        + "A quiet window is not proof of no network traffic. "
+                        + "Raw addresses and packet data are not displayed or saved. "
                         + "No packets are generated, and no policies change. "
                         + "Root tcpdump + timeout must already be available.")
                 .setNegativeButton("Cancel", null)
