@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b.1 0.15.16 — Capture coverage confidence and parser regression (2026-11-07)
+
+- New draft [PR #47](https://github.com/yooshastan/Wonhee-Proxy/pull/47) on `feature/batch-f3b1-capture-diagnostics-01516` builds from the functioning 0.15.15 F.3b passive device diagnostic. Version **0.15.16**, versionCode **64**, artifact `wonhee-01516-f3b1-capture-coverage-debug-apk` when CI succeeds.
+- Root cause for ambiguous 0-header capture interpretation: the previous `tcpdump` command suppressed all stderr, including tcpdump's own listening and captured-count summary. A successful 5-second timeout plus 0 parsed rows did **not** establish whether the BPF filter received zero packets or the output parser lacked coverage.
+- Capture remains explicit opt-in, bounded 5 sec / 32 frames / 64-byte snap, outgoing physical underlay, selected two kernel identities and exact HOME split-route ownership with Batch F guard OFF + no owned anchors/chains. No generated probes, DNS, routing/firewall/tunnel changes or background operation.
+- Revised classifier holds tcpdump stdout/stderr only in ephemeral RAM and reports **aggregate counts and evidence confidence**: `HEADERS_OBSERVED`, `EMPTY_MATCH_WINDOW` (requires confirmed listening startup and tcpdump zero captured), `PARSER_COVERAGE_GAP`, `CAPTURE_COVERAGE_UNKNOWN`, or `CAPTURE_FAILED`. Adds read-only physical `tx_packets` counter before/after as a separate indicator of overall physical-interface activity; never treats it as control-plane or OUTPUT attribution.
+- Tests expanded for real-/short-form tcpdump output, metadata, empty filtered window, parser mismatch, timeout without summary, counter parsing, interface sanitation and address redaction. Device protocol at `docs/PRODUCT_BATCH_F3B1_CAPTURE_COVERAGE_TEST_PLAN.md`. CI initiated at [Android #42424893300](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42424893300), [native #42424893303](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42424893303); check final conclusions before downloading.
+- F.3c transport exceptions and F.4 guard enforcement are **NOT authorized** by this work. A confirmed quiet 5-second filtered window, physical TX deltas or successful handshakes remain insufficient to show Android OUTPUT traversal, socket UID/provenance, actual leak prevention or safe handoff. Batch F activation remains hard blocked; original connectivity incident [#41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) stays open.
+
 ## Batch F.3b post-capture streaming and browsing PASS (2026-11-07)
 
 - User confirmed **Navidrome is streaming** over the working HOME path and **public Internet browsing works** after the opt-in 0.15.15 passive capture. This completes a functional no-regression post-capture smoke check.
