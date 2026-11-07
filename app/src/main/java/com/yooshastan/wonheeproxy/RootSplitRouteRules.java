@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Pure rule planner for the experimental Android kernel routing mismatch.
@@ -14,10 +16,17 @@ import java.util.List;
 final class RootSplitRouteRules {
     static final int FIRST_PRIORITY = 12500;
     static final int LAST_PRIORITY = 12799;
-    // Match only unbound/unmarked traffic, not Android sockets with an explicit
-    // network ID (low 16 bits), protection bits, or WireGuard's UDP fwmark.
-    static final String MARK = "0x0/0x2ffff";
-    static final long MARK_MASK = 0x2ffffL;
+    // Android Fwmark bit 17 is protectedFromVpn. Match locally generated
+    // traffic that is NOT protected from VPN, regardless of its network ID.
+    // This lets private split destinations override Android's VPN default rule
+    // while preserving VpnService.protect() sockets.
+    static final String MARK = "0x0/0x20000";
+    // Old persisted ledgers used this narrower selector; retain it for exact rollback.
+    static final String LEGACY_MARK = "0x0/0x2ffff";
+    static final long PROTECTED_FROM_VPN_MASK = 0x20000L;
+    // Used only to validate that WireGuard transport marks carry routing identity bits.
+    static final long TRANSPORT_MARK_IDENTITY_MASK = 0x2ffffL;
+    static final long MARK_MASK = TRANSPORT_MARK_IDENTITY_MASK;
     static final String UIDS = "0-99999";
 
     static final class Rule {
@@ -26,33 +35,41 @@ final class RootSplitRouteRules {
         final String destination;
         final String device;
         final String probe;
+        // Stored per rule so older five-field ledgers can still remove their exact
+        // legacy fwmark selector after an APK upgrade.
+        final String mark;
 
         Rule(int family, int priority, String destination, String device, String probe) {
+            this(family, priority, destination, device, probe, MARK);
+        }
+
+        Rule(int family, int priority, String destination, String device, String probe, String mark) {
             this.family = family;
             this.priority = priority;
             this.destination = destination;
             this.device = device;
             this.probe = probe;
+            this.mark = mark;
         }
 
         String familyCommand() { return family == 6 ? "ip -6" : "ip -4"; }
 
         String add() {
             return familyCommand() + " rule add pref " + priority + " to " + destination
-                    + " fwmark " + MARK + " iif lo uidrange " + UIDS
+                    + " fwmark " + mark + " iif lo uidrange " + UIDS
                     + " lookup " + device;
         }
 
         String delete() {
             return familyCommand() + " rule del pref " + priority + " to " + destination
-                    + " fwmark " + MARK + " iif lo uidrange " + UIDS
+                    + " fwmark " + mark + " iif lo uidrange " + UIDS
                     + " lookup " + device;
         }
 
         boolean matchesListing(String line) {
             return line != null && parsePriority(line) == priority
                     && sameCidr(destination, wordAfter(line, "to"))
-                    && MARK.equals(wordAfter(line, "fwmark"))
+                    && mark.equals(wordAfter(line, "fwmark"))
                     && line.contains("iif lo")
                     && line.contains("uidrange " + UIDS)
                     && line.contains("lookup " + device);
@@ -120,13 +137,17 @@ final class RootSplitRouteRules {
         return false;
     }
 
-    /** Kernel WireGuard transport packets must not match any owned rule. */
-    static boolean transportBypassesRules(String rawMark) {
+    /**
+     * Check that a WireGuard fwmark is present and carries nonzero Android
+     * routing-identity bits. This is NOT endpoint-egress proof: numeric endpoint
+     * routing is checked separately against the physical underlay.
+     */
+    static boolean transportMarkHasIdentity(String rawMark) {
         if (rawMark == null) return false;
         try {
             String mark = rawMark.trim();
             if (mark.equals("off") || mark.isEmpty()) return false;
-            return (Long.decode(mark) & MARK_MASK) != 0;
+            return (Long.decode(mark) & TRANSPORT_MARK_IDENTITY_MASK) != 0;
         } catch (NumberFormatException invalid) { return false; }
     }
 
@@ -135,7 +156,7 @@ final class RootSplitRouteRules {
         for (Rule rule : rules) {
             result.append(rule.family).append('|').append(rule.priority).append('|')
                     .append(rule.destination).append('|').append(rule.device).append('|')
-                    .append(rule.probe).append('\n');
+                    .append(rule.probe).append('|').append(rule.mark).append('\n');
         }
         return result.toString();
     }
@@ -153,11 +174,18 @@ final class RootSplitRouteRules {
         for (String line : lines) {
             if (line.isEmpty()) continue;
             String[] parts = line.split("\\|", -1);
-            if (parts.length != 5 || !(parts[0].equals("4") || parts[0].equals("6"))
+            if ((parts.length != 5 && parts.length != 6)
+                    || !(parts[0].equals("4") || parts[0].equals("6"))
                     || !parts[1].matches("[0-9]{5}")
                     || !parts[3].matches("wnm[0-9a-f]{12}")
                     || !parts[2].matches("[0-9a-fA-F:.]+/[0-9]{1,3}")
                     || !parts[4].matches("[0-9a-fA-F:.]+")) {
+                throw new IllegalArgumentException("Invalid owned-rule ledger.");
+            }
+            // Five-field entries predate the mark-aware selector. Preserve their
+            // original exact command until the user explicitly removes them.
+            String mark = parts.length == 5 ? LEGACY_MARK : parts[5];
+            if (!MARK.equals(mark) && !LEGACY_MARK.equals(mark)) {
                 throw new IllegalArgumentException("Invalid owned-rule ledger.");
             }
             int family = Integer.parseInt(parts[0]);
@@ -171,9 +199,65 @@ final class RootSplitRouteRules {
             if (!parts[4].equals(calculated)) {
                 throw new IllegalArgumentException("Invalid owned-rule ledger.");
             }
-            rules.add(new Rule(family, priority, parts[2], parts[3], parts[4]));
+            rules.add(new Rule(family, priority, parts[2], parts[3], parts[4], mark));
         }
         return rules;
+    }
+
+    /** True when the split-route selector should match this Android packet mark. */
+    static boolean splitRouteMarkMatches(long mark) {
+        return mark >= 0 && mark <= 0xffffffffL
+                && (mark & PROTECTED_FROM_VPN_MASK) == 0;
+    }
+
+    /**
+     * Extract representative, unprotected fwmark values from live Android RPDB
+     * rules. These values drive read-only UID/mark route simulations; they are
+     * not treated as an exhaustive inventory of actual application sockets.
+     */
+    static List<Long> unprotectedMarkProbes(List<String> ruleLines) {
+        Set<Long> marks = new LinkedHashSet<>();
+        if (ruleLines == null) return new ArrayList<>();
+        for (String line : ruleLines) {
+            if (line == null) continue;
+            String[] tokens = line.trim().split("\\s+");
+            for (int i = 0; i + 1 < tokens.length; i++) {
+                if (!tokens[i].equals("fwmark")) continue;
+                String value = tokens[i + 1].split("/", 2)[0];
+                if (!value.matches("0x[0-9a-fA-F]{1,8}")) continue;
+                try {
+                    long mark = Long.parseLong(value.substring(2), 16);
+                    if (mark != 0 && splitRouteMarkMatches(mark)) marks.add(mark);
+                } catch (NumberFormatException ignored) { /* ignore malformed kernel text */ }
+            }
+        }
+        return new ArrayList<>(marks);
+    }
+
+    /** Refuse a split plan if a WireGuard outer endpoint falls inside a HOME prefix. */
+    static boolean endpointOutsideSplitRoutes(String address, List<Rule> rules) {
+        if (address == null || !address.matches("[0-9a-fA-F:.]+") || rules == null) return false;
+        try {
+            byte[] target = InetAddress.getByName(address).getAddress();
+            for (Rule rule : rules) {
+                String network = rule.destination.substring(0, rule.destination.indexOf('/'));
+                byte[] base = InetAddress.getByName(network).getAddress();
+                int bits = prefix(rule.destination);
+                if (base.length != target.length || bits > base.length * 8) continue;
+                boolean inside = true;
+                for (int bit = 0; bit < bits; bit++) {
+                    int mask = 1 << (7 - bit % 8);
+                    if ((base[bit / 8] & mask) != (target[bit / 8] & mask)) {
+                        inside = false;
+                        break;
+                    }
+                }
+                if (inside) return false;
+            }
+            return true;
+        } catch (Exception invalid) {
+            return false;
+        }
     }
 
     static String preview(List<Rule> rules) {
