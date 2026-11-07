@@ -1419,8 +1419,19 @@ final class RootMultiKernelSession {
         });
     }
 
+    /** Read existing filter/OUTPUT counters; raw rules never leave local RAM. */
+    private RootF3dOutputCounters.Snapshot readExistingOutputCounters(boolean ipv6) {
+        List<String> lines = new ArrayList<>();
+        try {
+            int status = shell.run(lines, RootF3dOutputCounters.command(ipv6));
+            return RootF3dOutputCounters.parse(status, lines);
+        } finally {
+            lines.clear();
+        }
+    }
+
     /**
-     * F.3c bounded, explicitly requested passive ICMPv6 and OUTPUT-rule snapshot.
+     * F.3d bounded, explicitly requested passive ICMPv6 and OUTPUT counter snapshot.
      *
      * Observes outgoing packet HEADERS only (no generated traffic). Does not
      * establish sender identity or that a packet passed the OUTPUT chain.
@@ -1466,8 +1477,22 @@ final class RootMultiKernelSession {
                 long txBefore = shell.run(txLines, counter) == 0
                         ? RootUnderlayControlEvidence.readCounter(txLines) : -1;
                 txLines.clear();
+                // Read pre-existing global OUTPUT counters before the bounded
+                // physical-interface sample. No -Z, -A or policy mutation.
+                RootF3dOutputCounters.Snapshot counters4Before =
+                        readExistingOutputCounters(false);
+                RootF3dOutputCounters.Snapshot counters6Before =
+                        readExistingOutputCounters(true);
                 String command = RootUnderlayControlEvidence.command(selected.underlay);
                 int status = shell.run(raw, command);
+                RootF3dOutputCounters.Snapshot counters4After =
+                        readExistingOutputCounters(false);
+                RootF3dOutputCounters.Snapshot counters6After =
+                        readExistingOutputCounters(true);
+                RootF3dOutputCounters.Comparison output4Delta =
+                        RootF3dOutputCounters.compare(counters4Before, counters4After);
+                RootF3dOutputCounters.Comparison output6Delta =
+                        RootF3dOutputCounters.compare(counters6Before, counters6After);
                 long txAfter = shell.run(txLines, counter) == 0
                         ? RootUnderlayControlEvidence.readCounter(txLines) : -1;
                 txLines.clear();
@@ -1493,7 +1518,7 @@ final class RootMultiKernelSession {
                 RootF3cEvidence.OutputInventory inventory6 =
                         RootF3cEvidence.inventory(status6, output6);
                 output6.clear();
-                report = "BATCH F.3c — PASSIVE ICMPv6 TYPE + OUTPUT INVENTORY\n"
+                report = "BATCH F.3d — PASSIVE ICMPv6 + OUTPUT COUNTER COMPARISON\n"
                         + "Selected independent WireGuard identities: "
                         + selected.active.size() + " VERIFIED\n"
                         + "Physical underlay candidate: " + selected.underlay
@@ -1506,8 +1531,13 @@ final class RootMultiKernelSession {
                         + summary.report(status, txBefore, txAfter) + "\n"
                         + inventory4.render("IPv4") + "\n"
                         + inventory6.render("IPv6") + "\n"
-                        + "OUTPUT inventory is a static read-only listing of rules, "
-                        + "NOT evidence of actual OUTPUT traversal or rule counters.\n"
+                        + output4Delta.render("IPv4") + "\n"
+                        + output6Delta.render("IPv6") + "\n"
+                        + "Two separate read-only OUTPUT counter snapshots bracketed "
+                        + "the physical-header capture. Changes can be caused by "
+                        + "unrelated traffic; zero changes can occur even when "
+                        + "a kernel-generated IPv6 packet is seen physically. "
+                        + "No per-packet hook/UID correlation is established.\n"
                         + "NO probes, DNS queries, firewall, routing, tunnel or "
                         + "system network changes. Packet headers are discarded "
                         + "in memory; only aggregate counts are displayed. "
@@ -1519,10 +1549,10 @@ final class RootMultiKernelSession {
                         || summary.evidence(status)
                         == RootUnderlayControlEvidence.Evidence.EMPTY_MATCH_WINDOW;
             } catch (IllegalStateException | IllegalArgumentException refused) {
-                report = "BATCH F.3b PASSIVE WINDOW REFUSED: " + refused.getMessage()
+                report = "BATCH F.3d READ-ONLY WINDOW REFUSED: " + refused.getMessage()
                         + "\nNo packets generated, network policies or tunnels changed.";
             } catch (Exception | LinkageError unavailable) {
-                report = "BATCH F.3b PASSIVE WINDOW UNAVAILABLE. "
+                report = "BATCH F.3d READ-ONLY WINDOW UNAVAILABLE. "
                         + "An exact, owned routing or root capture prerequisite "
                         + "could not be verified. No network changes performed.";
             } finally {
