@@ -2365,14 +2365,15 @@ final class RootMultiKernelSession {
                         .append(rule.destination).append('\n');
             }
         }
-        boolean pass = total > 0 && matched == total && protectedBypass == split.size();
+        boolean markedRoutesPass = total > 0 && matched == total;
+        boolean protectedBypassPass = protectedBypass == split.size();
         report.append("Android mark-aware route simulations (UID ").append(MARK_AUDIT_UID)
                 .append("): ").append(matched).append('/').append(total)
                 .append(" · ").append(marks.size()).append(" unprotected mark probe(s)")
-                .append(pass ? " · PASS" : " · FAIL").append('\n');
+                .append(markedRoutesPass ? " · PASS" : " · FAIL").append('\n');
         report.append("protectedFromVpn bypass: ").append(protectedBypass).append('/')
-                .append(split.size()).append(pass ? " · PASS" : " · FAIL").append('\n');
-        return pass;
+                .append(split.size()).append(protectedBypassPass ? " · PASS" : " · FAIL").append('\n');
+        return markedRoutesPass && protectedBypassPass;
     }
 
     private void removeOwnedRules() throws Exception {
