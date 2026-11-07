@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Batch F.2 first device snapshot passed (2026-11-07)
+
+- Pixel 8a 0.15.14 screenshot reports **COMPLETE** for first manual passive health snapshot.
+- Exact split-routing ledger **3**, live priorities **3**, ownership **MATCH**; HOME root lookups **3/3**, public root lookups **2/2**. Batch F guard **ledger OFF** (live anchors still require separate guard audit).
+- HOME `wnma292ddb4b6da`: handshake 64s ago, cumulative RX 97,723,288 / TX 695,172 bytes, endpoint family IPv6, marked underlay prediction `wlan0`.
+- AirVPN `wnm68fe81200daa`: handshake 92s ago, cumulative RX 885,133,500 / TX 114,695,488 bytes, endpoint family IPv4, marked underlay prediction `wlan0`.
+- Two kernel identities verified; 2/2 transfer counters readable and 2/2 endpoint route predictions. Both reported UDP mark 0x20000 (shared Android protected-from-VPN bit; not unique per tunnel identity).
+- **This is only the first manual sample**: no delta, live packet path, underlay-handoff or firewall-blocking inference can be drawn. Repeat manual snapshot without changing network; compare RAM-only counters/endpoints/underlay predictions. Keep Batch F OFF and perform exact separate owned guard audit if not already done in this build.
+
 ## Batch F.2 0.15.14 manual passive health diagnostics (2026-11-07)
 
 - New isolated branch: `feature/batch-f2-readonly-health-01514`, derived from user's installed 0.15.13.1 diagnostic branch. Version **0.15.14** / code **62**; no changes to the working split-route or Batch F guard implementation.
