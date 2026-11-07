@@ -1457,12 +1457,24 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException(
                             "Root tcpdump/timeout unavailable. No capture attempted.");
                 }
-                // Command validates the interface before interpolation.
+                // These read-only counters cover ALL physical TX packets,
+                // independently of the narrow tcpdump BPF. They cannot prove
+                // an observed flow traversed Android's OUTPUT chain.
+                String counter = RootUnderlayControlEvidence.txCounterCommand(
+                        selected.underlay);
+                List<String> txLines = new ArrayList<>();
+                long txBefore = shell.run(txLines, counter) == 0
+                        ? RootUnderlayControlEvidence.readCounter(txLines) : -1;
+                txLines.clear();
                 String command = RootUnderlayControlEvidence.command(selected.underlay);
                 int status = shell.run(raw, command);
+                long txAfter = shell.run(txLines, counter) == 0
+                        ? RootUnderlayControlEvidence.readCounter(txLines) : -1;
+                txLines.clear();
                 RootUnderlayControlEvidence.Summary summary =
                         RootUnderlayControlEvidence.reduce(raw);
-                // Raw packet summaries never leave this worker.
+                // Raw packet headers, addresses, warnings and captured
+                // stderr metadata NEVER leave this worker or its memory.
                 raw.clear();
                 if (!RootUnderlayControlEvidence.completed(status)) {
                     throw new IllegalStateException(
@@ -1478,14 +1490,17 @@ final class RootMultiKernelSession {
                         + "Batch F exact owned IPv4/IPv6 guard: OFF / ABSENT\n"
                         + "Capture duration cap: 5 seconds; outgoing only; "
                         + "maximum 32 packet headers; 64-byte snap length.\n"
-                        + summary.report() + "\n"
+                        + summary.report(status, txBefore, txAfter) + "\n"
                         + "NO probes, DNS queries, firewall, routing, tunnel or "
                         + "system network changes. Packet headers are discarded "
                         + "in memory; only aggregate counts are displayed. "
                         + "This is interface observation only: it CANNOT prove "
                         + "local OUTPUT traversal, packet creator UID, or whether "
                         + "Android needs any observed flow. Batch F activation PAUSED.";
-                ok = true;
+                ok = summary.evidence(status)
+                        == RootUnderlayControlEvidence.Evidence.HEADERS_OBSERVED
+                        || summary.evidence(status)
+                        == RootUnderlayControlEvidence.Evidence.EMPTY_MATCH_WINDOW;
             } catch (IllegalStateException | IllegalArgumentException refused) {
                 report = "BATCH F.3b PASSIVE WINDOW REFUSED: " + refused.getMessage()
                         + "\nNo packets generated, network policies or tunnels changed.";

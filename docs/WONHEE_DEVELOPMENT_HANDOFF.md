@@ -2,6 +2,27 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b.1 post-capture functional stability PASS (2026-11-07)
+
+- User explicitly confirmed **private Navidrome streaming and public Internet browsing both work** after the 0.15.16 opt-in passive capture. Together with prior 1/1 parsed/captured ICMPv6 candidate and exact guard OFF/route 3/3, this completes the **F.3b.1 diagnostic execution + functional no-regression device acceptance**.
+- This does **not** establish the ICMPv6 subtype, packet creator UID, local OUTPUT traversal, no-direct-leak protection, safe handoff, or the original live kill-switch incident's root cause. Preserve working HOME/AirVPN; Batch F activation remains quarantined. Next: read-only ICMPv6 subtype/OUTPUT-chain provenance study before firewall exceptions.
+
+## Batch F.3b.1 Pixel 8a outgoing ICMPv6 observed (2026-11-07)
+
+- User shared 0.15.16 diagnostic screenshot: **COMPLETE**, **HEADERS_OBSERVED**, exact selected WireGuard identities 2/2, predicted underlay `wlan0`, routing ledger/live **3/3 EXACT MATCH**, Batch F guard **OFF/ABSENT**.
+- One outgoing matching physical interface packet header classified as **ICMPv6 candidate 1**; DHCPv4/DNS TCP+UDP/HTTP80/other candidate totals all 0. **Parsed 1 / tcpdump captured 1**, zero parser gaps, capture startup YES, tcpdump received-by-filter 4 (not four captured outgoing packets), kernel drops 0, physical TX delta +1.
+- F.3b.1 capture telemetry **device PASS**. ICMPv6 subtype, Android process/UID, local OUTPUT traversal and firewall relevance are **UNVERIFIED**. The result retains the old `BATCH F.3b` heading although F.3b.1 metrics are present; cosmetic report-label correction can be applied in a later patch.
+- No active guard or packet generation. Post-this-sample browsing/Navidrome continuity not separately rechecked; prior 0.15.15 post-capture continuity PASS remains documented. Keep Batch F activation hard-blocked, issue #41 unresolved, and investigate read-only OUTPUT provenance before changing packet allowances.
+
+## Batch F.3b.1 0.15.16 — Capture coverage confidence and parser regression (2026-11-07)
+
+- New draft [PR #47](https://github.com/yooshastan/Wonhee-Proxy/pull/47) on `feature/batch-f3b1-capture-diagnostics-01516` builds from the functioning 0.15.15 F.3b passive device diagnostic. Version **0.15.16**, versionCode **64**, artifact `wonhee-01516-f3b1-capture-coverage-debug-apk` when CI succeeds.
+- Root cause for ambiguous 0-header capture interpretation: the previous `tcpdump` command suppressed all stderr, including tcpdump's own listening and captured-count summary. A successful 5-second timeout plus 0 parsed rows did **not** establish whether the BPF filter received zero packets or the output parser lacked coverage.
+- Capture remains explicit opt-in, bounded 5 sec / 32 frames / 64-byte snap, outgoing physical underlay, selected two kernel identities and exact HOME split-route ownership with Batch F guard OFF + no owned anchors/chains. No generated probes, DNS, routing/firewall/tunnel changes or background operation.
+- Revised classifier holds tcpdump stdout/stderr only in ephemeral RAM and reports **aggregate counts and evidence confidence**: `HEADERS_OBSERVED`, `EMPTY_MATCH_WINDOW` (requires confirmed listening startup and tcpdump zero captured), `PARSER_COVERAGE_GAP`, `CAPTURE_COVERAGE_UNKNOWN`, or `CAPTURE_FAILED`. Adds read-only physical `tx_packets` counter before/after as a separate indicator of overall physical-interface activity; never treats it as control-plane or OUTPUT attribution.
+- Tests expanded for real-/short-form tcpdump output, metadata, empty filtered window, parser mismatch, timeout without summary, counter parsing, interface sanitation and address redaction. Device protocol at `docs/PRODUCT_BATCH_F3B1_CAPTURE_COVERAGE_TEST_PLAN.md`. **CI PASS** on corrected code: Android APK build and Java regressions [#42425031772](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42425031772), native WireGuard [#42425032043](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42425032043). The first run revealed a false parser-gap classification of tcpdump's `packets received by filter` summary, which was corrected and tested. Artifact `wonhee-01516-f3b1-capture-coverage-debug-apk` available; Pixel 8a read-only device test pending.
+- F.3c transport exceptions and F.4 guard enforcement are **NOT authorized** by this work. A confirmed quiet 5-second filtered window, physical TX deltas or successful handshakes remain insufficient to show Android OUTPUT traversal, socket UID/provenance, actual leak prevention or safe handoff. Batch F activation remains hard blocked; original connectivity incident [#41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) stays open.
+
 ## Batch F.3b post-capture streaming and browsing PASS (2026-11-07)
 
 - User confirmed **Navidrome is streaming** over the working HOME path and **public Internet browsing works** after the opt-in 0.15.15 passive capture. This completes a functional no-regression post-capture smoke check.
