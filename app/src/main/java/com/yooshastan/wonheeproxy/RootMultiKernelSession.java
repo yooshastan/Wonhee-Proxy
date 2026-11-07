@@ -650,7 +650,12 @@ final class RootMultiKernelSession {
                     boolean hasIdentity = mark > 0
                             && (mark & RootSplitRouteRules.TRANSPORT_MARK_IDENTITY_MASK) != 0;
                     transportMarkIdentity &= hasIdentity;
-                    if (mark == 0 || !observedMarks.add(mark)) distinctMarks = false;
+                    if (mark == 0) {
+                        distinctMarks = false;
+                    } else if (!observedMarks.add(mark)
+                            && mark != RootFirewallMark.ANDROID_PROTECTED_FROM_VPN) {
+                        distinctMarks = false;
+                    }
                     List<String> endpointOutput = new ArrayList<>();
                     boolean numericEndpoint = identity && shell.run(endpointOutput,
                             "wg show " + active.device + " endpoints") == 0
@@ -716,7 +721,7 @@ final class RootMultiKernelSession {
                         .append('\n');
                 report.append("WireGuard transport marks carry routing identity bits: ")
                         .append(transportMarkIdentity ? "YES" : "NOT PROVEN")
-                        .append("; distinct nonzero marks: ")
+                        .append("; distinct marks or shared Android protected mark: ")
                         .append(distinctMarks ? "YES" : "NO/UNVERIFIED")
                         .append("; all numeric UDP endpoints: ")
                         .append(allEndpoints ? "YES" : "NO/UNVERIFIED")
