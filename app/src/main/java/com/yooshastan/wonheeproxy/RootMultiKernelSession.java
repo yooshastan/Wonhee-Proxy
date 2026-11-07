@@ -1425,8 +1425,9 @@ final class RootMultiKernelSession {
         try {
             int status = shell.run(lines, RootF3dOutputCounters.command(ipv6));
             return RootF3dOutputCounters.parse(status, lines);
-        } catch (java.io.IOException unavailable) {
-            // A failed read is not a zero-packet observation. No mutation or
+        } catch (Exception unavailable) {
+            // RootShell.run may throw IO or its own checked RootShellException.
+            // Any failed read is not a zero-packet observation. No mutation or
             // fallback shell probe is attempted.
             return RootF3dOutputCounters.unavailable();
         } finally {
