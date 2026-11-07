@@ -68,6 +68,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootDnsFirewallPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootFailClosedFirewallPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardFlowModel.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF3PolicyMatrix.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardSafetyGate.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardProbeEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTrackerPolicy.java \
@@ -112,6 +113,7 @@ jobs:
             core-tests/RootDnsFirewallPlanTest.java \
             core-tests/RootFailClosedFirewallPlanTest.java \
             core-tests/RootGuardFlowModelTest.java \
+            core-tests/RootGuardF3PolicyMatrixTest.java \
             core-tests/RootGuardSafetyGateTest.java \
             core-tests/RootGuardProbeEvidenceTest.java \
             core-tests/RootTrackerPolicyTest.java \
@@ -156,6 +158,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsFirewallPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootFailClosedFirewallPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardFlowModelTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF3PolicyMatrixTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardSafetyGateTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardProbeEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTrackerPolicyTest
