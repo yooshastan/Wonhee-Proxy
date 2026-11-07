@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 63
-        versionName '0.15.15-batchF3b-passive-underlay-diagnostic'
+        versionCode 64
+        versionName '0.15.16-batchF3b1-capture-coverage-diagnostic'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
