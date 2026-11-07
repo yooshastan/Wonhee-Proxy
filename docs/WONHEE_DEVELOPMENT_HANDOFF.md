@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3c 0.15.17 Pixel 8a passive subtype and OUTPUT inventory test (2026-11-07)
+
+- User supplied screenshot of successful `BATCH F.3c — PASSIVE ICMPv6 TYPE + OUTPUT INVENTORY`. Selected kernel identities **2 VERIFIED**, predicted underlay **wlan0**, owned split routing ledger **3/live 3 EXACT MATCH**, Batch F owned IPv4/IPv6 guard **OFF/ABSENT**.
+- Bounded read-only capture: **1 matching packet captured / 1 parsed**, tcpdump received-by-filter **3** (not interchangeable with captured/parsed count), header parse gaps **0**, reported kernel drops **0**, independent physical-interface TX delta **+3** packets.
+- Subtype **ICMPv6 Neighbor Solicitation, type 135: 1**. Other ICMPv6 types 0; DHCPv4/plain DNS UDP+TCP/HTTP80/other categories 0. Evidence classification **HEADERS_OBSERVED**.
+- Static read-only OUTPUT inventories: IPv4 **6 rule entries / 6 jumps-or-gotos / ACCEPT default**, IPv6 **6 / 6 / ACCEPT**. Jumped chains and other hooks may still filter traffic; OUTPUT counts cannot identify the captured packet's actual traversal or creator.
+- **Device diagnostic execution and parser confidence PASS**. This is consistent with ordinary IPv6 neighbor discovery but not evidence of local OUTPUT traversal, root cause of historical guard-related connectivity loss, or justification for broad ICMPv6 physical-underlay firewall exceptions. No active changes. User has **not yet explicitly confirmed post-0.15.17 Navidrome/browser availability**. Keep F guard activation blocked; issue #41 open.
+- Suggested next step: define non-disruptive, read-only OUTPUT provenance methodology with an independent rescue and provenance gate. Do not install a live guard to establish causation.
+
 ## Batch F.3c 0.15.17 — ICMPv6 subtype + static OUTPUT inventory (2026-11-07)
 
 - User completed 0.15.16 F.3b.1 opt-in capture: one anonymous outbound ICMPv6 candidate (parsed/captured 1/1, kernel drops 0, selected physical underlay wlan0), selected WireGuard identities 2/2, split route ownership 3 recorded/3 live MATCH, Batch F owned guard OFF/ABSENT. User explicitly confirmed both Navidrome streaming and public Internet browsing functional after capture. **Actual ICMPv6 subtype and packet's Android OUTPUT provenance were unknown.**
