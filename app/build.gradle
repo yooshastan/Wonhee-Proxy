@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 62
-        versionName '0.15.14-batchF2-manual-health-diagnostic'
+        versionCode 63
+        versionName '0.15.15-batchF3b-passive-underlay-diagnostic'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
