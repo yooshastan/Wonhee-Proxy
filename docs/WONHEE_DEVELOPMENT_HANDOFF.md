@@ -2,6 +2,12 @@
 
 Last updated: 2026-11-07
 
+## Batch F owned guard OFF reverified during F.2 testing (2026-11-07)
+
+- User uploaded a separate read-only Batch F exact guard audit: **COMPLETE · VERIFIED OWNED GUARD OFF**; ownership ledger **OFF**, live IPv4/IPv6 OUTPUT anchors **ABSENT**, and app-reserved guard chains **ABSENT**.
+- This supports that the previous experiment's Wonhee-owned guard was fully removed, but does not cover foreign firewall rules or prove leak-free traffic.
+- **Do not mistake this screenshot for the second F.2 passive health comparison.** First F.2 snapshot was already completed; comparison of RAM-only RX/TX deltas, changed endpoint values and underlay predictions is still pending. Batch F activation stays paused.
+
 ## Batch F.2 first device snapshot passed (2026-11-07)
 
 - Pixel 8a 0.15.14 screenshot reports **COMPLETE** for first manual passive health snapshot.
