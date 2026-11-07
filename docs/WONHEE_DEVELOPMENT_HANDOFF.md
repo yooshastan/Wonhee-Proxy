@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Routing ownership recovered; audit status fix in progress (2026-11-07)
+
+- On the 0.15.13 diagnostic APK, first screenshot showed **guard ledger OFF**, **no IPv4/IPv6 OUTPUT anchors or app-reserved guard chains**, plus a read-only Batch F model predicting **REJECT** for direct underlay DHCPv4, HTTP validation, DNS UDP/53 and IPv6 router solicitation; selected HOME/Navidrome and public AirVPN packet models showed **RETURN**. These are hypothetical, not captured Android packets or evidence of outage causation.
+- The same device initially showed **routing rollback ledger EMPTY** despite **3 live reserved-priority rules**, **HOME 3/3**, **UID-10000 70/70 marked simulations PASS**, and **protectedFromVpn 3/3 PASS**. User used the *exact identity-verifying Verify + recover matching routing rules* function, then posted a fresh audit showing **routing ledger 3**, **live reserved rules 3**, **HOME 3/3**, **AirVPN public IPv4/IPv6 MATCH**, **70/70 mark-aware simulations PASS**, and **protectedFromVpn 3/3 PASS**.
+- The restored state is a strong working baseline; **do not remove/reapply any routing rules unnecessarily**. Keep Batch F firewall disabled.
+- A source bug caused `auditRouting()` to return successful status from matching route simulations even when its own warning showed missing/unverified ownership. The follow-up patch requires that owned ledger content agrees with selected profiles, all reserved priorities have the correct count, and the **exact live commands** match saved rules. Missing/unverified/foreign/stale records return CHECK REQUIRED. Verified legacy selectors remain supported for exact rollback.
+- Added pure Java regression tests for missing ledger with live rules, extra/missing priorities, selector verification, foreign interface, and exact legacy selector adoption. This change is audit/reporting-only; no root firewall or routing commands are modified.
+- CI/Android build for this patch must be checked before providing any new APK. Draft PR #42 remains open and the [Batch F connectivity issue #41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) remains unresolved.
+
 ## Batch F.1 diagnostic branch (2026-11-07)
 
 - **New draft PR #42:** https://github.com/yooshastan/Wonhee-Proxy/pull/42
