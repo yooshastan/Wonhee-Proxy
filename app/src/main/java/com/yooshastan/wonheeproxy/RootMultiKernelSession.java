@@ -567,6 +567,12 @@ final class RootMultiKernelSession {
                         ? "EMPTY" : stored.size() + " proposed/installed rule(s)").append('\n');
                 int reserved = countReservedRules();
                 report.append("Live reserved-priority rules: ").append(reserved).append('\n');
+                // Exact kernel rules and recorded ownership must match before
+                // a route MATCH can count as a successful ownership audit.
+                boolean ownedExact = !stored.isEmpty() && reserved == stored.size()
+                        && rulesMatchExactly(stored);
+                boolean ownershipOk = RootSplitRouteRules.auditOwnershipConsistent(
+                        planned, stored, reserved, ownedExact);
                 if (stored.isEmpty() && reserved > 0) {
                     report.append("WARNING — UNTRACKED ROUTING RULES: policy priorities "
                             + "12500–12799 exist, but Wonhee has no rollback ledger. "
@@ -575,6 +581,11 @@ final class RootMultiKernelSession {
                 } else if (!stored.isEmpty() && reserved != stored.size()) {
                     report.append("WARNING — RULE COUNT DIFFERS FROM ROLLBACK LEDGER. "
                             + "Inspect before changing tunnels.\n");
+                } else if (!ownershipOk) {
+                    report.append("WARNING — ROUTING OWNERSHIP NOT VERIFIED: "
+                            + "ledger, selected profiles or exact live rule selectors "
+                            + "do not agree. Keep tunnels connected and investigate "
+                            + "before changing rules; do not assume ownership.\n");
                 }
                 int matched = 0;
                 for (RootSplitRouteRules.Rule rule : planned) {
@@ -606,7 +617,7 @@ final class RootMultiKernelSession {
                         + "UID-10000 fwmark route simulations, NOT actual app sockets, DNS, "
                         + "packet capture or kill-switch tests.");
                 result = report.toString();
-                ok = matched == planned.size() && markAwareOk;
+                ok = ownershipOk && matched == planned.size() && markAwareOk;
             } catch (Exception | LinkageError ignored) {
                 result = "Route audit could not complete. Verify root, saved profiles, "
                         + "and any owned-rule ledger. No routes were changed.";
@@ -1088,6 +1099,8 @@ final class RootMultiKernelSession {
             String message;
             RootFailClosedFirewallPlan.Plan plan = null;
             try {
+                // Hard safety quarantine: never install OUTPUT guards in this build.
+                RootGuardSafetyGate.requireActivationAllowed();
                 if (guardRecord() != null && !guardRecord().isEmpty()) {
                     throw new IllegalStateException("Guard ownership ledger exists; audit or disable first.");
                 }
@@ -1388,8 +1401,7 @@ final class RootMultiKernelSession {
                         + "Configured Android Private DNS: "
                         + (mode == null || mode.isEmpty() ? "UNREPORTED"
                                 : mode.matches("[a-z_]{1,32}") ? mode : "CUSTOM/UNVERIFIED") + "\n"
-                        + (active ? "Next: optional one-packet per-family negative challenge.\n"
-                                : "Next: enable F only with working USB ADB, then rerun preflight.\n")
+                        + "Batch F activation and packet challenge PAUSED (issue #41).\n"
                         + "NO packets sent or policies modified. This is not packet-level "
                         + "proof, automatic failover verification, or a reboot test.";
                 ok = true;
@@ -1399,6 +1411,48 @@ final class RootMultiKernelSession {
             } catch (Exception | LinkageError unavailable) {
                 report = "BATCH F — PREFLIGHT UNAVAILABLE. No firewall changes or test packets. "
                         + "Keep USB ADB available and check live tunnel and firewall state.";
+            }
+            finish(callback, ok, report);
+        });
+    }
+
+    /**
+     * Read-only, synthetic first-match model. No networking, firewall writes,
+     * active underlay challenge, or timers. Does not prove actual packet paths.
+     */
+    void reviewGuardControlPlaneImpact(
+            List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String report;
+            try {
+                GuardTestSelection current = checkGuardTestSelection(profiles);
+                String home = "";
+                String internet = "";
+                for (Active active : current.active) {
+                    if (active.routes.peerRoutes.contains("0.0.0.0/0")) {
+                        internet = active.device;
+                    } else if (active.routes.peerRoutes.contains("10.0.0.0/24")) {
+                        home = active.device;
+                    }
+                }
+                if (home.isEmpty() || internet.isEmpty() || home.equals(internet)) {
+                    throw new IllegalStateException(
+                            "Expected HOME private subnet and Internet default were not identified.");
+                }
+                report = RootGuardFlowModel.preview(
+                        current.expected, current.underlay, home, internet)
+                        + "\nGuard ledger: " + guardLedgerStatus()
+                        + "\nNo firewall changes, test packets, DNS queries or tunnel changes.";
+                ok = true;
+            } catch (IllegalStateException | IllegalArgumentException refused) {
+                report = "BATCH F — CONTROL-PLANE REVIEW REFUSED: "
+                        + refused.getMessage()
+                        + "\nNo firewall, tunnel or network changes.";
+            } catch (Exception | LinkageError unavailable) {
+                report = "BATCH F — CONTROL-PLANE REVIEW UNAVAILABLE. "
+                        + "Keep the existing routing and guard OFF; no policies changed.";
             }
             finish(callback, ok, report);
         });
@@ -1421,6 +1475,8 @@ final class RootMultiKernelSession {
             boolean ok = false;
             String report;
             try {
+                // No synthetic escape test packets during the incident quarantine.
+                RootGuardSafetyGate.requireActivationAllowed();
                 String saved = guardRecord();
                 if (saved == null || saved.isEmpty()) {
                     throw new IllegalStateException("Guard OFF. Enable and audit F first.");
