@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.8 Product Batch F Firewall Diagnostics
+name: Wonhee Proxy 0.15.9 Product Batch F Live Rollback Audit
 
 on:
   push:
@@ -157,7 +157,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0158-product-f-firewall-diagnostics-alpha-debug-apk
+          name: wonhee-0159-product-f-live-rollback-audit-alpha-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

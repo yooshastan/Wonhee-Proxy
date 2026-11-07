@@ -1214,9 +1214,18 @@ final class RootMultiKernelSession {
             try {
                 String saved = guardRecord();
                 if (saved == null || saved.isEmpty()) {
+                    // An empty preferences ledger is NOT sufficient evidence of
+                    // successful rollback. Inspect both live OUTPUT chains and
+                    // app-reserved names before reporting the guard as disabled.
+                    shell.start();
+                    RootFailClosedFirewallRuntime.preflight(shell);
                     ok = true;
-                    message = "Batch F kill switch: OFF in owned ledger. "
-                            + "This does not prove other firewall owners have no rules.";
+                    message = "BATCH F — VERIFIED OWNED GUARD OFF\n"
+                            + "Ownership ledger: OFF\n"
+                            + "Live IPv4/IPv6 OUTPUT anchors: ABSENT\n"
+                            + "Live app-reserved guard chains: ABSENT\n"
+                            + "This does not prove other firewall owners have no rules "
+                            + "or that other apps cannot bypass a tunnel.";
                 } else {
                     RootFailClosedFirewallPlan.Plan plan = RootFailClosedFirewallPlan.decode(saved);
                     shell.start();

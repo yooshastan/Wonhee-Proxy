@@ -496,7 +496,8 @@ public final class RootMultiKernelActivity extends Activity {
                 .setPositiveButton("I have USB ADB · enable F", (dialog, which) ->
                         run("Enable Batch F root guard", false, session::enableGuard))
                 .show());
-        failClosedAudit = button(failClosed, "Audit owned IPv4/IPv6 kill-switch rules · read only");
+        failClosedAudit = button(failClosed,
+                "Verify live IPv4/IPv6 guard + rollback ledger · read only");
         failClosedAudit.setOnClickListener(v ->
                 run("Audit Batch F guard", true, session::auditGuard));
         failClosedDisable = button(failClosed, "Disable Batch F guard + verify exact rollback");
