@@ -1420,7 +1420,7 @@ final class RootMultiKernelSession {
     }
 
     /**
-     * F.3b bounded, explicitly requested passive physical-interface snapshot.
+     * F.3c bounded, explicitly requested passive ICMPv6 and OUTPUT-rule snapshot.
      *
      * Observes outgoing packet HEADERS only (no generated traffic). Does not
      * establish sender identity or that a packet passed the OUTPUT chain.
@@ -1480,7 +1480,20 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException(
                             "Passive outgoing-header capture unsupported or interrupted.");
                 }
-                report = "BATCH F.3b — PASSIVE PHYSICAL-UNDERLAY HEADER WINDOW\n"
+                // Read the pre-existing IPv4/IPv6 OUTPUT rule inventory.
+                // -S never installs chains or packet counters; it does NOT show
+                // whether the observed ICMPv6 packet traversed OUTPUT.
+                List<String> output4 = new ArrayList<>();
+                int status4 = shell.run(output4, "iptables -S OUTPUT 2>/dev/null");
+                RootF3cEvidence.OutputInventory inventory4 =
+                        RootF3cEvidence.inventory(status4, output4);
+                output4.clear();
+                List<String> output6 = new ArrayList<>();
+                int status6 = shell.run(output6, "ip6tables -S OUTPUT 2>/dev/null");
+                RootF3cEvidence.OutputInventory inventory6 =
+                        RootF3cEvidence.inventory(status6, output6);
+                output6.clear();
+                report = "BATCH F.3c — PASSIVE ICMPv6 TYPE + OUTPUT INVENTORY\n"
                         + "Selected independent WireGuard identities: "
                         + selected.active.size() + " VERIFIED\n"
                         + "Physical underlay candidate: " + selected.underlay
@@ -1491,6 +1504,10 @@ final class RootMultiKernelSession {
                         + "Capture duration cap: 5 seconds; outgoing only; "
                         + "maximum 32 packet headers; 64-byte snap length.\n"
                         + summary.report(status, txBefore, txAfter) + "\n"
+                        + inventory4.render("IPv4") + "\n"
+                        + inventory6.render("IPv6") + "\n"
+                        + "OUTPUT inventory is a static read-only listing of rules, "
+                        + "NOT evidence of actual OUTPUT traversal or rule counters.\n"
                         + "NO probes, DNS queries, firewall, routing, tunnel or "
                         + "system network changes. Packet headers are discarded "
                         + "in memory; only aggregate counts are displayed. "
