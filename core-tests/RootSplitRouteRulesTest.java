@@ -24,6 +24,10 @@ public final class RootSplitRouteRulesTest {
         check(rules.get(0).family == 4 && rules.get(0).destination.equals("10.0.0.0/24"),
                 "Stable CIDR order is required for persisted removal");
         check(rules.get(0).probe.equals("10.0.0.1"), "Expected a numeric host probe");
+        check(RootSplitRouteRules.probe("10.6.0.0/24").equals("10.6.0.1"),
+                "Batch F must test a real host address, not the CIDR network base");
+        check(RootSplitRouteRules.probe("10.77.0.0/24").equals("10.77.0.1"),
+                "Batch F must share Batch B's route probe selection");
         check(rules.get(0).device.equals(home.device), "Home needs to win for private destinations");
         check(rules.get(0).add().contains("fwmark 0x0/0x2ffff iif lo uidrange 0-99999"),
                 "Explicit network-bound sockets should not match");

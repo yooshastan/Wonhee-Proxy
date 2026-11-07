@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.10 Product Batch F Guided Safety Tests
+name: Wonhee Proxy 0.15.11 Product Batch F Route Safety Gate
 
 on:
   push:
@@ -160,7 +160,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01510-product-f-guided-safety-tests-alpha-debug-apk
+          name: wonhee-01511-product-f-route-gate-fix-alpha-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

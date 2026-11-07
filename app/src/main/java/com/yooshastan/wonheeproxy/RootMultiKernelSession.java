@@ -1112,9 +1112,12 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("Selected kernel tunnel is DOWN or identity changed.");
                     }
                     for (String route : active.routes.peerRoutes) {
-                        String address = route.startsWith("0.0.0.0/") ? "1.1.1.1"
-                                : route.startsWith("::/") ? "2606:4700:4700::1111"
-                                : route.substring(0, route.indexOf('/'));
+                        // Use the SAME in-prefix probe as the Batch B root audit.
+                        // A CIDR's network base can follow a different special
+                        // route and must not cause a false F security pass.
+                        String address = route.equals("0.0.0.0/0") ? "1.1.1.1"
+                                : route.equals("::/0") ? "2606:4700:4700::1111"
+                                : RootSplitRouteRules.probe(route);
                         int family = address.contains(":") ? 6 : 4;
                         if (!active.device.equals(routeDevice(family, address))) {
                             throw new IllegalStateException("Selected split/default route does not use "
@@ -1290,11 +1293,14 @@ final class RootMultiKernelSession {
                 throw new IllegalStateException("A selected WireGuard tunnel is DOWN or changed identity.");
             }
             for (String route : active.routes.peerRoutes) {
-                String address = route.startsWith("0.0.0.0/") ? "1.1.1.1"
-                        : route.startsWith("::/") ? "2606:4700:4700::1111"
-                        : route.substring(0, route.indexOf('/'));
+                String address = route.equals("0.0.0.0/0") ? "1.1.1.1"
+                        : route.equals("::/0") ? "2606:4700:4700::1111"
+                        : RootSplitRouteRules.probe(route);
                 if (!active.device.equals(routeDevice(address.contains(":") ? 6 : 4, address))) {
-                    throw new IllegalStateException("A selected peer route no longer uses its tunnel.");
+                    throw new IllegalStateException("Selected "
+                            + (route.contains(":") ? "IPv6" : "IPv4")
+                            + " split/default route does not use its assigned tunnel. "
+                            + "Run Batch B's read-only route audit before enabling F.");
                 }
             }
             List<String> marks = new ArrayList<>();
