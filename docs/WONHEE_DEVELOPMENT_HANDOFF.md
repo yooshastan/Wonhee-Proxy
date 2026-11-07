@@ -136,6 +136,15 @@ Last updated: 2026-11-07
 - Next safe step: while guard remains OFF, verify **owned guard ledger OFF**, **no IPv4/IPv6 owned OUTPUT anchors/chains**, and **reapplied split-routing ledger/live rules 3, HOME 3/3, mark-aware routes PASS, public IPv4/IPv6 MATCH**.
 - Avoid further Batch F activation without independent USB ADB recovery, clearly defined connectivity monitoring and controlled rollback. Preserve separate validation statuses for Batch B and Batch F. Issue: https://github.com/yooshastan/Wonhee-Proxy/issues/41.
 
+## Post-incident restoration audits PASS (2026-11-07)
+
+- User uploaded two latest-readout screenshots after disabling Batch F, removing split overrides during recovery, and reapplying Batch B.1.
+- **Root route audit COMPLETE:** 3/3 HOME IPv4 routes to `wnma292ddb4b6da` MATCH; public IPv4 and IPv6 to `wnm68fe81200daa` MATCH; UID-10000 mark-aware simulations **70/70 PASS** across 14 marks; protectedFromVpn bypass **3/3 PASS**; routing rollback ledger 3; live reserved priorities 3.
+- **Batch F firewall audit COMPLETE:** VERIFIED OWNED GUARD OFF; ownership ledger OFF; IPv4/IPv6 OUTPUT anchors ABSENT; app-reserved guard chains ABSENT.
+- User reported both Internet and Navidrome available again. The static audits corroborate restored expected routing and fully removed Wonhee-owned Batch F guard. They do not explain whether the original outage was due to the active guard, underlay handoff, delayed removal or interaction with routing cleanup.
+- **Preserve this known-good state; DO NOT RE-ENABLE Batch F until its connectivity interruption is addressed.** Continue code/test investigation of a dynamic underlay, Android network management traffic and the guard terminal REJECT behavior. The guard must not be declared fail-closed and operationally reliable based only on installation and ownership checks.
+- Tracking: https://github.com/yooshastan/Wonhee-Proxy/issues/41. Moka's Android `TRANSPORT_VPN` gate remains a separate compatibility issue.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
