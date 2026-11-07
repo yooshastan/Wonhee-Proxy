@@ -23,7 +23,8 @@ public final class RootUnderlayControlEvidenceTest {
                     "6 packets received by filter",
                     "0 packets dropped by kernel"
                 ));
-        check(s.samples == 6 && s.tcpdumpCaptured == 6 && s.tcpdumpDropped == 0
+        check(s.samples == 6 && s.tcpdumpCaptured == 6 && s.tcpdumpReceived == 6
+                        && s.tcpdumpDropped == 0 && s.malformedPacketRows == 0
                         && s.captureStarted, "parse header rows and tcpdump capture metadata");
         check(s.dhcp4 == 1 && s.dnsUdp == 1 && s.dnsTcp == 1
                         && s.http80 == 1 && s.icmp6 == 1 && s.other == 1,
