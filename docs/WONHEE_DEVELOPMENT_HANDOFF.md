@@ -9,11 +9,11 @@ Last updated: 2026-11-07
 - Draft PR: [#40 — Product Batch B.1 Android mark-aware split routing](https://github.com/yooshastan/Wonhee-Proxy/pull/40)
 - PR #40 base: `feature/product-batch-f-killswitch-0156`
 - PR #39 (Batch F) remains a draft. Do not merge Batch F before Batch B.1 device verification.
-- GitHub Actions run 141: **PASS** — Android 16 debug APK built and standalone core tests passed.
-- Native dual-WireGuard workflow run 53: **PASS** — native session tests and Android ARM64 cross-compile passed.
+- GitHub Actions run 144: **PASS** — Android 16 debug APK built and standalone core tests passed.
+- Native dual-WireGuard workflow run 56: **PASS** — native session tests and Android ARM64 cross-compile passed.
 - Artifact: `wonhee-01512-product-b1-mark-aware-split-routing-debug-apk`
   - Contains `app-debug.apk`
-  - Run: https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42406492541
+  - Run: https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42406854947
   - Artifact expires 2026-11-21.
 
 ## Device findings before 0.15.12
@@ -34,6 +34,7 @@ Last updated: 2026-11-07
 - Public destinations do not match HOME prefixes and should continue to use AirVPN's default.
 - The read-only audit now simulates representative unprotected marks discovered from live IPv4/IPv6 policy rules, using app UID 10000. It also checks public defaults and protected-socket bypass. This remains a route simulation, not proof of actual app sockets.
 - Apply, Batch C readiness and Batch F gates require mark-aware route simulations.
+- Batch C readiness accepts either distinct nonzero transport marks or the explicitly supported shared Android protectedFromVpn mark (`0x20000`), consistent with Batch F activation.
 - Numeric WireGuard endpoints must be outside HOME split prefixes and their marked route must use a physical underlay before applying overrides or proceeding to Batch F.
 - Five-field 0.15.11 ledgers decode as legacy `0x0/0x2ffff` rules, preserving exact deletion. Orphan legacy rules can only be adopted if every reserved rule and selected tunnel identity matches exactly.
 - Android/netd priority-13000 rules are not modified.
@@ -41,7 +42,7 @@ Last updated: 2026-11-07
 ## Next device actions
 
 1. Keep HOME and AirVPN connected. Keep USB ADB authorized. Keep Batch F OFF.
-2. Install 0.15.12 from the run 141 artifact.
+2. Install 0.15.12 from the run 144 artifact.
 3. Run **Audit effective routes · read only**. With the legacy rules still installed, root lookups may remain 3/3, but the mark-aware audit should expose the legacy-selector mismatch.
 4. Use **Remove Wonhee routing overrides** to remove the exact three legacy rules from the recovered ledger. Do not disconnect tunnels.
 5. Verify no Wonhee priority-12500–12799 rules remain and Android's priority-13000 rules are unchanged.
@@ -61,6 +62,6 @@ Last updated: 2026-11-07
 
 - Do not disconnect either tunnel or reboot while owned routing rules or Batch F guard rules are active.
 - Do not edit Android's priority-13000 policy rules.
-- Do not widen firewall marks or add broad fallback rules as a workaround.
+- Do not add broad fallback routes or weaken firewall policy as a workaround. The approved `0x0/0x20000` selector is destination-scoped to HOME prefixes.
 - If ownership, route selection, endpoint egress or rollback is ambiguous, stop and preserve ADB recovery.
 - Keep PR #40 draft until device tests pass.
