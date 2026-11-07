@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3d 0.15.18 — passive pre-existing filter/OUTPUT counter comparison (2026-11-07)
+
+- Following Pixel 8a 0.15.17 F.3c: one outgoing physical-interface **ICMPv6 Neighbor Solicitation type 135**, pre-existing IPv4 and IPv6 OUTPUT chains each six jumps/default ACCEPT, correct two selected WireGuard identities, exact HOME split ledger/live **3/3**, owned F guard OFF/ABSENT. Actual OUTPUT traversal, creator/UID and incident #41 causal path remain unverified; post-0.15.17 functional smoke check was not explicitly reported.
+- New [draft PR #49](https://github.com/yooshastan/Wonhee-Proxy/pull/49) branch `feature/batch-f3d-readonly-output-counters-01518`, version **0.15.18** code **66**, debug artifact after CI `wonhee-01518-f3d-output-counters-readonly-debug-apk`.
+- Adds read-only existing global filter/OUTPUT counters using `iptables -t filter -n -v -x -L OUTPUT` and `ip6tables -t filter -n -v -x -L OUTPUT` before/after the same bounded manually consented five-second physical-interface packet-header sample. **No iptables writes, new counters/chains, counter reset, probes, DNS/route/tunnel changes, or kill-switch activation.**
+- Pure-Java parser validates both command results, exact non-counter rule layout/policy and monotonic counts; outputs only sanitized `MOVED`, `NO_MOVEMENT`, `UNAVAILABLE`, `RULE_SET_CHANGED`, `COUNTER_RESET`, default-policy deltas and aggregate existing-rule counter deltas. Raw addresses, UID selectors, chain names and packet headers stay ephemeral RAM-only.
+- **Strict evidence limit:** global OUTPUT counters may count unrelated flows and may not count kernel-origin Neighbor Discovery as expected; even correlated changes do not prove the observed ICMPv6 packet crossed OUTPUT, nor establish allowlist policy or actual fail-closed behavior. Base default-policy counters do not count all incoming OUTPUT traffic; sums of rule counters are not unique packet counts.
+- Tests: `core-tests/RootF3dOutputCountersTest.java` and existing F.3a/F.3b/F.3c regression suites, documented in `docs/PRODUCT_BATCH_F3D_EXISTING_OUTPUT_COUNTER_TEST_PLAN.md`. CI launched: [Android run 42427409492](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42427409492), [native 42427409477](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42427409477). **Check final status/actual artifact before providing install link.** Keep guard disabled; device test and post-test HOME/Navidrome/browser smoke check pending.
+
 ## Batch F.3c 0.15.17 Pixel 8a passive subtype and OUTPUT inventory test (2026-11-07)
 
 - User supplied screenshot of successful `BATCH F.3c — PASSIVE ICMPv6 TYPE + OUTPUT INVENTORY`. Selected kernel identities **2 VERIFIED**, predicted underlay **wlan0**, owned split routing ledger **3/live 3 EXACT MATCH**, Batch F owned IPv4/IPv6 guard **OFF/ABSENT**.
