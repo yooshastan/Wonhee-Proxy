@@ -69,8 +69,11 @@ final class RootGuardFlowModel {
             } else if (args.startsWith("-p udp -d ") && args.endsWith(" -j RETURN")) {
                 // The current grammar is an exact marked UDP endpoint exception.
                 String[] parts = args.split(" ");
-                if (parts.length != 12 || !"udp".equals(flow.protocol)
-                        || !parts[0].equals("-p") || !parts[2].equals("-d")
+                // A TCP/ICMP flow does not match an earlier UDP-only rule;
+                // it must continue through later tunnel or terminal rules.
+                if (parts.length != 12
+                        || !parts[0].equals("-p") || !parts[1].equals("udp")
+                        || !parts[2].equals("-d")
                         || !parts[4].equals("--dport") || !parts[6].equals("-m")
                         || !parts[7].equals("mark") || !parts[8].equals("--mark")
                         || !parts[10].equals("-j")) return Result.UNKNOWN;
@@ -79,7 +82,8 @@ final class RootGuardFlowModel {
                     return Result.UNKNOWN;
                 }
                 try {
-                    if (parts[3].equals(flow.destination)
+                    if ("udp".equals(flow.protocol)
+                            && parts[3].equals(flow.destination)
                             && Integer.parseInt(parts[5]) == flow.port
                             && Long.parseLong(marked[0].substring(2), 16) == flow.mark) {
                         return Result.RETURN;
