@@ -128,6 +128,20 @@ final class RootSplitRouteRules {
         catch (NumberFormatException ignored) { return -1; }
     }
 
+    /**
+     * Audit-only condition: a route match is not sufficient to claim that
+     * Wonhee can safely roll back its reserved kernel rules. Refuse missing,
+     * stale, foreign or unverified ledgers, including count-only matches.
+     * No kernel changes are performed here.
+     */
+    static boolean auditOwnershipConsistent(List<Rule> planned, List<Rule> recorded,
+            int reserved, boolean exactLiveVerified) {
+        if (planned == null || recorded == null || reserved < 0) return false;
+        if (recorded.isEmpty()) return reserved == 0;
+        return reserved == recorded.size() && recorded.size() == planned.size()
+                && exactLiveVerified && encode(recorded).equals(encode(planned));
+    }
+
     static boolean reservedPriorityPresent(List<String> lines) {
         if (lines == null) return true;
         for (String line : lines) {
