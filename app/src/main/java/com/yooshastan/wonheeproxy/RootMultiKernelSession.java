@@ -68,6 +68,8 @@ final class RootMultiKernelSession {
     private static final String ROUTE_LEDGER_KEY = "pending_or_installed_rules_v1";
     private static final String DNS_LEDGER_KEY = "pending_dns_policy_v1";
     private static final String GUARD_LEDGER_KEY = "pending_guard_v1";
+    // Representative app UID inside the Android user range owned by split rules.
+    private static final int MARK_AUDIT_UID = 10000;
     // Only links started and identity-verified by this process are in this map.
     private final Map<String, Active> managed = new LinkedHashMap<>();
     private volatile boolean busy;
@@ -598,9 +600,11 @@ final class RootMultiKernelSession {
                         }
                     }
                 }
+                appendMarkAwareRouteAudit(routeEntries(selected), planned, report);
                 report.append("Split-route matches: ").append(matched).append('/')
-                        .append(planned.size()).append(". These are UID-0 route queries, "
-                        + "NOT app traffic, DNS, endpoint, packet-capture or kill-switch tests.");
+                        .append(planned.size()).append(". These are UID-0 and representative "
+                        + "UID-10000 fwmark route simulations, NOT actual app sockets, DNS, "
+                        + "packet capture or kill-switch tests.");
                 result = report.toString();
                 ok = true;
             } catch (Exception | LinkageError ignored) {
@@ -630,7 +634,7 @@ final class RootMultiKernelSession {
                 Set<String> running = backend.getRunningTunnelNames();
                 boolean allMatched = true;
                 boolean allEndpoints = true;
-                boolean transportBypass = true;
+                boolean transportMarkIdentity = true;
                 boolean distinctMarks = true;
                 Set<Long> observedMarks = new LinkedHashSet<>();
                 StringBuilder report = new StringBuilder("BATCH C — READ-ONLY NETWORK PROTECTION GATE\n");
@@ -643,8 +647,9 @@ final class RootMultiKernelSession {
                     boolean markRead = identity && shell.run(markOutput,
                             "wg show " + active.device + " fwmark") == 0;
                     long mark = markRead ? RootFirewallMark.parse(markOutput) : 0;
-                    boolean exempt = mark > 0 && (mark & RootSplitRouteRules.MARK_MASK) != 0;
-                    transportBypass &= exempt;
+                    boolean hasIdentity = mark > 0
+                            && (mark & RootSplitRouteRules.TRANSPORT_MARK_IDENTITY_MASK) != 0;
+                    transportMarkIdentity &= hasIdentity;
                     if (mark == 0 || !observedMarks.add(mark)) distinctMarks = false;
                     List<String> endpointOutput = new ArrayList<>();
                     boolean numericEndpoint = identity && shell.run(endpointOutput,
@@ -674,6 +679,7 @@ final class RootMultiKernelSession {
                 }
                 report.append("Home/private split root routes: ").append(routeMatches)
                         .append('/').append(split.size()).append(" matched\n");
+                boolean markAwareRoutes = appendMarkAwareRouteAudit(entries, split, report);
                 for (int family : new int[] {4, 6}) {
                     String address = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
                     String expected = RootProtectionPolicy.expectedDevice(entries, address);
@@ -708,8 +714,8 @@ final class RootMultiKernelSession {
                 report.append("Owned routing ledger matches live priority rules: ")
                         .append(consistent ? "YES" : "NO — recover before any mutation")
                         .append('\n');
-                report.append("Transport marks exclude unmarked route rules: ")
-                        .append(transportBypass ? "YES (routing only)" : "NOT PROVEN")
+                report.append("WireGuard transport marks carry routing identity bits: ")
+                        .append(transportMarkIdentity ? "YES" : "NOT PROVEN")
                         .append("; distinct nonzero marks: ")
                         .append(distinctMarks ? "YES" : "NO/UNVERIFIED")
                         .append("; all numeric UDP endpoints: ")
@@ -723,7 +729,7 @@ final class RootMultiKernelSession {
                         && routeMatches == split.size()
                         && RootProtectionPolicy.hasInternetDefault(entries, 4)
                         && RootProtectionPolicy.hasInternetDefault(entries, 6)
-                        && transportBypass && distinctMarks && allEndpoints;
+                        && transportMarkIdentity && distinctMarks && allEndpoints && markAwareRoutes;
                 report.append("Protection design preconditions: ")
                         .append(prerequisites ? "PARTIAL PASS" : "INCOMPLETE")
                         .append(". Even a partial pass is NOT safe to arm.\n")
@@ -1129,7 +1135,7 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("Unable to inspect WireGuard transport mark.");
                     }
                     long mark = RootFirewallMark.parse(rawMark);
-                    if (mark == 0 || !RootSplitRouteRules.transportBypassesRules(
+                    if (mark == 0 || !RootSplitRouteRules.transportMarkHasIdentity(
                                     "0x" + Long.toHexString(mark))) {
                         throw new IllegalStateException("Transport mark absent or unsafe; "
                                 + "no broad physical-network exception will be installed.");
@@ -1308,7 +1314,7 @@ final class RootMultiKernelSession {
                 throw new IllegalStateException("WireGuard transport mark is unavailable.");
             }
             long mark = RootFirewallMark.parse(marks);
-            if (mark == 0 || !RootSplitRouteRules.transportBypassesRules(
+            if (mark == 0 || !RootSplitRouteRules.transportMarkHasIdentity(
                     "0x" + Long.toHexString(mark))) {
                 throw new IllegalStateException("WireGuard transport mark is missing or unsafe.");
             }
@@ -2044,7 +2050,7 @@ final class RootMultiKernelSession {
                     List<String> marks = new ArrayList<>();
                     if (shell.run(marks, "wg show " + active.device + " fwmark") != 0
                             || marks.size() != 1
-                            || !RootSplitRouteRules.transportBypassesRules(marks.get(0))) {
+                            || !RootSplitRouteRules.transportMarkHasIdentity(marks.get(0))) {
                         throw new IllegalStateException("WireGuard endpoint fwmark is not safely excluded.");
                     }
                 }
