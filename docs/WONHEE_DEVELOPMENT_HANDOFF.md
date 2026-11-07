@@ -99,6 +99,14 @@ Last updated: 2026-11-07
 - **Remaining limitations:** no independent disconnect/reboot/handoff leak claims, and Moka private cleartext HTTP remains blocked by its Android-recognized VPN network gate (Moka issue #26). Avoid upgrading the routing prototype's status to system-wide fail-closed verification.
 - **Next step (Batch F read-only gate):** with both tunnels connected, USB ADB recovery prepared, Batch F guard OFF, Batch D/E DNS enforcement OFF, Batch C unattended recovery OFF, verify the guard's owned-ledger/live-chain OFF status and run **Batch F guided preflight · read only**. Require full preflight pass before separately considering an opt-in guard activation and controlled rollback.
 
+## Batch F guard-off and guided preflight PASS (2026-11-07)
+
+- Pixel 8a screenshot: **BATCH F — VERIFIED OWNED GUARD OFF**, with **ownership ledger OFF**, **live IPv4/IPv6 OUTPUT anchors ABSENT**, and **app-reserved guard chains ABSENT**. This verifies only the app-owned guard state; not rules from other owners.
+- Second screenshot: **BATCH F — GUIDED DUAL-TUNNEL TEST PREFLIGHT COMPLETE**. It reports **2 independent kernel identities VERIFIED**, endpoint fwmarks and current physical underlay routes VERIFIED, underlay `wlan0` (route prediction), selected split/default routes MATCH, exact IPv4/IPv6 guard OFF/ABSENT, separate DNS guard OFF, unattended recovery OFF, configured Android Private DNS OFF.
+- No packets were sent and no policies were modified in this preflight. This is **not** packet-level leak-proof validation, automatic failover testing, or reboot safety.
+- Next controlled gate, **only with confirmed USB ADB and root recovery**: snapshot current IPv4 and IPv6 OUTPUT rules; ensure both tunnels still UP and route audit remains valid; explicitly enable Batch F guard once; immediately audit live exact IPv4/IPv6 anchors/chains + rollback ownership, then rerun the guided preflight while guard is active. Keep tunnels connected and do not reboot. Review results before running optional two-packet challenge. If guard refuses, preserve the error stage and do not retry blindly. When appropriate, explicitly disable Batch F and verify exact rollback.
+- Moka private HTTP integration remains a separate issue and is not a blocker to Batch F firewall ownership testing. Do not imply real-app protection or full fail-closed capability based on guard plan/preflight checks alone.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
