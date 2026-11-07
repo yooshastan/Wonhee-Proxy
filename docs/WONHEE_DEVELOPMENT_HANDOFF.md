@@ -9,7 +9,7 @@ Last updated: 2026-11-07
 - The restored state is a strong working baseline; **do not remove/reapply any routing rules unnecessarily**. Keep Batch F firewall disabled.
 - A source bug caused `auditRouting()` to return successful status from matching route simulations even when its own warning showed missing/unverified ownership. The follow-up patch requires that owned ledger content agrees with selected profiles, all reserved priorities have the correct count, and the **exact live commands** match saved rules. Missing/unverified/foreign/stale records return CHECK REQUIRED. Verified legacy selectors remain supported for exact rollback.
 - Added pure Java regression tests for missing ledger with live rules, extra/missing priorities, selector verification, foreign interface, and exact legacy selector adoption. This change is audit/reporting-only; no root firewall or routing commands are modified.
-- CI/Android build for this patch must be checked before providing any new APK. Draft PR #42 remains open and the [Batch F connectivity issue #41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) remains unresolved.
+- Packaged as **0.15.13.1** (versionCode **61**) diagnostic-only build, with a distinct artifact name to distinguish it from previously tested 0.15.13. Audit/reporting fixes only; no routing policy changes and Batch F activation remains paused. CI must pass on this final commit before device testing. Draft PR #42 remains open and the [Batch F connectivity issue #41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) remains unresolved.
 
 ## Batch F.1 diagnostic branch (2026-11-07)
 
