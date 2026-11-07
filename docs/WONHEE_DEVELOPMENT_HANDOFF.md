@@ -2,6 +2,14 @@
 
 Last updated: 2026-11-07
 
+## Batch F.2 0.15.14 manual passive health diagnostics (2026-11-07)
+
+- New isolated branch: `feature/batch-f2-readonly-health-01514`, derived from user's installed 0.15.13.1 diagnostic branch. Version **0.15.14** / code **62**; no changes to the working split-route or Batch F guard implementation.
+- New **manual read-only F.2 snapshot** in Multi-Tunnel Lab > Network Protection, with a separate pure Java classifier/test. Collects verified kernel interface/UP state, latest handshake age, cumulative RX/TX, UDP mark, numeric endpoint **family** and predicted physical underlay; private/public representative root route lookups plus exact split-route ledger/live ownership.
+- A second tap compares RAM-only snapshots for counter deltas, endpoint changes and underlay prediction changes. Endpoint address and public key are never emitted or journaled; no background monitoring, DNS queries, app sockets, firewall/routing writes or automatic recovery.
+- Guard ownership **ledger only** is shown; existing exact live-chain audit is still required. A quiet/stale handshake cannot alone establish failure, and a predicted underlay cannot establish actual UDP egress.
+- Device plan: `docs/PRODUCT_BATCH_F2_PASSIVE_HEALTH_TEST_PLAN.md`. CI and APK need validation. **Batch F activation remains quarantined** after issue #41 and future operational recovery needs independent USB ADB support.
+
 ## 0.15.13.1 device smoke test (2026-11-07)
 
 - User installed the diagnostic APK and reported **everything appears to be running as expected**. This confirms installation and initial observed normal operation; no fresh per-button routing/ownership or firewall audit screenshot was supplied on 0.15.13.1.
