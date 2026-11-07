@@ -72,7 +72,7 @@ public final class RootSplitRouteRulesTest {
                 "Public WireGuard endpoint should not overlap HOME split routes");
         check(!RootSplitRouteRules.endpointOutsideSplitRoutes("10.0.0.169", rules),
                 "WireGuard endpoint inside HOME split route must refuse");
-        String oldLedger = "4|12500|10.0.0.0/24|" + home.device + "|10.0.0.1\\n";
+        String oldLedger = "4|12500|10.0.0.0/24|" + home.device + "|10.0.0.1\n";
         List<RootSplitRouteRules.Rule> legacy = RootSplitRouteRules.decode(oldLedger);
         check(legacy.size() == 1 && legacy.get(0).mark.equals(RootSplitRouteRules.LEGACY_MARK),
                 "Old five-field rollback ledgers must retain their original selector");
