@@ -82,6 +82,37 @@ public final class RootSplitRouteRulesTest {
                 + "iif lo uidrange 0-99999 lookup " + home.device;
         check(legacy.get(0).matchesListing(legacyListing),
                 "Legacy ownership must still match the exact old kernel listing");
+        // A route-lookup PASS cannot conceal an untracked live priority rule.
+        check(!RootSplitRouteRules.auditOwnershipConsistent(rules,
+                        Collections.emptyList(), 3, false),
+                "Untracked live rules must make the audit CHECK REQUIRED");
+        check(RootSplitRouteRules.auditOwnershipConsistent(rules,
+                        Collections.emptyList(), 0, false),
+                "Clean guard-off route state has no ownership discrepancy");
+        check(RootSplitRouteRules.auditOwnershipConsistent(rules, rules, 3, true),
+                "Three exact planned/live/owned rules should verify");
+        check(!RootSplitRouteRules.auditOwnershipConsistent(rules, rules, 3, false),
+                "Matching ledger/count is insufficient without exact live checks");
+        check(!RootSplitRouteRules.auditOwnershipConsistent(rules, rules, 2, true),
+                "Missing reserved rules must refuse even with a matching ledger");
+        check(!RootSplitRouteRules.auditOwnershipConsistent(rules, rules, 4, true),
+                "Extra unowned reserved-priority rules must refuse");
+        List<RootSplitRouteRules.Rule> legacyPlan = Arrays.asList(
+                new RootSplitRouteRules.Rule(4, 12500, "10.0.0.0/24",
+                        home.device, "10.0.0.1", RootSplitRouteRules.LEGACY_MARK),
+                new RootSplitRouteRules.Rule(4, 12501, "10.6.0.0/24",
+                        home.device, "10.6.0.1", RootSplitRouteRules.LEGACY_MARK),
+                new RootSplitRouteRules.Rule(4, 12502, "10.77.0.0/24",
+                        home.device, "10.77.0.1", RootSplitRouteRules.LEGACY_MARK));
+        check(RootSplitRouteRules.auditOwnershipConsistent(rules, legacyPlan, 3, true),
+                "Verified original mark selector may still be safely owned");
+        check(!RootSplitRouteRules.auditOwnershipConsistent(rules, legacyPlan, 3, false),
+                "Unverified legacy selector must never be assumed owned");
+        List<RootSplitRouteRules.Rule> foreign = Arrays.asList(
+                new RootSplitRouteRules.Rule(4, 12500, "10.0.0.0/24",
+                        internet.device, "10.0.0.1"), rules.get(1), rules.get(2));
+        check(!RootSplitRouteRules.auditOwnershipConsistent(rules, foreign, 3, true),
+                "Matching rule count cannot legitimize a foreign tunnel lookup");
         List<RootSplitRouteRules.Rule> decoded = RootSplitRouteRules.decode(
                 RootSplitRouteRules.encode(rules));
         check(decoded.size() == rules.size(), "Persistent rules should survive restart");
