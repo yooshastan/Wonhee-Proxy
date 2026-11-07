@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.13.1 F.1 Routing Ownership Diagnostic · Guard Paused
+name: Wonhee Proxy 0.15.14 F.2 Manual Health Diagnostic · Guard Paused
 
 on:
   push:
@@ -58,6 +58,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootWireGuardEndpoint.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTcpProbeTarget.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTunnelTransfer.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootPassiveNetworkHealth.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTransportRoute.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootPacketEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardDryRun.java \
@@ -101,6 +102,7 @@ jobs:
             core-tests/RootWireGuardEndpointTest.java \
             core-tests/RootTcpProbeTargetTest.java \
             core-tests/RootTunnelTransferTest.java \
+            core-tests/RootPassiveNetworkHealthTest.java \
             core-tests/RootTransportRouteTest.java \
             core-tests/RootPacketEvidenceTest.java \
             core-tests/RootGuardDryRunTest.java \
@@ -144,6 +146,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootWireGuardEndpointTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTcpProbeTargetTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTunnelTransferTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootPassiveNetworkHealthTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTransportRouteTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootPacketEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardDryRunTest
@@ -166,7 +169,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01513-1-routing-ownership-diagnostic-debug-apk
+          name: wonhee-01514-f2-manual-health-diagnostic-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

@@ -2,6 +2,37 @@
 
 Last updated: 2026-11-07
 
+## Batch F.2 second manual snapshot PASS (2026-11-07)
+
+- Pixel 8a read-only second snapshot **COMPLETE**, 265 seconds after first. HOME `wnma292ddb4b6da`: cumulative RX 97,726,320, TX 698,572 bytes, **RX +3,032 / TX +3,400 bytes**, last handshake 83 seconds ago; IPv6 endpoint, marked physical route `wlan0`.
+- AirVPN `wnm68fe81200daa`: cumulative RX 891,161,476, TX 116,677,112 bytes, **RX +6,027,976 / TX +1,981,624 bytes**, last handshake 116 seconds ago; IPv4 endpoint, marked physical route `wlan0`.
+- No endpoint-change or underlay-change flags emitted. Both tunnel identities **2/2**, counters **2/2**, endpoint route predictions **2/2**. Exact owned routing MATCH: ledger **3**, live **3**, HOME root **3/3**, public root **2/2**. Batch F ledger OFF; separate live guard audit confirmed owned anchors and chains absent.
+- **F.2 first + second stable-Wi-Fi manual snapshot device milestone PASS.** This is not automatic outage detection, real endpoint packet-path verification, network-handoff testing or fail-closed proof. Batch F remains hard-disabled.
+- Next engineering stage: F.3 offline policy/spec and controlled rollback/fail-closed test matrix, without altering running kernel rules.
+
+## Batch F owned guard OFF reverified during F.2 testing (2026-11-07)
+
+- User uploaded a separate read-only Batch F exact guard audit: **COMPLETE · VERIFIED OWNED GUARD OFF**; ownership ledger **OFF**, live IPv4/IPv6 OUTPUT anchors **ABSENT**, and app-reserved guard chains **ABSENT**.
+- This supports that the previous experiment's Wonhee-owned guard was fully removed, but does not cover foreign firewall rules or prove leak-free traffic.
+- **Do not mistake this screenshot for the second F.2 passive health comparison.** First F.2 snapshot was already completed; comparison of RAM-only RX/TX deltas, changed endpoint values and underlay predictions is still pending. Batch F activation stays paused.
+
+## Batch F.2 first device snapshot passed (2026-11-07)
+
+- Pixel 8a 0.15.14 screenshot reports **COMPLETE** for first manual passive health snapshot.
+- Exact split-routing ledger **3**, live priorities **3**, ownership **MATCH**; HOME root lookups **3/3**, public root lookups **2/2**. Batch F guard **ledger OFF** (live anchors still require separate guard audit).
+- HOME `wnma292ddb4b6da`: handshake 64s ago, cumulative RX 97,723,288 / TX 695,172 bytes, endpoint family IPv6, marked underlay prediction `wlan0`.
+- AirVPN `wnm68fe81200daa`: handshake 92s ago, cumulative RX 885,133,500 / TX 114,695,488 bytes, endpoint family IPv4, marked underlay prediction `wlan0`.
+- Two kernel identities verified; 2/2 transfer counters readable and 2/2 endpoint route predictions. Both reported UDP mark 0x20000 (shared Android protected-from-VPN bit; not unique per tunnel identity).
+- **This is only the first manual sample**: no delta, live packet path, underlay-handoff or firewall-blocking inference can be drawn. Repeat manual snapshot without changing network; compare RAM-only counters/endpoints/underlay predictions. Keep Batch F OFF and perform exact separate owned guard audit if not already done in this build.
+
+## Batch F.2 0.15.14 manual passive health diagnostics (2026-11-07)
+
+- New isolated branch: `feature/batch-f2-readonly-health-01514`, derived from user's installed 0.15.13.1 diagnostic branch. Version **0.15.14** / code **62**; no changes to the working split-route or Batch F guard implementation.
+- New **manual read-only F.2 snapshot** in Multi-Tunnel Lab > Network Protection, with a separate pure Java classifier/test. Collects verified kernel interface/UP state, latest handshake age, cumulative RX/TX, UDP mark, numeric endpoint **family** and predicted physical underlay; private/public representative root route lookups plus exact split-route ledger/live ownership.
+- A second tap compares RAM-only snapshots for counter deltas, endpoint changes and underlay prediction changes. Endpoint address and public key are never emitted or journaled; no background monitoring, DNS queries, app sockets, firewall/routing writes or automatic recovery.
+- Guard ownership **ledger only** is shown; existing exact live-chain audit is still required. A quiet/stale handshake cannot alone establish failure, and a predicted underlay cannot establish actual UDP egress.
+- Device plan: `docs/PRODUCT_BATCH_F2_PASSIVE_HEALTH_TEST_PLAN.md`. **CI PASS**: Java core and Android debug compilation [42421267321](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42421267321), native independent WireGuard tests [42421267283](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42421267283). Artifact `wonhee-01514-f2-manual-health-diagnostic-debug-apk` (GitHub Actions ZIP); read-only Pixel 8a test pending. **Batch F activation remains quarantined** after issue #41 and future operational recovery needs independent USB ADB support.
+
 ## 0.15.13.1 device smoke test (2026-11-07)
 
 - User installed the diagnostic APK and reported **everything appears to be running as expected**. This confirms installation and initial observed normal operation; no fresh per-button routing/ownership or firewall audit screenshot was supplied on 0.15.13.1.

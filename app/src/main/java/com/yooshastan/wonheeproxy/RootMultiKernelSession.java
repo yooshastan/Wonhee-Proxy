@@ -72,6 +72,9 @@ final class RootMultiKernelSession {
     private static final int MARK_AUDIT_UID = 10000;
     // Only links started and identity-verified by this process are in this map.
     private final Map<String, Active> managed = new LinkedHashMap<>();
+    // RAM-only, non-persistent manual health baselines; no background polling.
+    private final Map<String, RootPassiveNetworkHealth.Snapshot> previousHealth =
+            new LinkedHashMap<>();
     private volatile boolean busy;
     private boolean missingVersionNode;
 
@@ -1692,6 +1695,134 @@ final class RootMultiKernelSession {
                         + "No alternate route or resolver was tried; device policy unchanged.";
             }
             finish(callback, ok, result);
+        });
+    }
+
+    /**
+     * Batch F.2: one manually triggered, passive status snapshot. Root calls
+     * only inspect existing wg, routing and rollback metadata. No DNS queries,
+     * app sockets, packet challenges, firewall changes, tunnel writes or timers.
+     */
+    void snapshotPassiveHealth(List<SecureTunnelProfileStore.Profile> profiles,
+                               Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String report;
+            try {
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                rootReady();
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                List<RootSplitRouteRules.Rule> planned = RootSplitRouteRules.plan(entries);
+                List<RootSplitRouteRules.Rule> stored = RootSplitRouteRules.decode(savedRules());
+                int reserved = countReservedRules();
+                boolean exactLive = !stored.isEmpty() && reserved == stored.size()
+                        && rulesMatchExactly(stored);
+                boolean owned = RootSplitRouteRules.auditOwnershipConsistent(
+                        planned, stored, reserved, exactLive);
+                StringBuilder result = new StringBuilder(
+                        "BATCH F.2 — MANUAL PASSIVE NETWORK HEALTH SNAPSHOT\n");
+                result.append("Routing ledger: ").append(stored.size())
+                        .append("; live reserved rules: ").append(reserved)
+                        .append("; exact owned routing: ")
+                        .append(owned ? "MATCH" : "CHECK REQUIRED").append('\n');
+                int matched = 0;
+                for (RootSplitRouteRules.Rule rule : planned) {
+                    if (rule.device.equals(routeDevice(rule.family, rule.probe))) matched++;
+                }
+                result.append("HOME split-route lookups: ").append(matched).append('/')
+                        .append(planned.size()).append(" (root simulation only)\n");
+                int publicMatched = 0;
+                int publicTotal = 0;
+                for (Active active : selected) {
+                    for (String cidr : active.routes.peerRoutes) {
+                        if (!"0.0.0.0/0".equals(cidr) && !"::/0".equals(cidr)) continue;
+                        int family = cidr.contains(":") ? 6 : 4;
+                        String target = family == 4 ? "1.1.1.1" : "2606:4700:4700::1111";
+                        publicTotal++;
+                        if (active.device.equals(routeDevice(family, target))) publicMatched++;
+                    }
+                }
+                result.append("Public route lookups: ").append(publicMatched).append('/')
+                        .append(publicTotal).append(" (root simulation only)\n");
+                result.append("Batch F owned guard LEDGER: ").append(guardLedgerStatus())
+                        .append(" (inspect live chains separately)\n");
+                result.append("No automatic failure diagnosis from an idle tunnel.\n");
+                Set<String> running = backend.getRunningTunnelNames();
+                int verified = 0;
+                int readable = 0;
+                int endpointResolved = 0;
+                for (Active active : selected) {
+                    NamedTunnel link = new NamedTunnel(active.device);
+                    if (!running.contains(active.device)
+                            || !matches(link, active)
+                            || backend.getState(link) != Tunnel.State.UP) {
+                        previousHealth.remove(active.device);
+                        result.append(active.profileName)
+                                .append(": tunnel identity/state NOT VERIFIED; no wg data exposed.\n");
+                        continue;
+                    }
+                    verified++;
+                    RootTunnelTransfer transfer = readTransfer(active.device);
+                    List<String> stamps = new ArrayList<>();
+                    long handshake = shell.run(stamps,
+                            "wg show " + active.device + " latest-handshakes") == 0
+                            ? RootPassiveNetworkHealth.handshakeTimestamp(stamps) : -1;
+                    List<String> marks = new ArrayList<>();
+                    long mark = shell.run(marks, "wg show " + active.device + " fwmark") == 0
+                            ? RootFirewallMark.parse(marks) : 0;
+                    List<String> endpoints = new ArrayList<>();
+                    RootTcpProbeTarget endpoint = shell.run(endpoints,
+                            "wg show " + active.device + " endpoints") == 0
+                            ? RootWireGuardEndpoint.numericTarget(endpoints) : null;
+                    if (transfer == null) {
+                        result.append(active.profileName)
+                                .append(": transfer counter UNAVAILABLE; cannot compare.\n");
+                        continue;
+                    }
+                    readable++;
+                    String token = endpoint == null ? ""
+                            : endpoint.family + "|" + endpoint.address + "|" + endpoint.port;
+                    String family = endpoint == null ? "UNVERIFIED" : "IPv" + endpoint.family;
+                    String egress = endpoint == null || mark == 0 ? ""
+                            : routeDeviceMarked(endpoint.family, endpoint.address, mark);
+                    if (endpoint != null && mark != 0 && !egress.isEmpty()
+                            && !egress.equals(active.device)) endpointResolved++;
+                    long now = System.currentTimeMillis() / 1000L;
+                    RootPassiveNetworkHealth.Snapshot current =
+                            new RootPassiveNetworkHealth.Snapshot(
+                                    active.device, now, handshake,
+                                    transfer.received, transfer.sent,
+                                    mark, token, family, egress);
+                    result.append(RootPassiveNetworkHealth.render(
+                            active.profileName, previousHealth.get(active.device), current))
+                            .append('\n');
+                    previousHealth.put(active.device, current);
+                }
+                result.append("Identity-verified running tunnels: ")
+                        .append(verified).append('/').append(selected.size()).append('\n');
+                result.append("Readable transfer counters: ").append(readable)
+                        .append('/').append(selected.size()).append("; endpoint underlay "
+                                + "route predictions: ").append(endpointResolved)
+                        .append('/').append(selected.size()).append('\n');
+                result.append("MANUAL ROOT SNAPSHOTS ONLY: sample comparison exists in RAM "
+                        + "until app process exits. No endpoint IPs/keys shown or saved. "
+                        + "No DNS queries, packet generation, active reachability checks, "
+                        + "network changes or automatic fallback. Handshake age, counter "
+                        + "stagnation and route predictions are NOT leak or fail-closed proof. "
+                        + "Batch F activation remains PAUSED.");
+                report = result.toString();
+                ok = owned && matched == planned.size() && publicTotal > 0
+                        && publicMatched == publicTotal && verified == selected.size()
+                        && readable == selected.size() && endpointResolved == selected.size()
+                        && "OFF".equals(guardLedgerStatus());
+            } catch (Exception | LinkageError unexpected) {
+                report = "BATCH F.2 PASSIVE HEALTH SNAPSHOT UNAVAILABLE. "
+                        + "Root tools, configured identities, or owned-route inspection "
+                        + "could not be verified. No network policies or tunnels changed.";
+            }
+            finish(callback, ok, report);
         });
     }
 
