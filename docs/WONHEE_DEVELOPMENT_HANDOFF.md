@@ -2,6 +2,12 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3b post-capture streaming and browsing PASS (2026-11-07)
+
+- User confirmed **Navidrome is streaming** over the working HOME path and **public Internet browsing works** after the opt-in 0.15.15 passive capture. This completes a functional no-regression post-capture smoke check.
+- Earlier same-version capture screenshot: 2 identities verified, exact route ledger 3/live 3 MATCH, owned guard OFF/ABSENT, physical underlay prediction wlan0, **0 parsed outgoing headers** within the five-second sample. Zero samples are **inconclusive** for Android control-plane origin, OUTPUT traversal or a capture/classifier coverage gap.
+- **F.3b initial device sampling and functional smoke check completed**; guard activation must remain blocked. Next: improve diagnostic observability before considering policy exceptions, without losing established HOME/AirVPN routing.
+
 ## Batch F.3b — first Pixel 8a live diagnostic sample (2026-11-07)
 
 - User uploaded screenshot **COMPLETE · PASSIVE PHYSICAL-UNDERLAY HEADER WINDOW** from 0.15.15. Device gate verified **2 selected WireGuard kernel identities**, selected predicted physical underlay `wlan0`, exact routing ledger **3 / 3 MATCH**, and exact Batch F IPv4/IPv6 owned guard **OFF / ABSENT** (session's pre-capture audit).
