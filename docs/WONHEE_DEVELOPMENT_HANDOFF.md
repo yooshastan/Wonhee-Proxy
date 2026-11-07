@@ -90,6 +90,15 @@ Last updated: 2026-11-07
 - This independently verifies both the **kernel-rule removal** and **application rollback ledger clearing** portions of Batch B.1. A `CHECK REQUIRED` label in the audit is expected while no split rules are installed; it does not indicate cleanup failure.
 - Next: with both tunnels still connected and Batch F OFF, explicitly **Apply split-route correction · experimental** to reinstall the 0.15.12 mark-aware HOME rules. Re-audit HOME 3/3, Android mark-aware simulations all passing (70/70 if same marks), protectedFromVpn 3/3, public IPv4/IPv6 AirVPN, and ledger/live priority counts both 3. Verify application access again. Do not enable Batch F before this validation.
 
+## Post-rollback reinstallation: complete (2026-11-07)
+
+- New Pixel 8a read-only audit after explicit 0.15.12 split-route reinstallation shows **COMPLETE** with 3/3 HOME IPv4 destinations to `wnma292ddb4b6da`, public IPv4 and IPv6 to AirVPN `wnm68fe81200daa` **MATCH**.
+- The three planned priority 12500, 12501, 12502 rules use **`fwmark 0x0/0x20000`**, with **Wonhee rollback ledger 3** and **live reserved-priority rules 3**.
+- **Android mark-aware simulations 70/70 PASS over 14 unprotected marks; protectedFromVpn bypass 3/3 PASS.** This confirms successful reapplication after earlier exact removal and EMPTY-ledger audit.
+- Combined Batch B.1 evidence: root and marked route simulations, actual bidirectional Navidrome TCP observed on HOME, zero direct HTTP packets observed on `wlan0` during separate filtered capture, safe exact rule removal, empty ledger verification, and successful reinstallation.
+- **Remaining limitations:** no independent disconnect/reboot/handoff leak claims, and Moka private cleartext HTTP remains blocked by its Android-recognized VPN network gate (Moka issue #26). Avoid upgrading the routing prototype's status to system-wide fail-closed verification.
+- **Next step (Batch F read-only gate):** with both tunnels connected, USB ADB recovery prepared, Batch F guard OFF, Batch D/E DNS enforcement OFF, Batch C unattended recovery OFF, verify the guard's owned-ledger/live-chain OFF status and run **Batch F guided preflight · read only**. Require full preflight pass before separately considering an opt-in guard activation and controlled rollback.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
