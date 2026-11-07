@@ -8,7 +8,7 @@ Last updated: 2026-11-07
 - New **manual read-only F.2 snapshot** in Multi-Tunnel Lab > Network Protection, with a separate pure Java classifier/test. Collects verified kernel interface/UP state, latest handshake age, cumulative RX/TX, UDP mark, numeric endpoint **family** and predicted physical underlay; private/public representative root route lookups plus exact split-route ledger/live ownership.
 - A second tap compares RAM-only snapshots for counter deltas, endpoint changes and underlay prediction changes. Endpoint address and public key are never emitted or journaled; no background monitoring, DNS queries, app sockets, firewall/routing writes or automatic recovery.
 - Guard ownership **ledger only** is shown; existing exact live-chain audit is still required. A quiet/stale handshake cannot alone establish failure, and a predicted underlay cannot establish actual UDP egress.
-- Device plan: `docs/PRODUCT_BATCH_F2_PASSIVE_HEALTH_TEST_PLAN.md`. CI and APK need validation. **Batch F activation remains quarantined** after issue #41 and future operational recovery needs independent USB ADB support.
+- Device plan: `docs/PRODUCT_BATCH_F2_PASSIVE_HEALTH_TEST_PLAN.md`. **CI PASS**: Java core and Android debug compilation [42421267321](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42421267321), native independent WireGuard tests [42421267283](https://github.com/yooshastan/Wonhee-Proxy/actions/runs/42421267283). Artifact `wonhee-01514-f2-manual-health-diagnostic-debug-apk` (GitHub Actions ZIP); read-only Pixel 8a test pending. **Batch F activation remains quarantined** after issue #41 and future operational recovery needs independent USB ADB support.
 
 ## 0.15.13.1 device smoke test (2026-11-07)
 
