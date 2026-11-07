@@ -128,6 +128,14 @@ Last updated: 2026-11-07
 - GitHub tracking issue: https://github.com/yooshastan/Wonhee-Proxy/issues/41.
 - Next safe checks: run Wonhee **Verify live IPv4/IPv6 guard + rollback ledger** and require OFF ledger, absent OUTPUT anchors and chains. Termux read-only checks can additionally inspect the three split-route rules and current connectivity; share whether HOME, public Internet, or both failed. Retain HOME/AirVPN if functioning and preserve Batch B.1 routing policy.
 
+## Connectivity recovery clarification (2026-11-07)
+
+- User clarified that after experiencing connectivity loss with Batch F active, they selected **Disable Batch F** and **Remove routing overrides**, perhaps before the firewall-removal process had finished. Connectivity returned either immediately or during the firewall removal; exact timing is uncertain.
+- User then explicitly **reapplied the Batch B.1 split-routing correction**. **Public Internet and private Navidrome are now both accessible again.**
+- Because BOTH Batch F and the split-routing overrides were removed in close succession, this incident **does not isolate the active OUTPUT guard as the sole cause** of the outage. The return of connectivity may also have been due to delayed firewall cleanup. Treat a transient handoff/control-plane effect as a hypothesis only.
+- Next safe step: while guard remains OFF, verify **owned guard ledger OFF**, **no IPv4/IPv6 owned OUTPUT anchors/chains**, and **reapplied split-routing ledger/live rules 3, HOME 3/3, mark-aware routes PASS, public IPv4/IPv6 MATCH**.
+- Avoid further Batch F activation without independent USB ADB recovery, clearly defined connectivity monitoring and controlled rollback. Preserve separate validation statuses for Batch B and Batch F. Issue: https://github.com/yooshastan/Wonhee-Proxy/issues/41.
+
 ## Batch B.1 correction in 0.15.12
 
 - New HOME destination rules use `fwmark 0x0/0x20000`, `iif lo`, UID range `0-99999`.
