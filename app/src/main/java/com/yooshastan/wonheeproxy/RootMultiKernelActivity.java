@@ -573,23 +573,24 @@ public final class RootMultiKernelActivity extends Activity {
         passiveHealth.setOnClickListener(v -> run("F.2 manual passive health snapshot",
                 false, session::snapshotPassiveHealth));
         passiveUnderlay = button(privacy,
-                "Batch F.3b.1 · Inspect passive capture coverage · opt in");
+                "Batch F.3c · Inspect ICMPv6 types + OUTPUT rules · read only");
         passiveUnderlay.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("Inspect passive physical capture coverage?")
+                .setTitle("Inspect ICMPv6 types and read-only OUTPUT rules?")
                 .setMessage("Batch F must remain OFF. Only after exact tunnel/route "
                         + "ownership checks, Wonhee observes up to 32 outgoing "
                         + "packet HEADERS on the current physical Wi-Fi/cellular "
                         + "interface for at most five seconds. The capture is NOT "
                         + "an Android OUTPUT-chain or UID attribution test. "
                         + "Wonhee reports only aggregate candidate counts, "
-                        + "tcpdump capture status, and physical TX counter changes. "
+                        + "tcpdump capture status, interface TX counters, ICMPv6 "
+                        + "subtypes, and the count of pre-existing OUTPUT rules. "
                         + "A quiet window is not proof of no network traffic. "
                         + "Raw addresses and packet data are not displayed or saved. "
                         + "No packets are generated, and no policies change. "
                         + "Root tcpdump + timeout must already be available.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Observe headers", (dialog, which) ->
-                        run("F.3b passive underlay header observation", false,
+                        run("F.3c passive underlay header observation", false,
                                 session::observePhysicalControlHeaders))
                 .show());
         label(privacy, "Manual on-device snapshot of verified WireGuard handshake age, "
@@ -870,8 +871,9 @@ public final class RootMultiKernelActivity extends Activity {
                     ? "Product D DoH probe " + (ok ? "verified" : "refused")
                     : action.startsWith("F.2 manual passive health")
                             ? "F.2 manual snapshot " + (ok ? "completed" : "check required")
-                    : action.startsWith("F.3b passive underlay")
-                            ? "F.3b anonymous header totals "
+                    : (action.startsWith("F.3b passive underlay")
+                            || action.startsWith("F.3c passive underlay"))
+                            ? "F.3c anonymous header and OUTPUT inventory "
                                     + (ok ? "completed" : "check required")
                             : result);
             updateButtons();

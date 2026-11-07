@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.16 F.3b.1 Capture Coverage Audit · Guard Paused
+name: Wonhee Proxy 0.15.17 F.3c ICMPv6 and OUTPUT Rules Read Only · Guard Paused
 
 on:
   push:
@@ -70,6 +70,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardFlowModel.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF3PolicyMatrix.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootUnderlayControlEvidence.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootF3cEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardSafetyGate.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardProbeEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTrackerPolicy.java \
@@ -116,6 +117,7 @@ jobs:
             core-tests/RootGuardFlowModelTest.java \
             core-tests/RootGuardF3PolicyMatrixTest.java \
             core-tests/RootUnderlayControlEvidenceTest.java \
+            core-tests/RootF3cEvidenceTest.java \
             core-tests/RootGuardSafetyGateTest.java \
             core-tests/RootGuardProbeEvidenceTest.java \
             core-tests/RootTrackerPolicyTest.java \
@@ -162,6 +164,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardFlowModelTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF3PolicyMatrixTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootUnderlayControlEvidenceTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootF3cEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardSafetyGateTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardProbeEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTrackerPolicyTest
@@ -175,7 +178,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01516-f3b1-capture-coverage-debug-apk
+          name: wonhee-01517-f3c-icmpv6-output-readonly-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
