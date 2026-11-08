@@ -44,6 +44,9 @@ public final class RootMultiKernelActivity extends Activity {
     private TextView output;
     private Button connect;
     private Button disconnect;
+    private Button managedStart;
+    private Button managedStop;
+    private boolean lifecycleBusy;
     private Button preview;
     private Button inspect;
     private Button audit;
@@ -154,6 +157,17 @@ public final class RootMultiKernelActivity extends Activity {
         label(controls, "Disconnect checks the WireGuard public identities of all "
                 + "selected interfaces before changing any, including after an app "
                 + "restart. Unknown interfaces are never removed.", 13, MUTED);
+        label(controls, "BATCH H.1 · COORDINATED VPN LIFECYCLE", 17, PINK);
+        label(controls, "Start in order: verified tunnels → split routing → encrypted DNS "
+                + "and tracker filtering → live DNS audit. Stop in reverse protection "
+                + "order: exact DNS rollback → exact split-rule cleanup → identity-"
+                + "verified tunnel disconnect. Automatic boot startup is NOT enabled. "
+                + "Do not confuse this with an all-traffic kill switch.", 13, MUTED);
+        managedStart = button(controls, "Start complete Wonhee stack · one confirmation");
+        managedStart.setOnClickListener(v -> startManagedStack());
+        managedStop = button(controls, "Safe stop complete Wonhee stack · one confirmation");
+        managedStop.setOnClickListener(v -> stopManagedStack());
+
         inspect = button(controls, "Read live kernel status");
         inspect.setOnClickListener(v -> run("Read multi-tunnel state", true, session::inspect));
 
@@ -922,7 +936,7 @@ public final class RootMultiKernelActivity extends Activity {
                     + "Connect it before requesting an identity audit.");
             return;
         }
-        if (guidedRunning || session.isBusy()) return;
+        if (guidedRunning || lifecycleBusy || session.isBusy()) return;
         guidedFindings.clear();
         guidedRunning = true;
         guidedStatus.setText("Checking selected profiles · step 1 of "
@@ -995,7 +1009,7 @@ public final class RootMultiKernelActivity extends Activity {
     }
 
     private void run(String action, boolean allowEmpty, Operation operation) {
-        if (guidedRunning) return;
+        if (guidedRunning || lifecycleBusy) return;
         List<SecureTunnelProfileStore.Profile> list = selected();
         if (list.isEmpty() && !allowEmpty) {
             output.setText("Choose at least one encrypted profile.");
@@ -1125,6 +1139,159 @@ public final class RootMultiKernelActivity extends Activity {
         }, "wonhee-blocklist-" + operation).start();
     }
 
+    private void finishManagedLifecycle(boolean ok, String message) {
+        lifecycleBusy = false;
+        output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + message);
+        // Avoid persisting upstream addresses, domains, public keys, or raw
+        // diagnostics in the session journal.
+        journal.record("RESULT", "Batch H.1 managed lifecycle "
+                + (ok ? "verified complete" : "requires user audit"));
+        updateButtons();
+    }
+
+    private void rollbackFailedStart(List<SecureTunnelProfileStore.Profile> chosen,
+            String stage, String reason) {
+        output.setText("Batch H.1 start failed at " + stage
+                + ". Attempting exact owned-rule cleanup and verified tunnel stop...");
+        session.stopManagedStack(chosen, (ok, result) ->
+                finishManagedLifecycle(false,
+                        "START FAILED AT " + stage + "\n"
+                        + (ok ? "Automatic safety rollback succeeded.\n"
+                              : "Automatic rollback PAUSED; owned rules may remain.\n")
+                        + result + "\n"
+                        + "No all-traffic kill switch is installed; device connectivity "
+                        + "may resume outside the VPN after disconnect."));
+    }
+
+    private void startManagedStack() {
+        if (lifecycleBusy || guidedRunning || blocklistBusy || session.isBusy()) {
+            output.setText("Another Wonhee operation is active."); return;
+        }
+        List<SecureTunnelProfileStore.Profile> chosen = selected();
+        if (chosen.isEmpty()) {
+            output.setText("Select the HOME and Internet profiles first."); return;
+        }
+        Object dnsChoice = dohTunnel == null ? null : dohTunnel.getSelectedItem();
+        String dnsName = dnsChoice == null ? "" : dnsChoice.toString();
+        boolean foundDns = false;
+        for (SecureTunnelProfileStore.Profile profile : chosen) {
+            if (profile.name.equals(dnsName)) foundDns = true;
+        }
+        if (!foundDns) {
+            output.setText("Select a checked Internet tunnel as the DNS upstream."); return;
+        }
+        if (!"OFF".equals(session.guardLedgerStatus())
+                || !"OFF".equals(session.dnsLedgerStatus())) {
+            output.setText("Existing guard/DNS ownership: audit and disable before start."); return;
+        }
+        final String protocol = currentDnsProtocol();
+        final String endpoint = dohUrl.getText().toString();
+        final String bootstrap = dohBootstrap.getText().toString();
+        final boolean filter = trackerFilter.isChecked();
+        final String custom = trackerCustom.getText().toString();
+        final String allow = trackerAllow.getText().toString();
+        try {
+            RootDnsProbePolicy.parse(protocol, endpoint, bootstrap);
+        } catch (Exception refused) {
+            output.setText("DNS upstream configuration is invalid. No changes made.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Start tunnels, routing and encrypted DNS?")
+                .setMessage("Batch H.1 will first require a clean ownership state, "
+                        + "then connect the selected kernel WireGuard tunnels, install "
+                        + "the exact HOME split routes, and activate the selected "
+                        + protocol.toUpperCase(java.util.Locale.ROOT)
+                        + " encrypted DNS relay with tracker filtering "
+                        + (filter ? "ON" : "OFF") + ". It will verify owned DNS rules. "
+                        + "If a stage fails after connecting, Wonhee attempts an "
+                        + "automatic exact-owned rollback and disconnect. "
+                        + "Normal Wi-Fi/cellular traffic may then resume: this is NOT "
+                        + "a zero-leak kill switch. Set Android Private DNS OFF, "
+                        + "disable Batch C auto-recovery, and keep USB ADB available.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Start full stack", (dialog, which) -> {
+                    saveTrackerOptions();
+                    lifecycleBusy = true;
+                    output.setText("BATCH H.1 — START PREFLIGHT (read only)...");
+                    updateButtons();
+                    session.preflightManagedStart(chosen, (preflightOk, preflight) -> {
+                        if (!preflightOk) {
+                            finishManagedLifecycle(false, preflight); return;
+                        }
+                        output.setText("START 1/4 — connecting verified kernel tunnels...");
+                        session.connect(chosen, (connected, connectReport) -> {
+                            if (!connected) {
+                                // The existing tunnel connect method already attempts
+                                // exact identity-verified rollback on failure.
+                                finishManagedLifecycle(false,
+                                        "Connection stage refused.\n" + connectReport);
+                                return;
+                            }
+                            output.setText("START 2/4 — installing owned HOME split routes...");
+                            session.applyRouting(chosen, (routed, routeReport) -> {
+                                if (!routed) {
+                                    rollbackFailedStart(chosen, "ROUTING", routeReport);
+                                    return;
+                                }
+                                output.setText("START 3/4 — activating encrypted DNS...");
+                                session.enableRootDns(chosen, dnsName, protocol, endpoint,
+                                        bootstrap, filter, custom, allow, (dnsOk, dnsReport) -> {
+                                    if (!dnsOk) {
+                                        rollbackFailedStart(chosen, "DNS", dnsReport);
+                                        return;
+                                    }
+                                    output.setText("START 4/4 — auditing owned DNS rules...");
+                                    session.auditRootDns(chosen, (auditOk, auditReport) -> {
+                                        if (!auditOk) {
+                                            rollbackFailedStart(chosen,
+                                                    "FINAL_DNS_AUDIT", auditReport);
+                                        } else {
+                                            finishManagedLifecycle(true,
+                                                    "BATCH H.1 FULL STACK STARTED\n"
+                                                    + "WireGuard tunnels: verified UP\n"
+                                                    + "HOME split-route correction: installed\n"
+                                                    + "DNS: encrypted relay and owned rules VERIFIED\n"
+                                                    + "Tracker filtering: "
+                                                    + (filter ? "ON" : "OFF") + "\n"
+                                                    + "One-tap Safe stop is available. "
+                                                    + "No boot autostart or all-traffic kill switch.");
+                                        }
+                                    });
+                                });
+                            });
+                        });
+                    });
+                }).show();
+    }
+
+    private void stopManagedStack() {
+        if (lifecycleBusy || guidedRunning || blocklistBusy || session.isBusy()) {
+            output.setText("Another Wonhee operation is active."); return;
+        }
+        List<SecureTunnelProfileStore.Profile> chosen = selected();
+        if (chosen.isEmpty()) {
+            output.setText("Select every active Wonhee profile before safe stop."); return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Safely stop the complete Wonhee stack?")
+                .setMessage("Wonhee will persist manual stop of unattended recovery, "
+                        + "verify selected WireGuard identities, remove ONLY the "
+                        + "exact recorded DNS rules and split-routing overrides, "
+                        + "then disconnect selected tunnels after verifying cleanup. "
+                        + "Incomplete or foreign ownership makes it stop safely "
+                        + "without flushing unrelated firewall rules. "
+                        + "Normal Wi-Fi/cellular traffic may resume; keep USB ADB available.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Safe stop", (dialog, which) -> {
+                    lifecycleBusy = true;
+                    updateButtons();
+                    output.setText("BATCH H.1 — safe stop in progress...");
+                    session.stopManagedStack(chosen,
+                            (ok, result) -> finishManagedLifecycle(ok, result));
+                }).show();
+    }
+
     private void confirm(boolean starting) {
         List<SecureTunnelProfileStore.Profile> list = selected();
         if (list.isEmpty()) { output.setText("Select at least one profile first."); return; }
@@ -1146,12 +1313,15 @@ public final class RootMultiKernelActivity extends Activity {
     }
 
     private void updateButtons() {
-        boolean idle = !session.isBusy() && !guidedRunning;
+        boolean idle = !session.isBusy() && !guidedRunning && !lifecycleBusy;
         boolean ready = idle && !selected().isEmpty();
         boolean firewallUnlocked = "OFF".equals(session.guardLedgerStatus());
         for (CheckBox checkbox : selection.values()) checkbox.setEnabled(idle);
         if (connect != null) connect.setEnabled(ready && firewallUnlocked);
         if (disconnect != null) disconnect.setEnabled(ready && firewallUnlocked);
+        if (managedStart != null) managedStart.setEnabled(ready && firewallUnlocked
+                && "OFF".equals(session.dnsLedgerStatus()));
+        if (managedStop != null) managedStop.setEnabled(ready && firewallUnlocked);
         if (preview != null) preview.setEnabled(ready);
         if (inspect != null) inspect.setEnabled(idle);
         if (audit != null) audit.setEnabled(ready);
