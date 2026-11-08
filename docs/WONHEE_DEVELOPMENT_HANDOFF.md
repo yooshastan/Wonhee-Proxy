@@ -1,6 +1,82 @@
 # Wonhee Proxy — Development Handoff
 
-Last updated: 2026-11-07
+Last updated: 2026-11-08
+
+## F.3e composite protected-mark route simulations — ninth pass (2026-11-08)
+
+- Root route lookups to AirVPN endpoint `213.152.161.37` produced: `0x1489e` → AirVPN; `0x3489e` → AirVPN; `0x1e8a6` → AirVPN; `0x3e8a6` → `Network is unreachable`; `0xc489e` → AirVPN; `0xe489e` → AirVPN; `0xce8a6` → AirVPN; `0xee8a6` → Wi-Fi (`wlan0`).
+- The protected bit does not uniformly override routing identity. AirVPN composites remain routed to AirVPN. HOME composite outcomes differ: `0x3e8a6` fails closed for the public endpoint because the HOME table has no default; `0xee8a6` reaches the explicit Wi-Fi fallback. These are policy simulations only, not actual socket marks or proof of packet egress.
+- Priority-13000 `0xc489e/0xcffff` ignores `0x20000`, explaining why `0xe489e` still selects AirVPN. The HOME path's table miss and later policy/fallback rules account for the differing `0xce8a6` and `0xee8a6` results. Do not modify routing rules based on simulation alone.
+- Next: verify AirVPN endpoint `213.152.161.37:47107` against active profile; passively capture only that peer's outer UDP traffic on `any` while performing ordinary browser traffic through the working tunnel. Record physical interface (`wlan0` vs `rmnet16`). This observes egress but does not by itself reveal `SO_MARK`. Obtain ASUS HOME endpoint separately. No tunnel/firewall/route/BPF changes.
+- Batch F OFF; issue #41 OPEN; PR #50 draft.
+## F.3e standalone protected-bit route lookup — eighth pass (2026-11-08)
+
+- Root route simulation to AirVPN peer `213.152.161.37`: mark `0x20000` selected `wlan0` via `192.168.50.1` (source `192.168.50.84`); mark `0x0` selected AirVPN interface `wnm68fe81200daa` (source `10.159.187.150`).
+- This validates only the **standalone mark** route behavior. It does not prove the actual WireGuard outer socket uses only `0x20000`.
+- Priority-13000 exact-mark rules `0xc489e/0xcffff` and `0xce8a6/0xcffff` omit bit `0x20000` from their masks. Composite marks may therefore still match VPN-table rules. Next compare base marks `0x1489e`, `0x1e8a6`, `0xc489e`, `0xce8a6` with protected-bit composites `0x3489e`, `0x3e8a6`, `0xe489e`, `0xee8a6` using read-only `ip route get`.
+- No route/firewall/BPF/tunnel modifications; no packet generation. Batch F OFF; issue #41 OPEN; PR #50 draft.
+## F.3e route-mark interpretation correction — seventh pass (2026-11-08)
+
+- Root route lookups to AirVPN endpoint `213.152.161.37` with marks `0x0`, `0xc489e`, `0xce8a6`, `0x1009d` all selected AirVPN table/interface. Root confirmed. These are not the previously recorded protected transport mark, so this output is **not evidence of a WireGuard recursion loop**.
+- Prior investigation recorded `0xc489e` and `0xce8a6` as AirVPN/HOME routing-policy marks/identifiers, while `0x20000` is Android's shared protected-from-VPN mark for tunnel transport. All four tested marks left bit `0x20000` unset.
+- Next: read current IPv4 rules and compare endpoint route lookup with `mark 0x20000` versus `mark 0x0`. This is still a policy simulation; actual socket mark and physical egress require passive correlation. Do not change routing/firewall/BPF/tunnel state.
+- Preserve intended design: ASUS HOME for LAN/Navidrome destinations, AirVPN for general Internet. Batch F OFF; issue #41 OPEN; PR #50 draft.
+## F.3e per-interface route tables and endpoint recovery — sixth pass (2026-11-08)
+
+- Read-only route tables: wlan0 has IPv4 default via `192.168.50.1` and IPv6 RA default; rmnet16 has IPv4/IPv6 defaults (MTU 1428); ipsec171 has no IPv4 routes and an IPv6 default but remains identified as IMS/IWLAN.
+- AirVPN `wnm68fe81200daa` has IPv4 and IPv6 default routes. HOME `wnma292ddb4b6da` has IPv4 routes only for `10.0.0.0/24`, `10.6.0.0/24`, `10.77.0.0/24`; no default and no IPv6 destination route. Preserve HOME split routing; record that HOME IPv6 destinations are not covered by the displayed route table.
+- Prior project context records AirVPN Europe endpoint `213.152.161.37:47107`; verify it against the currently active profile before treating it as current. ASUS HOME `wgs_client1` public endpoint hostname/IP and UDP port are not present in recovered context.
+- Next user test is a read-only `ip -4 route get 213.152.161.37 mark ...` across candidate marks `0x0`, `0xc489e`, `0xce8a6`, `0x1009d`. This is simulated policy routing only and does not establish the actual WireGuard outer socket's fwmark or packet egress. Obtain HOME endpoint before its equivalent lookup. No packet generation, route or tunnel changes.
+- Batch F OFF; issue #41 OPEN; draft PR #50 remains open.
+## F.3e active network topology — fifth pass (2026-11-08)
+
+- `dumpsys connectivity` says `Active default network: 176`; network 176 is validated Wi-Fi on `wlan0` (`192.168.50.84/24`, gateway `192.168.50.1`). This is the current Android default network at capture time.
+- `rmnet16` is a separate validated `MOBILE[LTE]` network with `INTERNET` capability and its own default routes; it is connected but is not the active default in this snapshot.
+- `ipsec171` is `MOBILE[IWLAN]` with `extra: IMS`; capabilities show `IMS`/`IA` but no `INTERNET`. Treat it as a carrier IMS/IWLAN path, not general Internet transport and not evidence that WireGuard uses it.
+- Main IPv4 table shows only the Wi-Fi connected subnet. Android policy rules and per-network tables select the other routes. Existing fwmark rules identify tunnel-related routing policy but do not expose peer endpoint IPs or prove the physical egress device for WireGuard outer UDP.
+- **Underlay decision:** current system default is `wlan0`; exact outer transport for each WireGuard peer remains **UNPROVEN**. Need endpoint-specific route lookup with the applicable mark before attribution. No packet generation, route mutation, BPF/TC changes, trace activation, or guard activation. Batch F OFF; issue #41 OPEN; PR #50 draft.
+
+
+## F.3e cgroup BPF and remaining TC inventory — fourth pass (2026-11-08)
+
+- `bpftool cgroup tree /sys/fs/cgroup` reports **14 existing Android BPF attachments on the cgroup-v2 root**: inet ingress/egress, inet sock create/release, IPv4/IPv6 bind and connect, UDP4/UDP6 sendmsg and recvmsg, getsockopt and setsockopt. These are Android system networking controls; do not detach or modify them. Their presence means packet-path analysis must account for socket/cgroup hooks before route and netfilter stages.
+- `tc filter show` displayed no filters on `rmnet16` or `ipsec171`, matching the earlier empty filter results for wlan0 and both selected WireGuard interfaces. `clsact` qdiscs on wlan0/rmnet16/ipsec171 are present but no TC filters were displayed.
+- `bpftool net show` empty TC/netfilter sections does not contradict cgroup BPF attachments; it inventories different attachment types.
+- Remaining read-only item: identify which active physical underlay carries WireGuard outer transport before drawing device-level conclusions. No trace events enabled, no BPF/TC changes, Batch F OFF, issue #41 OPEN, PR #50 draft.
+## F.3e event formats and attachment inventory — third pass (2026-11-08)
+
+- `skb:kfree_skb` format includes skb address, location, protocol and drop reason; enum explicitly includes `NETFILTER_DROP`, `BPF_CGROUP_EGRESS`, `TC_EGRESS`, `TC_INGRESS`, `QDISC_DROP`, `IP_OUTNOROUTES`, `NEIGH_FAILED`. This can identify certain explicit skb drop outcomes but does not prove successful OUTPUT traversal or identify the exact firewall rule.
+- `fib:fib_table_lookup` includes table ID, iif/oif, protocol, source/destination addresses and ports, device/gateway fields. net TX events include device/skb/length and xmit return code. Neighbor event includes device/target/state but no skb ID. Socket-state event includes endpoints/states but no UID.
+- Correlating skb pointer across events is provisional: clones, reallocation and segmentation can change identity; timestamps/tuples alone are not unique proof.
+- `bpftool net show` displayed empty XDP/TC/flow-dissector/netfilter sections. `tc filter show` returned no filters for wlan0 and the two selected tunnel interfaces. `tc qdisc show` shows clsact on wlan0, rmnet16 and ipsec171; rmnet16/ipsec171 filter inspection is outstanding. Existing loaded Android tether/CLAT/cgroup/socket BPF programs must be preserved; loaded programs do not by themselves establish attachment to these devices.
+- Next read-only: `bpftool cgroup tree`; inspect TC filters on rmnet16 and ipsec171; identify which underlay actually carries WireGuard outer traffic before interpreting any device attachment. No active tracepoint, BPF attachment, TC/firewall/routing change. Batch F OFF; issue #41 OPEN; PR #50 remains draft.
+
+## F.3e network tracepoint/BPF discovery — second pass (2026-11-08)
+
+- Read-only targeted `available_events` query shows skb lifetime, net device TX/RX/NAPI, socket state, TCP/UDP, FIB lookup and neighbor lifecycle tracepoints. No explicit `nf:`, `netfilter:`, `ip:`, `ipv6:` or `wireguard:` group appeared. This does **not** prove absence of netfilter hooks; event format metadata and alternative instrumentation still need review.
+- Existing BPF inventory includes Android tethering `sched_cls`, CLAT, `cgroup_skb`, socket-filter, `cgroup_sock`, and policy/DSCP maps. `bpftool link show` listed one raw tracepoint link (`sched_process_free`), but does not include TC/netlink attachment inventory. **Do not detach or alter Android BPF programs/maps.**
+- Next read-only stage: inspect formats for `skb:kfree_skb`, `net:net_dev_queue/start_xmit/xmit`, `fib:fib_table_lookup`, `neigh:neigh_event_send_done`, `sock:inet_sock_set_state`; then `bpftool net show`, `ip -br link`, `tc qdisc show` and per-device `tc filter show` for wlan0/HOME/AirVPN. No event enabling, probe attachment, BPF loading, map-value reads or TC mutations.
+- Updated design PR [#50](https://github.com/yooshastan/Wonhee-Proxy/pull/50), still draft. Batch F OFF; issue #41 OPEN.
+
+## F.3e Pixel 8a capability discovery — first pass (2026-11-08)
+
+- Root execution PASS (UID 0, Magisk); read-only commands returned tool and kernel metadata.
+- Available: tcpdump, strace, simpleperf, bpftool, tc, iptables-save, ip6tables-save. Missing from PATH: perf, bpftrace, nft (not needed/install not requested).
+- tracefs mounted at `/sys/kernel/tracing`; debugfs tracing path absent and debugfs not listed as mounted. bpffs mounted at `/sys/fs/bpf`; kernel BTF present at `/sys/kernel/btf/vmlinux`.
+- tracing remains OFF (`tracing_on=0`), current tracer `nop`, only available tracer `nop`.
+- User's first available-events grep was capped at 80 rows and showed mac80211/cfg80211/TIPC matches; it does **not** prove absence/presence of core net/skb/socket/netfilter/neighbor events. Need targeted listing and format metadata next.
+- BPF program/link/map inventory not yet read. Do not run `bpftool feature probe`, attach programs, toggle tracefs, mount filesystems, enable events, create rules, or change networking during this capability stage.
+- Initial independent USB ADB root check previously PASS; this current root command also works. Screen-lock/reconnect persistence, required inspection command availability in rescue conditions and exact-owner rollback remain unproven.
+- Updated F.3e design plan and draft [PR #50](https://github.com/yooshastan/Wonhee-Proxy/pull/50). Batch F remains OFF; issue #41 OPEN.
+
+## Batch F.3e — provenance and independent rescue design gate (2026-11-07)
+
+- Read-only F.3d 0.15.18 Pixel snapshot passed: `wlan0` ICMPv6 Neighbor Solicitation type 135 one captured/one parsed, physical TX +37; existing global IPv4 OUTPUT default-policy counter +33 (5/6 rule counters advanced, sum +166), IPv6 OUTPUT default-policy +44 (4/6 advanced, sum +176). Both selected WireGuard identities verified, split route ledger/live 3/3 exact, Batch F owned guard OFF/ABSENT. **This is correlation only: no actual ICMPv6-to-OUTPUT rule/UID/hook provenance.** Post-0.15.18 streaming/browser smoke check remains unconfirmed.
+- Created [draft PR #50](https://github.com/yooshastan/Wonhee-Proxy/pull/50) on `design/batch-f3e-output-provenance-recovery-gates`; plan `docs/PRODUCT_BATCH_F3E_OUTPUT_PROVENANCE_RECOVERY_GATES.md`. **Design-only**: no APK bump, app code, CI change, generated packets, firewall/tunnel/DNS/routing changes, tracer attachment or guard activation.
+- **Next implementation gate:** opt-in read-only inventory of existing trace-event/filtering *capabilities* (not hooking them); no kernel changes, raw event data, private endpoint output or cached identifiers. A tracer attach, eBPF program load, TRACE/NFLOG rule or counter installation is state-changing and requires its own separately reviewed safety design.
+- **Mandatory independent rescue:** USB-connected Fedora/Linux ADB root must work without relying on VPN/network/Termux; inspect exact owned rule and route ledger without arbitrary flushes. Before any live guard/trace tests require independently validated exact-owner rollback, explicit bounded test window and both-IP-family fail-close handling.
+- **Initial USB ADB/root reachability PASS (user verified):** Fedora `adb devices -l` returned Pixel 8a `47131JEKB04042` as `device` over USB (`usb:1-1.4`); `adb shell su -c 'id'` returned `uid=0(root)` with Magisk context. This proves the USB ADB transport and root shell work at this moment; it does **not yet** prove access survives screen lock/reconnect, that required inspection tools are available, or that exact-owner rollback can safely execute. Next: a read-only route/firewall inspection only; no cleanup or guard activation.
+- Stay on stable 0.15.18 with HOME + AirVPN working, Batch F OFF. Connectivity issue [#41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) OPEN, product Batch F unimplemented; do not proceed to G–I merely because these diagnostics compile.
 
 ## F.3d Pixel 8a device result — IPv4 and IPv6 counter movement (2026-11-07)
 
