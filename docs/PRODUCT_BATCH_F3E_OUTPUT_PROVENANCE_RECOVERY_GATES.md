@@ -102,6 +102,13 @@ Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:n
 - Next read-only route simulation: `ip -4 route get 213.152.161.37 mark <mark>` for the observed candidate marks `0x0`, `0xc489e`, `0xce8a6`, and `0x1009d`. These are policy lookup simulations only; they do not establish which fwmark the actual WireGuard outer socket uses or prove real packet egress. Obtain/verify the current HOME peer endpoint before equivalent lookups.
 - Do not send test packets, resolve unknown peer hostnames via network queries, change routes, or modify tunnel configuration at this stage.
 
+### Interpretation correction — candidate marks vs protected transport mark (2026-11-08)
+
+- The user's root route lookup for AirVPN endpoint `213.152.161.37` with marks `0x0`, `0xc489e`, `0xce8a6`, and `0x1009d` returned the AirVPN tunnel table/interface for all four cases. Root was confirmed (`uid=0`).
+- Do **not** interpret these results as proof of WireGuard endpoint recursion: prior investigation recorded `0xc489e` and `0xce8a6` as AirVPN/HOME routing-policy identifiers, while the shared Android protected-from-VPN transport mark is `0x20000`. The four tested marks did not set bit `0x20000`.
+- Next read-only test: capture current `ip -4 rule show`, then compare `ip -4 route get 213.152.161.37 uid 0 mark 0x20000` with `mark 0x0`. The protected-mark result is a policy simulation, not proof of the actual WireGuard socket's mark or physical packet egress. Need later correlate actual outer UDP packets/socket ownership without generating test traffic.
+- Intended architecture from prior project notes: ASUS HOME tunnel routes LAN/Navidrome destinations; AirVPN routes general Internet. Preserve that split. No route/firewall/BPF/tunnel changes; Batch F remains OFF.
+
 ### Decision update
 
 Tracepoint metadata is sufficiently promising to design a *future* bounded observational prototype, but there is still no proven direct local-OUTPUT success tracepoint in the inventory. A drop reason `NETFILTER_DROP` is useful only for packets actually dropped with that reason; it cannot certify that another packet traversed or bypassed OUTPUT. Keep all active tracing and attachment work unauthorized. Batch F stays OFF.
