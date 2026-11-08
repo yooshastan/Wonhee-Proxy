@@ -233,6 +233,49 @@ final class RootSplitRouteRules {
         return rules;
     }
 
+    /**
+     * Pure rollback preflight: allow a partially installed/removing recorded
+     * ledger, but NEVER accept duplicate priorities, unrecorded rules, modified
+     * selectors or a cross-family priority collision.
+     *
+     * Android prints tabs after priorities on some releases; parsePriority and
+     * the token matching tolerate that harmless formatting difference.
+     */
+    static int verifyRollbackCandidates(List<Rule> owned, List<String> ipv4,
+            List<String> ipv6) {
+        if (owned == null || ipv4 == null || ipv6 == null) {
+            throw new IllegalArgumentException("Missing rollback audit evidence.");
+        }
+        Set<String> observed = new LinkedHashSet<>();
+        int found = 0;
+        for (int family : new int[]{4, 6}) {
+            for (String line : family == 4 ? ipv4 : ipv6) {
+                int priority = parsePriority(line);
+                if (priority < FIRST_PRIORITY || priority > LAST_PRIORITY) continue;
+                String key = family + ":" + priority;
+                if (!observed.add(key)) {
+                    throw new IllegalStateException("Duplicate reserved routing priority.");
+                }
+                int matches = 0;
+                for (Rule candidate : owned) {
+                    if (candidate.family == family && candidate.priority == priority
+                            && candidate.matchesListing(line)) {
+                        matches++;
+                    }
+                }
+                if (matches != 1) {
+                    throw new IllegalStateException(
+                            "Reserved policy rule differs from exact saved ownership.");
+                }
+                found++;
+            }
+        }
+        if (found > owned.size()) {
+            throw new IllegalStateException("More reserved rules than owned ledger entries.");
+        }
+        return found;
+    }
+
     /** True when the split-route selector should match this Android packet mark. */
     static boolean splitRouteMarkMatches(long mark) {
         return mark >= 0 && mark <= 0xffffffffL
