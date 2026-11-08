@@ -2,6 +2,12 @@
 
 Last updated: 2026-11-08
 
+## F.3e route-mark interpretation correction — seventh pass (2026-11-08)
+
+- Root route lookups to AirVPN endpoint `213.152.161.37` with marks `0x0`, `0xc489e`, `0xce8a6`, `0x1009d` all selected AirVPN table/interface. Root confirmed. These are not the previously recorded protected transport mark, so this output is **not evidence of a WireGuard recursion loop**.
+- Prior investigation recorded `0xc489e` and `0xce8a6` as AirVPN/HOME routing-policy marks/identifiers, while `0x20000` is Android's shared protected-from-VPN mark for tunnel transport. All four tested marks left bit `0x20000` unset.
+- Next: read current IPv4 rules and compare endpoint route lookup with `mark 0x20000` versus `mark 0x0`. This is still a policy simulation; actual socket mark and physical egress require passive correlation. Do not change routing/firewall/BPF/tunnel state.
+- Preserve intended design: ASUS HOME for LAN/Navidrome destinations, AirVPN for general Internet. Batch F OFF; issue #41 OPEN; PR #50 draft.
 ## F.3e per-interface route tables and endpoint recovery — sixth pass (2026-11-08)
 
 - Read-only route tables: wlan0 has IPv4 default via `192.168.50.1` and IPv6 RA default; rmnet16 has IPv4/IPv6 defaults (MTU 1428); ipsec171 has no IPv4 routes and an IPv6 default but remains identified as IMS/IWLAN.
