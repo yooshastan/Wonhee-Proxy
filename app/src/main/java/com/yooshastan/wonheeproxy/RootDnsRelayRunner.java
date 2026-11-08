@@ -24,6 +24,23 @@ final class RootDnsRelayRunner {
         return new File(context.getFilesDir(), "wonhee-root-dns-0154-arm64");
     }
 
+    static File statsFile(Context context) {
+        return new File(context.getFilesDir(), "wonhee-dns-stats-v1.txt");
+    }
+
+    static RootDnsCounters readStatistics(Context context, RootShell shell, int pid)
+            throws Exception {
+        if (!sameProcess(context, shell, pid)) {
+            throw new IllegalStateException("DNS statistics refused: owned relay identity is missing.");
+        }
+        List<String> lines = new ArrayList<>();
+        String rawPath = statsFile(context).getAbsolutePath();
+        if (shell.run(lines, "cat " + quote(rawPath)) != 0 || lines.size() != 1) {
+            throw new IllegalStateException("Aggregate DNS counters unavailable.");
+        }
+        return RootDnsCounters.parse(lines.get(0), pid);
+    }
+
     static File trackerFile(Context context) {
         return new File(context.getFilesDir(), "wonhee-tracker-policy-0155.txt");
     }
@@ -47,6 +64,10 @@ final class RootDnsRelayRunner {
     }
 
     static void removeTrackerPolicy(Context context) {
+        // A stale snapshot cannot be mistaken for live telemetry: the audit
+        // additionally matches both the owning PID and the executable path.
+        //noinspection ResultOfMethodCallIgnored
+        statsFile(context).delete();
         // No firewall state is owned by this file; the relay holds an immutable
         // in-memory copy while running, and validates it before accepting DNS.
         //noinspection ResultOfMethodCallIgnored
@@ -58,6 +79,12 @@ final class RootDnsRelayRunner {
         for (String abi : Build.SUPPORTED_ABIS) if ("arm64-v8a".equals(abi)) arm64 = true;
         if (!arm64) throw new IllegalStateException("Root DNS relay requires ARM64.");
         File target = binary(context);
+        // Called only after the controller checks that no DNS ledger is owned.
+        // Do not leave prior statistics attached to a new process identity.
+        File oldStats = statsFile(context);
+        if (oldStats.exists() && !oldStats.delete()) {
+            throw new IllegalStateException("Cannot clear old DNS statistics snapshot.");
+        }
         // Never overwrite a running helper: the controller refuses a nonempty
         // DNS ledger and separately checks for already occupied listener ports.
         try (InputStream in = context.getAssets().open("wonhee-doh-arm64");
@@ -80,6 +107,7 @@ final class RootDnsRelayRunner {
                 + " --url " + quote(policy.url)
                 + " --bootstrap " + quote(policy.bootstrapAddress)
                 + (tracker.enabled ? " --tracker-file " + quote(trackerFile(context).getAbsolutePath()) : "")
+                + " --stats-file " + quote(statsFile(context).getAbsolutePath())
                 + " </dev/null >/dev/null 2>&1 & echo $!";
         List<String> result = new ArrayList<>();
         int status = shell.run(result, "sh -c " + quote(inner));
