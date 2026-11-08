@@ -34,7 +34,7 @@ final class RootDnsRelayRunner {
         File staging = File.createTempFile("wonhee-tracker-", ".tmp", context.getFilesDir());
         try {
             try (FileOutputStream out = new FileOutputStream(staging, false)) {
-                out.write(tracker.serialized().getBytes(StandardCharsets.US_ASCII));
+                tracker.writeTo(out);
                 out.getFD().sync();
             }
             if (!staging.setReadable(true, true) || !staging.renameTo(target)) {
