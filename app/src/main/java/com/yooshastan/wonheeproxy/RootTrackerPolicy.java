@@ -1,5 +1,7 @@
 package com.yooshastan.wonheeproxy;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -56,6 +58,25 @@ final class RootTrackerPolicy {
         List<String> allowed = parseDomains(exceptions);
         return new Config(true, Collections.unmodifiableList(new ArrayList<>(blocked)),
                 Collections.unmodifiableList(allowed));
+    }
+
+    /**
+     * Fold an explicitly imported offline snapshot into the same deterministic
+     * suffix policy. Missing snapshot means the old narrow built-ins apply.
+     * Malformed saved snapshots refuse activation instead of silently omitting
+     * some rules or falling back to a weaker filter.
+     */
+    static Config compileWithManaged(boolean enabled, String customBlocks,
+            String exceptions, File appFilesDir) throws IOException {
+        Config baseline = compile(enabled, customBlocks, exceptions);
+        if (!enabled) return baseline;
+        RootBlocklistStore.Snapshot imported = RootBlocklistStore.current(appFilesDir);
+        if (imported == null) return baseline;
+        LinkedHashSet<String> merged = new LinkedHashSet<>(baseline.blocked);
+        merged.addAll(imported.domains);
+        return new Config(true,
+                Collections.unmodifiableList(new ArrayList<>(merged)),
+                baseline.allowed);
     }
 
     private static List<String> parseDomains(String lines) {
