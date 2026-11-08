@@ -8,6 +8,16 @@ The Pixel 8a captured an outgoing physical `wlan0` **ICMPv6 Neighbor Solicitatio
 
 This is evidence of two **concurrent observations** — physical IPv6 neighbor discovery and global OUTPUT counter movement — **not** evidence of the observed packet traversing INPUT, OUTPUT, raw/mangle, netfilter, a specific chain or rule. Rule-counter sums are not unique packets. Neither UID nor process nor kernel socket origin was established. No evidence isolates the original 0.15.12 connectivity incident to a particular packet class. Post-0.15.18 Navidrome and public browsing regression is not yet explicitly reconfirmed.
 
+## Initial Pixel 8a capability inventory (user-provided, 2026-11-08)
+
+- Root command execution confirmed: `uid=0(root)`, Magisk context.
+- Present: `/system/bin/tcpdump`, `strace`, `simpleperf`, `bpftool`, `tc`, `iptables-save`, `ip6tables-save`.
+- Not found on PATH: `perf`, `bpftrace`, `nft`. These are not required for the next read-only inventory; do not install them yet.
+- `/sys/kernel/tracing` exists and is mounted as tracefs with read/write mount flags; `/sys/kernel/debug/tracing` is absent, and debugfs is not shown as mounted. `/sys/fs/bpf` is mounted; `/sys/kernel/btf/vmlinux` exists (about 5.4 MiB).
+- Trace state: `tracing_on=0`, `current_tracer=nop`, and `available_tracers=nop` only. No tracer was enabled or changed.
+- The initial event search was truncated to the first 80 matches and returned wireless/cfg80211/mac80211 and TIPC events. It did not establish whether the needed core network, skb, socket, neighbor, IP, or netfilter tracepoints exist. Do not infer absence from this partial output.
+- **Interpretation:** tracefs, BTF and bpffs being mounted establishes that relevant inspection surfaces exist, not that attaching an eBPF program or trace event is safe or permitted. Tracepoint availability and formats, plus currently loaded BPF program/link inventory, remain unverified. No kernel state changed during this inspection.
+
 ## F.3e, Phase 1: capabilities only (non-invasive)
 
 Design a small, **explicitly requested, read-only, local device capability inventory**. Do not run this automatically and do not mark missing capabilities as leaks. Prefer inspecting kernel-exposed metadata/available events, not attaching tracers or changing tracefs knobs. Any root read must be finite, output-limited, validated against expected paths, and leave only aggregate booleans in the UI.
