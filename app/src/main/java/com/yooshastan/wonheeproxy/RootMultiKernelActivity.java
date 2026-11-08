@@ -498,7 +498,7 @@ public final class RootMultiKernelActivity extends Activity {
         sourcesManaged.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
                 Uri.parse("https://github.com/bindhosts/bindhosts/blob/master/Documentation/sources.md"))));
 
-        label(trackers, "Configuration is applied ONLY when you press Enable encrypted 
+        label(trackers, "Configuration is applied ONLY when you press Enable encrypted "
                 + "system DNS below. The original selected encrypted upstream remains unchanged.", 13, MUTED);
 
         LinearLayout enforcement = card(advancedGroup);
