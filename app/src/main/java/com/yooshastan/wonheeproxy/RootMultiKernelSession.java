@@ -2681,11 +2681,14 @@ final class RootMultiKernelSession {
                 ok = true;
                 result = "Removed/verified " + count + " Wonhee-owned routing override(s). "
                         + "No tunnel was disconnected and no unknown routing rules were changed.";
-            } catch (Exception | LinkageError ignoredFailure) {
-                result = "ROUTING CLEANUP REFUSED/NOT VERIFIED. If the ledger is empty "
-                        + "while priority-12500+ rules are present, select the matching "
-                        + "profiles and use Verify + recover matching rules first. "
-                        + "No unknown rule was intentionally removed.";
+            } catch (Exception | LinkageError failure) {
+                result = "ROUTING CLEANUP REFUSED/NOT VERIFIED: "
+                        + (failure instanceof IllegalStateException
+                                ? failure.getMessage()
+                                : "Root tools or stored rule decode unavailable.")
+                        + " Live reserved-priority rules and ownership ledger must "
+                        + "be verified before disconnecting. No unknown rule "
+                        + "was intentionally removed.";
             }
             finish(callback, ok, result);
         });
@@ -3129,9 +3132,13 @@ final class RootMultiKernelSession {
                 // iptables. Rerunning this method safely resumes a partial stop.
                 result = "BATCH H.1 — SAFE STOP PAUSED [" + stage + "]\n"
                         + completed
-                        + "No additional tunnel was intentionally stopped after a "
-                        + "failed verification. Keep tunnels connected if any owned "
-                        + "rules remain. Use the read-only audits before retrying.";
+                        + (failure instanceof IllegalStateException
+                                ? "Reason: " + failure.getMessage() + "\n"
+                                : "Reason: profile/kernel preflight or root operation unavailable.\n")
+                        + "Any verified earlier cleanup remains complete; the "
+                        + "ownership ledger stays recorded for an incomplete stage. "
+                        + "Review live rules and interfaces before retrying. "
+                        + "Do not disconnect tunnels while owned DNS/routing remains.";
             }
             finish(callback, success, result);
         });
