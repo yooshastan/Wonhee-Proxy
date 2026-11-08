@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 66
-        versionName '0.15.18-batchF3d-output-counters-readonly-diagnostic'
+        versionCode 67
+        versionName '0.15.19-batchD-relay-lifecycle-readiness'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
