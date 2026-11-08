@@ -1049,8 +1049,8 @@ final class RootMultiKernelSession {
                 }
                 stage = "DNS_POLICY_PARSE";
                 RootDnsProbePolicy policy = RootDnsProbePolicy.parse(protocol, endpointUrl, bootstrapIp);
-                RootTrackerPolicy.Config tracker = RootTrackerPolicy.compile(
-                        trackerFiltering, trackerCustom, trackerExceptions);
+                RootTrackerPolicy.Config tracker = RootTrackerPolicy.compileWithManaged(
+                        trackerFiltering, trackerCustom, trackerExceptions, appContext.getFilesDir());
                 stage = "PROFILE_VALIDATION";
                 List<Active> selected = loadAll(profiles);
                 validate(selected);
