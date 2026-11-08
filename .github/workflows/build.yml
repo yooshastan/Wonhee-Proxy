@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.22 Batch H.1 Coordinated Lifecycle · Guard Paused
+name: Wonhee Proxy 0.15.23 Batch H.2a Recovery Reconciliation · Guard Paused
 
 on:
   push:
@@ -101,7 +101,9 @@ jobs:
             core-tests/RootDualRoutePolicyTest.java \
             core-tests/RootMultiTunnelPlanTest.java \
             core-tests/RootProtectionPolicyTest.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootLifecycleRecoveryPlan.java \
             core-tests/RootSplitRouteRulesTest.java \
+            core-tests/RootLifecycleRecoveryPlanTest.java \
             core-tests/RootKernelRouteAuditTest.java \
             core-tests/RootFirewallMarkTest.java \
             core-tests/RootTunnelHealthTest.java \
@@ -152,6 +154,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiTunnelPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootProtectionPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSplitRouteRulesTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootLifecycleRecoveryPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootKernelRouteAuditTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootFirewallMarkTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTunnelHealthTest
@@ -187,7 +190,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01522-batch-h1-coordinated-lifecycle-debug-apk
+          name: wonhee-01523-batch-h2a-reconciliation-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
