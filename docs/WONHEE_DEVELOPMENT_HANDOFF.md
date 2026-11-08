@@ -2,6 +2,13 @@
 
 Last updated: 2026-11-08
 
+## F.3e composite protected-mark route simulations — ninth pass (2026-11-08)
+
+- Root route lookups to AirVPN endpoint `213.152.161.37` produced: `0x1489e` → AirVPN; `0x3489e` → AirVPN; `0x1e8a6` → AirVPN; `0x3e8a6` → `Network is unreachable`; `0xc489e` → AirVPN; `0xe489e` → AirVPN; `0xce8a6` → AirVPN; `0xee8a6` → Wi-Fi (`wlan0`).
+- The protected bit does not uniformly override routing identity. AirVPN composites remain routed to AirVPN. HOME composite outcomes differ: `0x3e8a6` fails closed for the public endpoint because the HOME table has no default; `0xee8a6` reaches the explicit Wi-Fi fallback. These are policy simulations only, not actual socket marks or proof of packet egress.
+- Priority-13000 `0xc489e/0xcffff` ignores `0x20000`, explaining why `0xe489e` still selects AirVPN. The HOME path's table miss and later policy/fallback rules account for the differing `0xce8a6` and `0xee8a6` results. Do not modify routing rules based on simulation alone.
+- Next: verify AirVPN endpoint `213.152.161.37:47107` against active profile; passively capture only that peer's outer UDP traffic on `any` while performing ordinary browser traffic through the working tunnel. Record physical interface (`wlan0` vs `rmnet16`). This observes egress but does not by itself reveal `SO_MARK`. Obtain ASUS HOME endpoint separately. No tunnel/firewall/route/BPF changes.
+- Batch F OFF; issue #41 OPEN; PR #50 draft.
 ## F.3e standalone protected-bit route lookup — eighth pass (2026-11-08)
 
 - Root route simulation to AirVPN peer `213.152.161.37`: mark `0x20000` selected `wlan0` via `192.168.50.1` (source `192.168.50.84`); mark `0x0` selected AirVPN interface `wnm68fe81200daa` (source `10.159.187.150`).
