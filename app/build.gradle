@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 67
-        versionName '0.15.19-batchD-relay-lifecycle-readiness'
+        versionCode 68
+        versionName '0.15.20-batchE1-managed-hosts-import'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

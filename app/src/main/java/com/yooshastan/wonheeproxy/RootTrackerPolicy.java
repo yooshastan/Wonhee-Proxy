@@ -1,5 +1,11 @@
 package com.yooshastan.wonheeproxy;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.FileOutputStream;
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,6 +46,33 @@ final class RootTrackerPolicy {
             return result.toString();
         }
 
+        /**
+         * Stream the policy rather than materializing large imports into one
+         * String. Apply a strict 24-MiB limit before creating a root-side file.
+         */
+        void writeTo(FileOutputStream out) throws IOException {
+            if (!enabled) return;
+            final long limit = 24L * 1024 * 1024;
+            long bytes = 0;
+            BufferedWriter writer = new BufferedWriter(
+                    new OutputStreamWriter(out, StandardCharsets.US_ASCII), 32 * 1024);
+            for (String domain : blocked) {
+                bytes += 7L + domain.length(); // "block " + ASCII domain + LF
+                if (bytes > limit) throw new IOException("Managed blocklist is too large for root relay.");
+                writer.write("block ");
+                writer.write(domain);
+                writer.write('\n');
+            }
+            for (String domain : allowed) {
+                bytes += 7L + domain.length(); // "allow " + ASCII domain + LF
+                if (bytes > limit) throw new IOException("Managed allowlist is too large for root relay.");
+                writer.write("allow ");
+                writer.write(domain);
+                writer.write('\n');
+            }
+            writer.flush();
+        }
+
         boolean shouldBlock(String domain) {
             if (!enabled) return false;
             String name = normalize(domain);
@@ -56,6 +89,25 @@ final class RootTrackerPolicy {
         List<String> allowed = parseDomains(exceptions);
         return new Config(true, Collections.unmodifiableList(new ArrayList<>(blocked)),
                 Collections.unmodifiableList(allowed));
+    }
+
+    /**
+     * Fold an explicitly imported offline snapshot into the same deterministic
+     * suffix policy. Missing snapshot means the old narrow built-ins apply.
+     * Malformed saved snapshots refuse activation instead of silently omitting
+     * some rules or falling back to a weaker filter.
+     */
+    static Config compileWithManaged(boolean enabled, String customBlocks,
+            String exceptions, File appFilesDir) throws IOException {
+        Config baseline = compile(enabled, customBlocks, exceptions);
+        if (!enabled) return baseline;
+        RootBlocklistStore.Snapshot imported = RootBlocklistStore.current(appFilesDir);
+        if (imported == null) return baseline;
+        LinkedHashSet<String> merged = new LinkedHashSet<>(baseline.blocked);
+        merged.addAll(imported.domains);
+        return new Config(true,
+                Collections.unmodifiableList(new ArrayList<>(merged)),
+                baseline.allowed);
     }
 
     private static List<String> parseDomains(String lines) {
