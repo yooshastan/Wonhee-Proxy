@@ -2953,6 +2953,12 @@ final class RootMultiKernelSession {
         if (dnsOwned) DnsRecord.decode(dns);
         boolean routeOwned = !routes.isEmpty();
 
+        // The guard ledger is separately owned: never infer it is safe merely
+        // because live chains appear absent after reboot.
+        if (guardRecord() != null && !guardRecord().isEmpty()) {
+            throw new IllegalStateException(
+                    "Batch F ownership record exists. Audit/disable that guard separately.");
+        }
         // Explicit guard quarantine: a foreign/owned Batch F chain or anchor
         // is never silently converted into a clean lifecycle state.
         RootFailClosedFirewallRuntime.preflight(shell);
