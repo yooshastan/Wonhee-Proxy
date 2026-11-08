@@ -2,6 +2,14 @@
 
 Last updated: 2026-11-07
 
+## F.3e event formats and attachment inventory — third pass (2026-11-08)
+
+- `skb:kfree_skb` format includes skb address, location, protocol and drop reason; enum explicitly includes `NETFILTER_DROP`, `BPF_CGROUP_EGRESS`, `TC_EGRESS`, `TC_INGRESS`, `QDISC_DROP`, `IP_OUTNOROUTES`, `NEIGH_FAILED`. This can identify certain explicit skb drop outcomes but does not prove successful OUTPUT traversal or identify the exact firewall rule.
+- `fib:fib_table_lookup` includes table ID, iif/oif, protocol, source/destination addresses and ports, device/gateway fields. net TX events include device/skb/length and xmit return code. Neighbor event includes device/target/state but no skb ID. Socket-state event includes endpoints/states but no UID.
+- Correlating skb pointer across events is provisional: clones, reallocation and segmentation can change identity; timestamps/tuples alone are not unique proof.
+- `bpftool net show` displayed empty XDP/TC/flow-dissector/netfilter sections. `tc filter show` returned no filters for wlan0 and the two selected tunnel interfaces. `tc qdisc show` shows clsact on wlan0, rmnet16 and ipsec171; rmnet16/ipsec171 filter inspection is outstanding. Existing loaded Android tether/CLAT/cgroup/socket BPF programs must be preserved; loaded programs do not by themselves establish attachment to these devices.
+- Next read-only: `bpftool cgroup tree`; inspect TC filters on rmnet16 and ipsec171; identify which underlay actually carries WireGuard outer traffic before interpreting any device attachment. No active tracepoint, BPF attachment, TC/firewall/routing change. Batch F OFF; issue #41 OPEN; PR #50 remains draft.
+
 ## F.3e network tracepoint/BPF discovery — second pass (2026-11-08)
 
 - Read-only targeted `available_events` query shows skb lifetime, net device TX/RX/NAPI, socket state, TCP/UDP, FIB lookup and neighbor lifecycle tracepoints. No explicit `nf:`, `netfilter:`, `ip:`, `ipv6:` or `wireguard:` group appeared. This does **not** prove absence of netfilter hooks; event format metadata and alternative instrumentation still need review.
