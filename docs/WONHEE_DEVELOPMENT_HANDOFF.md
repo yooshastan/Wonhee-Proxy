@@ -1,6 +1,15 @@
 # Wonhee Proxy — Development Handoff
 
-Last updated: 2026-11-07
+Last updated: 2026-11-08
+
+## F.3e active network topology — fifth pass (2026-11-08)
+
+- `dumpsys connectivity` says `Active default network: 176`; network 176 is validated Wi-Fi on `wlan0` (`192.168.50.84/24`, gateway `192.168.50.1`). This is the current Android default network at capture time.
+- `rmnet16` is a separate validated `MOBILE[LTE]` network with `INTERNET` capability and its own default routes; it is connected but is not the active default in this snapshot.
+- `ipsec171` is `MOBILE[IWLAN]` with `extra: IMS`; capabilities show `IMS`/`IA` but no `INTERNET`. Treat it as a carrier IMS/IWLAN path, not general Internet transport and not evidence that WireGuard uses it.
+- Main IPv4 table shows only the Wi-Fi connected subnet. Android policy rules and per-network tables select the other routes. Existing fwmark rules identify tunnel-related routing policy but do not expose peer endpoint IPs or prove the physical egress device for WireGuard outer UDP.
+- **Underlay decision:** current system default is `wlan0`; exact outer transport for each WireGuard peer remains **UNPROVEN**. Need endpoint-specific route lookup with the applicable mark before attribution. No packet generation, route mutation, BPF/TC changes, trace activation, or guard activation. Batch F OFF; issue #41 OPEN; PR #50 draft.
+
 
 ## F.3e cgroup BPF and remaining TC inventory — fourth pass (2026-11-08)
 
