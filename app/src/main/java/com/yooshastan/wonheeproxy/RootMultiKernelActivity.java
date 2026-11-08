@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -19,6 +20,7 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,6 +33,7 @@ public final class RootMultiKernelActivity extends Activity {
     private static final int PINK = 0xfffbadd8;
     private static final int WHITE = 0xfff8f1f9;
     private static final int MUTED = 0xffc4b7c9;
+    private static final int REQUEST_HOSTS_IMPORT = 8124;
 
     private SecureTunnelProfileStore store;
     private RootMultiKernelSession session;
@@ -83,6 +86,7 @@ public final class RootMultiKernelActivity extends Activity {
     private TextView guidedStatus;
     private LinearLayout advancedGroup;
     private boolean guidedRunning;
+    private volatile boolean blocklistBusy;
     private final List<RootSafetyGuide.Finding> guidedFindings = new ArrayList<>();
     private TextView recoveryStatus;
     private EditText serviceTarget;
@@ -420,25 +424,81 @@ public final class RootMultiKernelActivity extends Activity {
         Button trackerPreview = button(trackers, "Preview tracker filtering · no system changes");
         trackerPreview.setOnClickListener(v -> {
             try {
-                RootTrackerPolicy.Config configured = RootTrackerPolicy.compile(
-                        trackerFilter.isChecked(), trackerCustom.getText().toString(),
-                        trackerAllow.getText().toString());
-                String summary = configured.enabled
-                        ? "Local DNS filtering planned: " + configured.blocked.size()
-                          + " domain suffixes blocked and " + configured.allowed.size()
-                          + " allowed exceptions.\n\nBuilt-in suffixes:\n"
-                          + String.join("\n", RootTrackerPolicy.builtIns())
-                          + "\n\nExisting DNS policy is unchanged until separately enabled."
-                        : "Tracker filtering is OFF. No DNS or firewall changes planned.";
-                new AlertDialog.Builder(this).setTitle("Batch E policy preview")
-                        .setMessage(summary).setPositiveButton("Close", null).show();
+                if (blocklistBusy) { output.setText("Another blocklist operation is running."); return; }
+                blocklistBusy = true;
+                final boolean enabled = trackerFilter.isChecked();
+                final String custom = trackerCustom.getText().toString();
+                final String allow = trackerAllow.getText().toString();
+                new Thread(() -> {
+                    String summary;
+                    try {
+                        RootTrackerPolicy.Config configured = RootTrackerPolicy.compileWithManaged(
+                                enabled, custom, allow, getFilesDir());
+                        summary = configured.enabled
+                                ? "Local filtering planned: " + configured.blocked.size()
+                                  + " unique blocked suffixes; " + configured.allowed.size()
+                                  + " allowed exceptions.\nBuilt-ins: "
+                                  + String.join(", ", RootTrackerPolicy.builtIns())
+                                  + "\nChanges apply only on a NEW, separately enabled DNS relay."
+                                : "Filtering is OFF. No DNS or firewall change planned.";
+                    } catch (Exception failed) {
+                        summary = "Blocklist preview refused. Inspect or restore imported snapshot.";
+                    }
+                    final String display = summary;
+                    runOnUiThread(() -> {
+                        blocklistBusy = false;
+                        if (!isFinishing() && !isDestroyed()) {
+                            new AlertDialog.Builder(this).setTitle("Batch E policy preview")
+                                    .setMessage(display).setPositiveButton("Close", null).show();
+                        }
+                    });
+                }, "wonhee-blocklist-preview").start();
             } catch (IllegalArgumentException invalid) {
                 new AlertDialog.Builder(this).setTitle("Tracker policy refused")
-                        .setMessage(invalid.getMessage()).setPositiveButton("Close", null).show();
+                        .setMessage("Custom domains or exceptions invalid.")
+                        .setPositiveButton("Close", null).show();
             }
         });
         trackerStatus = label(trackers, "TRACKER FILTER: " + session.trackerLedgerStatus(), 14, PINK);
-        label(trackers, "Configuration is applied ONLY when you press Enable encrypted "
+        label(trackers, "BATCH E.1 · MANAGED OFFLINE HOSTS LIST", 15, PINK);
+        label(trackers, "Import a standard hosts.txt or one-domain-per-line file "
+                + "(up to 250,000 unique domains / 20 MiB). Duplicates and local-network "
+                + "names are excluded. No list is downloaded automatically. "
+                + "The previous snapshot is retained for recovery. An imported "
+                + "snapshot is used only when tracker blocking is selected at the "
+                + "NEXT explicit encrypted system DNS activation.", 13, MUTED);
+        Button importManaged = button(trackers, "Import local hosts/domain blocklist · offline");
+        importManaged.setOnClickListener(v -> {
+            if (!canEditBlocklist()) return;
+            Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            pick.setType("*/*");
+            pick.addCategory(Intent.CATEGORY_OPENABLE);
+            pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivityForResult(pick, REQUEST_HOSTS_IMPORT);
+        });
+        Button inspectManaged = button(trackers, "Inspect saved blocklist · read only");
+        inspectManaged.setOnClickListener(v -> runBlocklistTask("inspect"));
+        Button restoreManaged = button(trackers, "Restore previous imported blocklist");
+        restoreManaged.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Restore previous offline blocklist?")
+                .setMessage("Replaces the saved import with the previous validated snapshot. "
+                        + "An active DNS enforcement policy must first be disabled; "
+                        + "no tunnel or firewall rules are modified.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Restore", (d, w) -> runBlocklistTask("restore")).show());
+        Button clearManaged = button(trackers, "Clear imported blocklist · keep backup");
+        clearManaged.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Clear the imported DNS blocklist?")
+                .setMessage("Removes the active imported list but preserves its previous "
+                        + "snapshot. The built-in nine domains and any custom rules "
+                        + "remain available. No running DNS policy is changed.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Clear import", (d, w) -> runBlocklistTask("clear")).show());
+        Button sourcesManaged = button(trackers, "Browse compatible list sources");
+        sourcesManaged.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://github.com/bindhosts/bindhosts/blob/master/Documentation/sources.md"))));
+
+        label(trackers, "Configuration is applied ONLY when you press Enable encrypted 
                 + "system DNS below. The original selected encrypted upstream remains unchanged.", 13, MUTED);
 
         LinearLayout enforcement = card(advancedGroup);
@@ -911,6 +971,101 @@ public final class RootMultiKernelActivity extends Activity {
             updateButtons();
         });
         updateButtons();
+    }
+
+    private boolean canEditBlocklist() {
+        if (blocklistBusy || session.isBusy()) {
+            output.setText("A DNS or blocklist operation is still running.");
+            return false;
+        }
+        if (!"OFF".equals(session.dnsLedgerStatus())) {
+            output.setText("Disable + audit owned DNS enforcement before changing imported lists.");
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_HOSTS_IMPORT
+                || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (!canEditBlocklist()) return;
+        final Uri selected = data.getData();
+        blocklistBusy = true;
+        output.setText("Validating local HOSTS/domain file. No DNS or routing changes...");
+        new Thread(() -> {
+            String report;
+            try {
+                if (!"OFF".equals(session.dnsLedgerStatus()) || session.isBusy()) {
+                    throw new IllegalStateException("DNS policy changed; refusing import.");
+                }
+                try (InputStream in = getContentResolver().openInputStream(selected)) {
+                    RootBlocklistStore.Snapshot saved = RootBlocklistStore.importFrom(
+                            getFilesDir(), in);
+                    report = "BATCH E.1 IMPORT SUCCESS\n" + saved.summary()
+                            + "\nPrevious snapshot retained where available."
+                            + "\nEnable tracker filtering only on the next explicit DNS activation.";
+                }
+            } catch (Exception failed) {
+                report = "BATCH E.1 IMPORT REFUSED\nNo active DNS policy modified."
+                        + "\nCheck that the file uses HOSTS or plain-domain syntax, "
+                        + "is <=20 MiB and has <=250,000 unique domains.";
+            }
+            final String display = report;
+            runOnUiThread(() -> {
+                blocklistBusy = false;
+                if (!isFinishing() && !isDestroyed()) output.setText(display);
+            });
+        }, "wonhee-blocklist-import").start();
+    }
+
+    private void runBlocklistTask(String operation) {
+        if (!canEditBlocklist()) return;
+        blocklistBusy = true;
+        output.setText("Local blocklist " + operation + "...");
+        new Thread(() -> {
+            String report;
+            try {
+                if (!"OFF".equals(session.dnsLedgerStatus()) || session.isBusy()) {
+                    throw new IllegalStateException("DNS policy changed; no list mutation allowed.");
+                }
+                switch (operation) {
+                    case "inspect": {
+                        RootBlocklistStore.Snapshot current =
+                                RootBlocklistStore.current(getFilesDir());
+                        RootBlocklistStore.Snapshot old =
+                                RootBlocklistStore.previous(getFilesDir());
+                        report = "MANAGED DNS LIST\nActive: "
+                                + (current == null ? "NONE" : current.summary())
+                                + "\nPrevious: " + (old == null ? "NONE" : old.summary())
+                                + "\nNo DNS changes made.";
+                        break;
+                    }
+                    case "restore": {
+                        RootBlocklistStore.Snapshot restored =
+                                RootBlocklistStore.restorePrevious(getFilesDir());
+                        report = "PREVIOUS HOSTS LIST RESTORED\n" + restored.summary()
+                                + "\nChanges apply only on next DNS activation.";
+                        break;
+                    }
+                    case "clear":
+                        RootBlocklistStore.clear(getFilesDir());
+                        report = "IMPORTED HOSTS LIST CLEARED\nBuilt-ins remain available; "
+                                + "previous snapshot preserved for restore.";
+                        break;
+                    default: throw new IllegalArgumentException("Unknown list operation.");
+                }
+            } catch (Exception failed) {
+                report = "Blocklist operation REFUSED. "
+                        + "Check saved snapshot and ensure DNS enforcement is OFF.";
+            }
+            final String display = report;
+            runOnUiThread(() -> {
+                blocklistBusy = false;
+                if (!isFinishing() && !isDestroyed()) output.setText(display);
+            });
+        }, "wonhee-blocklist-" + operation).start();
     }
 
     private void confirm(boolean starting) {
