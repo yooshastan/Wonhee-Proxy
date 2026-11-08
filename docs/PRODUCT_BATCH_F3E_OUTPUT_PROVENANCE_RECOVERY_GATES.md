@@ -61,6 +61,29 @@ The skb/net transmit and FIB/neighbor events are promising for packet lifecycle 
 
 Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:net_dev_start_xmit`, `net:net_dev_xmit`, `fib:fib_table_lookup`, `neigh:neigh_event_send_done`, and `sock:inet_sock_set_state`; then inspect existing BPF/TC attachment metadata using `bpftool net show`, `ip -br link`, `tc qdisc show`, and `tc filter show` for wlan0 and the two selected tunnel interfaces. These are inventory commands only. Do not run BPF feature probes that load test programs, enable trace events, mount filesystems, dump map values, or mutate TC state.
 
+## Pixel 8a event-format and attachment inspection (user-provided, 2026-11-08)
+
+### Event formats
+
+- `skb:kfree_skb` exposes `skbaddr`, `location`, protocol and `skb_drop_reason`. The printed reason enum includes `NETFILTER_DROP`, `BPF_CGROUP_EGRESS`, `TC_EGRESS`, `TC_INGRESS`, `QDISC_DROP`, `IP_OUTNOROUTES`, `NEIGH_FAILED` and others. This can classify certain skb drop outcomes, but does not by itself identify the exact firewall rule or prove successful packet traversal through OUTPUT.
+- `net:net_dev_queue`, `net_dev_start_xmit`, and `net_dev_xmit` expose device, skb address, length and (for xmit) return code; start_xmit also includes protocol/segmentation metadata.
+- `fib:fib_table_lookup` exposes table ID, input/output interface indices, protocol, addresses, ports and selected device/gateway fields. This is useful for correlating route decisions, not a substitute for packet-hook evidence.
+- `neigh:neigh_event_send_done` exposes address family, device, neighbor target/state and error; it does not identify a specific skb.
+- `sock:inet_sock_set_state` exposes socket pointer, address family, protocol, endpoints and state transitions, but no UID field.
+- Correlation across these events is only provisional: skb clones/reallocation/segmentation may change skb identity, and a time/tuple match alone is not a unique packet proof.
+
+### Attachment inventory
+
+- `bpftool net show` displayed empty XDP, TC, flow-dissector and netfilter sections.
+- `tc filter show` returned no displayed ingress/egress filters for `wlan0`, HOME tunnel `wnma292ddb4b6da`, or AirVPN tunnel `wnm68fe81200daa`.
+- `tc qdisc show` shows `clsact` qdiscs on `rmnet16`, `wlan0`, and `ipsec171`; the latter two relevant-underlay candidates `rmnet16` and `ipsec171` were not included in the user's per-device filter query. Thus the attachment inventory is incomplete.
+- `bpftool prog show` lists loaded Android system programs, including tethering `sched_cls`, CLAT, cgroup-skb ingress/egress, socket filters and cgroup-sock. Loaded does not mean attached to the selected interface. `bpftool net show` does not enumerate every cgroup attachment. Do not detach, pin, load or modify any Android BPF program/map.
+- Next read-only checks: `bpftool cgroup tree`; `tc filter show dev rmnet16 ingress/egress`; `tc filter show dev ipsec171 ingress/egress`; optionally inspect the qdisc/filter details for the currently active underlay only after confirming which interface carries the WireGuard outer transport. No `tc` mutation.
+
+### Decision update
+
+Tracepoint metadata is sufficiently promising to design a *future* bounded observational prototype, but there is still no proven direct local-OUTPUT success tracepoint in the inventory. A drop reason `NETFILTER_DROP` is useful only for packets actually dropped with that reason; it cannot certify that another packet traversed or bypassed OUTPUT. Keep all active tracing and attachment work unauthorized. Batch F stays OFF.
+
 ## Phase 2: separately reviewed hook-level experiment (NOT YET AUTHORIZED)
 
 Do **not** mistake a tracing attachment for a read-only operation. Registering eBPF programs/kprobes, changing tracefs event-enable switches, adding netfilter TRACE/NFLOG targets, installing nftables/iptables counters, attaching tc/XDP programs or creating audit rules **changes running kernel state** and needs its own safety review.
