@@ -42,6 +42,48 @@ public final class RootSplitRouteRulesTest {
         String kernelLine = "12500: from all to 10.0.0.0/24 fwmark 0x0/0x20000 "
                 + "iif lo uidrange 0-99999 lookup " + home.device;
         check(rules.get(0).matchesListing(kernelLine), "Owned rule must match exact listing");
+
+        String homeDevice = home.device;
+        String k12500 = "12500:\tfrom all to 10.0.0.0/24 fwmark 0x0/0x20000 "
+                + "iif lo uidrange 0-99999 lookup " + homeDevice + " ";
+        String k12501 = "12501:\tfrom all to 10.6.0.0/24 fwmark 0x0/0x20000 "
+                + "iif lo uidrange 0-99999 lookup " + homeDevice + " ";
+        String k12502 = "12502:\tfrom all to 10.77.0.0/24 fwmark 0x0/0x20000 "
+                + "iif lo uidrange 0-99999 lookup " + homeDevice + " ";
+        List<String> threeLive = Arrays.asList(k12500, k12501, k12502);
+        check(RootSplitRouteRules.verifyRollbackCandidates(
+                rules, threeLive, Collections.emptyList()) == 3,
+                "Must recognize observed Android tab-after-priority rules");
+        check(RootSplitRouteRules.verifyRollbackCandidates(
+                rules, Arrays.asList(k12500, k12502), Collections.emptyList()) == 2,
+                "Crash-safe rollback accepts a missing recorded rule");
+        check(RootSplitRouteRules.verifyRollbackCandidates(
+                rules, Collections.emptyList(), Collections.emptyList()) == 0,
+                "Saved intent with no live rules can safely be retired");
+        try {
+            RootSplitRouteRules.verifyRollbackCandidates(rules,
+                    Arrays.asList(k12500, k12500), Collections.emptyList());
+            throw new AssertionError("Duplicate reserved priority must refuse");
+        } catch (IllegalStateException expected) { /* strict refusal */ }
+        try {
+            RootSplitRouteRules.verifyRollbackCandidates(rules,
+                    Arrays.asList(k12500, k12501,
+                            k12502.replace(homeDevice, internet.device)),
+                    Collections.emptyList());
+            throw new AssertionError("Foreign rule must refuse");
+        } catch (IllegalStateException expected) { /* strict refusal */ }
+        try {
+            RootSplitRouteRules.verifyRollbackCandidates(rules,
+                    Arrays.asList(k12500, "12699:\tfrom all lookup wlan0"),
+                    Collections.emptyList());
+            throw new AssertionError("Untracked reserved priority must refuse");
+        } catch (IllegalStateException expected) { /* strict refusal */ }
+        try {
+            RootSplitRouteRules.verifyRollbackCandidates(rules, threeLive,
+                    Arrays.asList("12500:\tfrom all lookup local"));
+            throw new AssertionError("Untracked IPv6 reserved priority must refuse");
+        } catch (IllegalStateException expected) { /* strict refusal */ }
+
         check(!rules.get(0).matchesListing(kernelLine.replace(home.device, internet.device)),
                 "Never claim another lookup table as owned");
         check(!rules.get(0).matchesListing(kernelLine.replace("12500", "12501")),
