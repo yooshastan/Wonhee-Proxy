@@ -31,6 +31,36 @@ Record whether:
 
 The summary must distinguish `AVAILABLE`, `NOT EXPOSED`, `PERMISSION DENIED`, `INDETERMINATE`, and `UNSAFE TO PROBE`. Do not display event payloads, socket addresses, keys, endpoint tuples, private UID associations, process names or raw kernel state. No pcap or persistence of raw readings.
 
+## Pixel 8a targeted network tracepoint and BPF inventory (user-provided, 2026-11-08)
+
+### Tracepoint availability
+
+The full targeted prefix query returned these relevant events:
+
+- skb: `kfree_skb`, `consume_skb`, `skb_copy_datagram_iovec`.
+- net: `net_dev_start_xmit`, `net_dev_xmit`, `net_dev_xmit_timeout`, `net_dev_queue`, `netif_receive_skb`, `netif_rx`, and NAPI/receive entry/exit events.
+- sock: `sock_rcvqueue_full`, `sock_exceed_buf_limit`, `inet_sock_set_state`, `inet_sk_error_report`.
+- udp: `udp_fail_queue_rcv_skb`.
+- tcp: retransmit, reset, destroy, receive-space, probe and congestion-state events.
+- fib: `fib_table_lookup`.
+- neigh: `neigh_create`, `neigh_update`, `neigh_update_done`, `neigh_timer_handler`, `neigh_event_send_done`, `neigh_event_send_dead`, and lifecycle events.
+
+No `nf:`, `netfilter:`, `ip:`, `ipv6:` or `wireguard:` event groups appeared in the user's full matching output. This does not mean netfilter is absent; only that these named tracepoint groups were not advertised by `available_events` in this query.
+
+### Existing BPF inventory
+
+- `bpftool prog show` displays Android system programs including `sched_cls` tether/ingress/egress, `sched_act`, `cgroup_skb` ingress/egress, socket filters and `cgroup_sock`. Program output was capped at 60 lines, so total inventory was not established.
+- Visible map names include tethering statistics/limits/downstream/upstream, CLAT ingress/egress, socket policy and IPv4/IPv6 DSCP policy. Do not inspect map values.
+- `bpftool link show` showed one raw tracepoint link to `sched_process_free`; this is **not** a complete attachment inventory because TC `sched_cls` programs may be attached through qdiscs/netlink rather than BPF links.
+- `bpftool btf show` lists `vmlinux` BTF and many module BTF objects. BTF existence is metadata availability only.
+- No BPF program, link, map or attachment was changed, detached, loaded or pinned by the inspection.
+
+### Interpretation and next read-only checks
+
+The skb/net transmit and FIB/neighbor events are promising for packet lifecycle and egress correlation. They still do not expose a named netfilter local OUTPUT tracepoint in the reported event groups. Exact event `format` metadata must be reviewed to see whether skb identity, device, protocol, length and neighbour context are available. Any packet correlation must handle skb cloning/reallocation; an skb pointer alone is not guaranteed to remain a stable packet identity across the whole path.
+
+Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:net_dev_start_xmit`, `net:net_dev_xmit`, `fib:fib_table_lookup`, `neigh:neigh_event_send_done`, and `sock:inet_sock_set_state`; then inspect existing BPF/TC attachment metadata using `bpftool net show`, `ip -br link`, `tc qdisc show`, and `tc filter show` for wlan0 and the two selected tunnel interfaces. These are inventory commands only. Do not run BPF feature probes that load test programs, enable trace events, mount filesystems, dump map values, or mutate TC state.
+
 ## Phase 2: separately reviewed hook-level experiment (NOT YET AUTHORIZED)
 
 Do **not** mistake a tracing attachment for a read-only operation. Registering eBPF programs/kprobes, changing tracefs event-enable switches, adding netfilter TRACE/NFLOG targets, installing nftables/iptables counters, attaching tc/XDP programs or creating audit rules **changes running kernel state** and needs its own safety review.
