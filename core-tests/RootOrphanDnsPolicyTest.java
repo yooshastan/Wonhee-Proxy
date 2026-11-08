@@ -23,42 +23,36 @@ public final class RootOrphanDnsPolicyTest {
                 RootOrphanDnsPolicy.State.BLOCKED;
 
         expect(clean, RootOrphanDnsPolicy.classify(
-                false, true, true, true, true, 0, 0, false), "ordinary clean stop");
+                false, true, 0, 0, false), "ordinary clean firewall");
         expect(ready, RootOrphanDnsPolicy.classify(
-                false, true, true, true, true, 8, 8, false), "eight exact orphan rules");
+                false, true, 8, 8, false), "eight exact orphan rules");
         expect(owned, RootOrphanDnsPolicy.classify(
-                true, true, false, false, false, 8, 8, false),
-                "normal owner ledger uses normal disable");
+                true, true, 8, 8, false), "normal owner ledger uses normal disable");
+        // Whether tunnels, routing or native DNS relay are running is
+        // deliberately NOT a precondition for DNS-only rule removal. This
+        // avoids deadlocking the device if DNS ownership disappeared while
+        // either WireGuard interface was still UP.
         expect(blocked, RootOrphanDnsPolicy.classify(
-                false, true, false, true, true, 8, 8, false),
-                "still running tunnel blocks orphan recovery");
+                false, false, 8, 8, false),
+                "live Batch F guard quarantines orphan recovery");
         expect(blocked, RootOrphanDnsPolicy.classify(
-                false, true, true, false, true, 8, 8, false),
-                "still running relay blocks orphan recovery");
-        expect(blocked, RootOrphanDnsPolicy.classify(
-                false, false, true, true, true, 8, 8, false),
-                "owned/unknown Batch F guard blocks orphan recovery");
-        expect(blocked, RootOrphanDnsPolicy.classify(
-                false, true, true, true, false, 8, 8, false),
-                "live reserved routing rule blocks orphan recovery");
-        expect(blocked, RootOrphanDnsPolicy.classify(
-                false, true, true, true, true, 7, 7, false),
+                false, true, 7, 7, false),
                 "partial orphan rules with no pending marker must refuse");
         expect(blocked, RootOrphanDnsPolicy.classify(
-                false, true, true, true, true, 8, 9, false),
-                "extra WN_ OUTPUT tag must refuse");
+                false, true, 8, 9, false),
+                "extra WN_ OUTPUT rule must refuse");
         expect(blocked, RootOrphanDnsPolicy.classify(
-                false, true, true, true, true, 6, 5, false),
+                false, true, 6, 5, false),
                 "invalid counts must refuse");
         expect(pending, RootOrphanDnsPolicy.classify(
-                false, true, true, true, true, 5, 5, true),
+                false, true, 5, 5, true),
                 "durable marker permits exact leftover subset after crash");
         expect(finished, RootOrphanDnsPolicy.classify(
-                false, true, true, true, true, 0, 0, true),
+                false, true, 0, 0, true),
                 "all rules gone but marker still recorded");
         expect(blocked, RootOrphanDnsPolicy.classify(
-                false, true, false, true, true, 0, 0, true),
-                "pending marker does not bypass active tunnel safety");
+                false, false, 0, 0, true),
+                "guard remains quarantine even with pending cleanup marker");
         System.out.println("RootOrphanDnsPolicyTest PASS");
     }
 }
