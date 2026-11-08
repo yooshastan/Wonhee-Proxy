@@ -91,6 +91,17 @@ Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:n
 - **Conclusion:** `wlan0` is the current Android default network; `rmnet16` is a connected validated cellular Internet network; `ipsec171` is a separate IMS/IWLAN network. The actual outer transport for each WireGuard peer remains **UNPROVEN** until its endpoint address and applicable socket/fwmark route are resolved. Do not infer tunnel underlay solely from the default network.
 - Next read-only step: obtain each tunnel peer endpoint IP/port without exposing private keys, then run endpoint-specific `ip route get`/`ip -6 route get` with the relevant mark (if established) and inspect the corresponding per-network route tables. No packet generation or routing changes.
 
+### Per-interface route tables and known peer endpoint — 2026-11-08 (read-only)
+
+- `wlan0` table: IPv4 default via `192.168.50.1`; IPv6 default via the router's link-local address. This matches the current validated Wi-Fi default network.
+- `rmnet16` table: IPv4 and IPv6 default routes directly on the cellular interface (IPv4 MTU 1428). It is a separate connected mobile Internet network.
+- `ipsec171` table: no IPv4 routes; IPv6 default via the interface/router. Connectivity metadata identifies this as IMS/IWLAN, not general Internet.
+- AirVPN interface/table `wnm68fe81200daa`: IPv4 and IPv6 default routes via the tunnel.
+- HOME interface/table `wnma292ddb4b6da`: IPv4 routes only for `10.0.0.0/24`, `10.6.0.0/24`, `10.77.0.0/24`; no IPv4 default and no IPv6 destination prefix (only the assigned interface address). This matches the intended HOME split-tunnel design; IPv6 HOME destinations are not shown as routed by this table.
+- Prior project context records AirVPN Europe peer endpoint `213.152.161.37:47107`. Treat this as a previously recorded value, not yet verified against the currently active profile. The ASUS HOME `wgs_client1` endpoint hostname/IP and UDP port are not present in the recovered history.
+- Next read-only route simulation: `ip -4 route get 213.152.161.37 mark <mark>` for the observed candidate marks `0x0`, `0xc489e`, `0xce8a6`, and `0x1009d`. These are policy lookup simulations only; they do not establish which fwmark the actual WireGuard outer socket uses or prove real packet egress. Obtain/verify the current HOME peer endpoint before equivalent lookups.
+- Do not send test packets, resolve unknown peer hostnames via network queries, change routes, or modify tunnel configuration at this stage.
+
 ### Decision update
 
 Tracepoint metadata is sufficiently promising to design a *future* bounded observational prototype, but there is still no proven direct local-OUTPUT success tracepoint in the inventory. A drop reason `NETFILTER_DROP` is useful only for packets actually dropped with that reason; it cannot certify that another packet traversed or bypassed OUTPUT. Keep all active tracing and attachment work unauthorized. Batch F stays OFF.
