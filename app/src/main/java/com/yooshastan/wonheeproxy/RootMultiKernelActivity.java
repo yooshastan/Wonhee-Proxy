@@ -48,6 +48,9 @@ public final class RootMultiKernelActivity extends Activity {
     private Button managedStop;
     private Button lifecycleAudit;
     private Button lifecycleRepair;
+    private Button emergencyDnsOff;
+    private Button orphanDnsAudit;
+    private Button orphanDnsRepair;
     private boolean lifecycleBusy;
     private Button preview;
     private Button inspect;
@@ -156,9 +159,10 @@ public final class RootMultiKernelActivity extends Activity {
         connect.setOnClickListener(v -> confirm(true));
         disconnect = button(controls, "Disconnect selected tunnels");
         disconnect.setOnClickListener(v -> confirm(false));
-        label(controls, "Disconnect checks the WireGuard public identities of all "
-                + "selected interfaces before changing any, including after an app "
-                + "restart. Unknown interfaces are never removed.", 13, MUTED);
+        label(controls, "Manual Disconnect is disabled while DNS ownership "
+                + "is recorded. Use Safe stop for the complete stack. Live WN_ "
+                + "DNS rules also block direct tunnel changes even if the saved "
+                + "ownership file has disappeared.", 13, MUTED);
         label(controls, "BATCH H.1 · COORDINATED VPN LIFECYCLE", 17, PINK);
         label(controls, "Start in order: verified tunnels → split routing → encrypted DNS "
                 + "and tracker filtering → live DNS audit. Stop in reverse protection "
@@ -169,6 +173,49 @@ public final class RootMultiKernelActivity extends Activity {
         managedStart.setOnClickListener(v -> startManagedStack());
         managedStop = button(controls, "Safe stop complete Wonhee stack · one confirmation");
         managedStop.setOnClickListener(v -> stopManagedStack());
+        label(controls, "EMERGENCY DNS RECOVERY · NO VPN RESTART REQUIRED", 17, PINK);
+        label(controls, "If DNS still redirects or rejects requests after the tunnels "
+                + "stop, do NOT restart them. Owned DNS shutdown works without an "
+                + "active VPN. If the DNS owner file is missing, first run the "
+                + "read-only orphan audit, then the separately confirmed exact "
+                + "recovery. Unknown firewall rules are never adopted.", 13, MUTED);
+        emergencyDnsOff = button(controls,
+                "Disable verified owned DNS · even when tunnels are DOWN");
+        emergencyDnsOff.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Disable exact owned DNS firewall now?")
+                .setMessage("Wonhee will use the existing saved DNS owner record "
+                        + "to remove only its exact firewall rules and stop the "
+                        + "verified local DNS relay. The tunnels do NOT need to "
+                        + "be connected. If the record is missing, use Orphan DNS "
+                        + "Audit instead. This can restore normal, unprotected "
+                        + "Android DNS when the VPN is down.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Disable owned DNS", (d, w) ->
+                        run("Emergency DNS owned disable", true, session::disableRootDns))
+                .show());
+        orphanDnsAudit = button(controls, "Audit orphaned DNS firewall · read only");
+        orphanDnsAudit.setOnClickListener(v ->
+                run("Orphan DNS read-only audit", true, session::auditOrphanDns));
+        orphanDnsRepair = button(controls,
+                "Recover exact orphaned DNS rules · explicit opt in");
+        orphanDnsRepair.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Emergency orphan DNS cleanup?")
+                .setMessage("This is ONLY for lost DNS ownership records. "
+                        + "With both VPN tunnels DOWN, no listener on UDP 53535, "
+                        + "no saved owner record and no routing or Batch F guard, "
+                        + "Wonhee checks all EIGHT original WN_ DNS firewall "
+                        + "signatures and refuses any extra, modified or duplicated "
+                        + "WN_ rule. An exact tag match alone cannot prove "
+                        + "cryptographic ownership. Only after a second preflight "
+                        + "will it record durable recovery intent and remove "
+                        + "those exact rules. A partial cleanup may then be "
+                        + "retried after interruption. This may restore DNS "
+                        + "outside the VPN. Keep USB ADB available.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Verify and remove orphan DNS", (d, w) ->
+                        run("Orphan DNS explicit repair", true, session::recoverOrphanDns))
+                .show());
+
         label(controls, "BATCH H.2a · CRASH / REBOOT RECOVERY", 17, PINK);
         label(controls, "If the app was interrupted, first inspect whether exact "
                 + "saved ownership still matches live DNS and route rules. "
@@ -1057,7 +1104,11 @@ public final class RootMultiKernelActivity extends Activity {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
             // DNS destinations/probe outcomes must not persist into diagnostics.
-            journal.record("RESULT", action.startsWith("Batch H.2a")
+            journal.record("RESULT", action.startsWith("Orphan DNS")
+                    || action.startsWith("Emergency DNS")
+                    ? "Emergency DNS recovery "
+                            + (ok ? "completed" : "check required")
+                    : action.startsWith("Batch H.2a")
                     ? "Batch H.2a recovery audit/repair "
                             + (ok ? "completed" : "check required")
                     : action.startsWith("Privacy Monitor")
@@ -1353,10 +1404,15 @@ public final class RootMultiKernelActivity extends Activity {
         boolean firewallUnlocked = "OFF".equals(session.guardLedgerStatus());
         for (CheckBox checkbox : selection.values()) checkbox.setEnabled(idle);
         if (connect != null) connect.setEnabled(ready && firewallUnlocked);
-        if (disconnect != null) disconnect.setEnabled(ready && firewallUnlocked);
+        if (disconnect != null) disconnect.setEnabled(ready && firewallUnlocked
+                && "OFF".equals(session.dnsLedgerStatus()));
         if (managedStart != null) managedStart.setEnabled(ready && firewallUnlocked
                 && "OFF".equals(session.dnsLedgerStatus()));
         if (managedStop != null) managedStop.setEnabled(ready && firewallUnlocked);
+        if (emergencyDnsOff != null) emergencyDnsOff.setEnabled(idle
+                && !"OFF".equals(session.dnsLedgerStatus()));
+        if (orphanDnsAudit != null) orphanDnsAudit.setEnabled(idle);
+        if (orphanDnsRepair != null) orphanDnsRepair.setEnabled(idle);
         if (lifecycleAudit != null) lifecycleAudit.setEnabled(idle);
         if (lifecycleRepair != null) lifecycleRepair.setEnabled(idle);
         if (preview != null) preview.setEnabled(ready);
