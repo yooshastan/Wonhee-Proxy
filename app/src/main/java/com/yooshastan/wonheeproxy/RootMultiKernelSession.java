@@ -3056,8 +3056,22 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("A selected live interface identity differs.");
                     }
                 }
-                stage = "REMOVE_OWNED_DNS";
+                stage = "PREFLIGHT_OWNED_POLICIES";
+                // Validate BOTH policy families before the first deletion:
+                // a foreign reserved route must not trigger DNS shutdown.
+                RootSplitRouteRules.verifyRollbackCandidates(
+                        RootSplitRouteRules.decode(savedRules()),
+                        readRules(4), readRules(6));
                 String dns = dnsRecord();
+                if (dns != null && !dns.isEmpty()) {
+                    DnsRecord.decode(dns);
+                    for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+                        dnsRulePresent(rule);
+                    }
+                } else {
+                    dnsFirewallPreflight();
+                }
+                stage = "REMOVE_OWNED_DNS";
                 if (dns != null && !dns.isEmpty()) {
                     DnsRecord owned = DnsRecord.decode(dns);
                     // This preflights all known DNS firewall tags, including a
