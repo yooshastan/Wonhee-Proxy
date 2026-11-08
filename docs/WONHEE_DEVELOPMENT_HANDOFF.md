@@ -2,6 +2,13 @@
 
 Last updated: 2026-11-07
 
+## F.3e network tracepoint/BPF discovery — second pass (2026-11-08)
+
+- Read-only targeted `available_events` query shows skb lifetime, net device TX/RX/NAPI, socket state, TCP/UDP, FIB lookup and neighbor lifecycle tracepoints. No explicit `nf:`, `netfilter:`, `ip:`, `ipv6:` or `wireguard:` group appeared. This does **not** prove absence of netfilter hooks; event format metadata and alternative instrumentation still need review.
+- Existing BPF inventory includes Android tethering `sched_cls`, CLAT, `cgroup_skb`, socket-filter, `cgroup_sock`, and policy/DSCP maps. `bpftool link show` listed one raw tracepoint link (`sched_process_free`), but does not include TC/netlink attachment inventory. **Do not detach or alter Android BPF programs/maps.**
+- Next read-only stage: inspect formats for `skb:kfree_skb`, `net:net_dev_queue/start_xmit/xmit`, `fib:fib_table_lookup`, `neigh:neigh_event_send_done`, `sock:inet_sock_set_state`; then `bpftool net show`, `ip -br link`, `tc qdisc show` and per-device `tc filter show` for wlan0/HOME/AirVPN. No event enabling, probe attachment, BPF loading, map-value reads or TC mutations.
+- Updated design PR [#50](https://github.com/yooshastan/Wonhee-Proxy/pull/50), still draft. Batch F OFF; issue #41 OPEN.
+
 ## F.3e Pixel 8a capability discovery — first pass (2026-11-08)
 
 - Root execution PASS (UID 0, Magisk); read-only commands returned tool and kernel metadata.
