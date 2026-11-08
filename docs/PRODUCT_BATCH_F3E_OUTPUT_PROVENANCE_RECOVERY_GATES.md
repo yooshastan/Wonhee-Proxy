@@ -109,6 +109,15 @@ Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:n
 - Next read-only test: capture current `ip -4 rule show`, then compare `ip -4 route get 213.152.161.37 uid 0 mark 0x20000` with `mark 0x0`. The protected-mark result is a policy simulation, not proof of the actual WireGuard socket's mark or physical packet egress. Need later correlate actual outer UDP packets/socket ownership without generating test traffic.
 - Intended architecture from prior project notes: ASUS HOME tunnel routes LAN/Navidrome destinations; AirVPN routes general Internet. Preserve that split. No route/firewall/BPF/tunnel changes; Batch F remains OFF.
 
+### Protected-bit route lookup — 2026-11-08 (root, read-only)
+
+- With root confirmed, `ip -4 route get 213.152.161.37 uid 0 mark 0x20000` selected `wlan0` via `192.168.50.1`, table `wlan0`, source `192.168.50.84`.
+- The same endpoint with `mark 0x0` selected `wnm68fe81200daa`, table `wnm68fe81200daa`, source `10.159.187.150`.
+- This proves the **standalone** `0x20000` mark takes the Wi-Fi path in this route simulation, while unmarked lookup is caught by AirVPN routing. It does not prove the actual WireGuard outer socket carries only `0x20000`.
+- Important rule-mask detail: the priority-13000 exact-mark rules for `0xc489e/0xcffff` and `0xce8a6/0xcffff` do not test bit `0x20000` (that bit is absent from the mask). A composite mark that combines the protected bit with one of those base marks may therefore still match the VPN-table rule. Do not infer protection from the standalone test alone.
+- Next read-only simulation: compare each base mark `0x1489e`, `0x1e8a6`, `0xc489e`, `0xce8a6` with the same mark OR'ed with `0x20000` (`0x3489e`, `0x3e8a6`, `0xe489e`, `0xee8a6`). This tests policy behavior only; it does not establish the actual socket mark or packet egress.
+- No routing/firewall/BPF/tunnel changes. Batch F remains OFF.
+
 ### Decision update
 
 Tracepoint metadata is sufficiently promising to design a *future* bounded observational prototype, but there is still no proven direct local-OUTPUT success tracepoint in the inventory. A drop reason `NETFILTER_DROP` is useful only for packets actually dropped with that reason; it cannot certify that another packet traversed or bypassed OUTPUT. Keep all active tracing and attachment work unauthorized. Batch F stays OFF.
