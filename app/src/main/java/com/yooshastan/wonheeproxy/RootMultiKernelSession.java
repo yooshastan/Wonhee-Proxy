@@ -965,6 +965,10 @@ final class RootMultiKernelSession {
                 if (!RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
                     throw new IllegalStateException("Started PID is not the exact Wonhee DNS helper.");
                 }
+                stage = "LOCAL_LISTENER";
+                if (!RootDnsRelayRunner.waitForLoopbackListener(shell)) {
+                    throw new IllegalStateException("Local relay listener not ready.");
+                }
                 stage = "LOCAL_DNS_HEALTH";
                 int answers = RootDnsRelayRunner.healthQuery();
                 if (answers < 1) throw new IllegalStateException("No verified DNS answer.");
@@ -1079,6 +1083,10 @@ final class RootMultiKernelSession {
                 stage = "PROCESS_IDENTITY";
                 if (!RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
                     throw new IllegalStateException("DNS relay process identity not verified.");
+                }
+                stage = "LOCAL_LISTENER";
+                if (!RootDnsRelayRunner.waitForLoopbackListener(shell)) {
+                    throw new IllegalStateException("Local relay listener not ready.");
                 }
                 stage = "LOCAL_DNS_HEALTH";
                 int answers = RootDnsRelayRunner.healthQuery();
