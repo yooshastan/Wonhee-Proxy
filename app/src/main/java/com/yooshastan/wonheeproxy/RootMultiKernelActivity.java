@@ -155,15 +155,7 @@ public final class RootMultiKernelActivity extends Activity {
 
         LinearLayout controls = card(page);
         label(controls, "CONNECTION CONTROLS", 18, PINK);
-        connect = button(controls, "Connect selected tunnels");
-        connect.setOnClickListener(v -> confirm(true));
-        disconnect = button(controls, "Disconnect selected tunnels");
-        disconnect.setOnClickListener(v -> confirm(false));
-        label(controls, "Manual Disconnect is disabled while DNS ownership "
-                + "is recorded. Use Safe stop for the complete stack. Live WN_ "
-                + "DNS rules also block direct tunnel changes even if the saved "
-                + "ownership file has disappeared.", 13, MUTED);
-        label(controls, "BATCH H.1 · COORDINATED VPN LIFECYCLE", 17, PINK);
+        label(controls, "PRIMARY VPN CONTROLS · BATCH H", 17, PINK);
         label(controls, "Start in order: verified tunnels → split routing → encrypted DNS "
                 + "and tracker filtering → live DNS audit. Stop in reverse protection "
                 + "order: exact DNS rollback → exact split-rule cleanup → identity-"
@@ -279,6 +271,18 @@ public final class RootMultiKernelActivity extends Activity {
         advancedGroup.setOrientation(LinearLayout.VERTICAL);
         advancedGroup.setVisibility(View.GONE);
         page.addView(advancedGroup);
+
+        LinearLayout manualControls = card(advancedGroup);
+        label(manualControls, "ADVANCED · TUNNEL-ONLY CONTROLS", 18, PINK);
+        label(manualControls, "These controls modify ONLY selected WireGuard interfaces, "
+                + "not DNS, routing or tracker protection. For regular use, prefer "
+                + "Start complete Wonhee stack and Safe stop complete Wonhee stack. "
+                + "Direct tunnel disconnect is blocked whenever DNS ownership "
+                + "or live Wonhee DNS firewall rules remain.", 13, MUTED);
+        connect = button(manualControls, "Advanced · connect tunnels only (no DNS)");
+        connect.setOnClickListener(v -> confirm(true));
+        disconnect = button(manualControls, "Advanced · disconnect tunnels only (DNS must be OFF)");
+        disconnect.setOnClickListener(v -> confirm(false));
 
         LinearLayout recoveryCard = card(advancedGroup);
         label(recoveryCard, "PRODUCT BATCH C · CONNECTION RECOVERY", 18, PINK);
