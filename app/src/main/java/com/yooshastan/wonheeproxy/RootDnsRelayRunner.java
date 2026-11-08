@@ -140,6 +140,16 @@ final class RootDnsRelayRunner {
                 && reply[6] == 0 && reply[7] == 0;
     }
 
+    /**
+     * Optional local test against an ALREADY running relay. Caller must verify
+     * owned DNS + tracker ledgers, and that the domain is in its planned filter.
+     * Never starts, stops, or changes a relay or firewall.
+     */
+    static boolean isLocallyBlocked(String domain, boolean ipv6) throws Exception {
+        byte[] question = RootFilterDnsProbe.query(domain, ipv6, ipv6 ? 0x5716 : 0x5714);
+        return RootFilterDnsProbe.isExactLocalNxDomain(question, localQuery(question));
+    }
+
     private static byte[] localQuery(byte[] query) throws Exception {
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.setSoTimeout(9000);
