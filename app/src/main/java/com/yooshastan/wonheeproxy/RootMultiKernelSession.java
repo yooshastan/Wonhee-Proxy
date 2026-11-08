@@ -242,6 +242,10 @@ final class RootMultiKernelSession {
         // A lost SharedPreferences file does NOT imply absence of root
         // enforcement. Prevent direct tunnel shutdown from stranding orphaned
         // redirect/reject rules as occurred on Pixel 8a.
+        if (orphanPending()) {
+            throw new IllegalStateException("An interrupted orphan-DNS recovery is still "
+                    + "recorded. Use the emergency DNS recovery controls first.");
+        }
         shell.start();
         if (countAllWonheeDnsTags() != 0) {
             throw new IllegalStateException("Live Wonhee DNS firewall rules remain "
@@ -1049,6 +1053,10 @@ final class RootMultiKernelSession {
                 }
                 if (dnsRecord() != null && !dnsRecord().isEmpty()) {
                     throw new IllegalStateException("Existing DNS rollback ledger: disable/recover first.");
+                }
+                if (orphanPending()) {
+                    throw new IllegalStateException("A prior orphan DNS recovery must be "
+                            + "verified complete before activating firewall enforcement.");
                 }
                 if (recovery.enabled()) {
                     throw new IllegalStateException("Turn off Batch C automatic tunnel recovery "
@@ -3327,6 +3335,10 @@ final class RootMultiKernelSession {
                 }
                 if (!savedRules().isEmpty()) {
                     throw new IllegalStateException("Split-route ownership ledger must be cleared first.");
+                }
+                if (orphanPending()) {
+                    throw new IllegalStateException("A pending orphan DNS recovery must be "
+                            + "explicitly completed before starting tunnels.");
                 }
                 if (recovery.enabled()) {
                     throw new IllegalStateException(
