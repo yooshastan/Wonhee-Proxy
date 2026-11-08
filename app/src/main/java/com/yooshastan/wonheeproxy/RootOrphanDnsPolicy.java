@@ -18,14 +18,14 @@ final class RootOrphanDnsPolicy {
     private RootOrphanDnsPolicy() { }
 
     static State classify(boolean ownsDnsLedger, boolean guardClear,
-            boolean tunnelsDown, boolean relayAbsent, boolean routingClear,
             int exactRules, int allWonheeTags, boolean pendingRecord) {
         if (exactRules < 0 || allWonheeTags < 0 || exactRules > EXPECTED_RULES
-                || allWonheeTags != exactRules) return State.BLOCKED;
+                || allWonheeTags != exactRules || !guardClear) return State.BLOCKED;
         if (ownsDnsLedger) return State.SAVED_OWNERSHIP;
-        if (!guardClear || !tunnelsDown || !relayAbsent || !routingClear) {
-            return State.BLOCKED;
-        }
+        // This action touches ONLY these exact DNS OUTPUT rules. It neither
+        // disconnects a tunnel nor kills/replaces a DNS process nor changes
+        // routing. Requiring an UP tunnel to go DOWN before DNS cleanup would
+        // reintroduce the precise lockout that H.2b must prevent.
         if (pendingRecord) {
             return exactRules == 0 ? State.PENDING_CLEARED : State.PENDING_EXACT_REPAIR;
         }
