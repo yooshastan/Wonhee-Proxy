@@ -902,6 +902,117 @@ final class RootMultiKernelSession {
     }
 
     /**
+     * Batch D.19: explicit firewall-free lifecycle diagnostic. Uses the same
+     * persistent Go relay and RootShell launcher as actual system DNS, but
+     * never installs interception rules or writes the DNS ownership ledger.
+     * A temporary root-owned process is stopped only after exact PID identity.
+     */
+    void testRootDnsRelay(List<SecureTunnelProfileStore.Profile> profiles,
+            String profileName, String protocol, String endpointUrl, String bootstrapIp,
+            Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String stage = "POLICY_PREFLIGHT";
+            String report;
+            int spawned = -1;
+            try {
+                if (guardRecord() != null && !guardRecord().isEmpty()) {
+                    throw new IllegalStateException("Batch F guard ownership is present.");
+                }
+                if (dnsRecord() != null && !dnsRecord().isEmpty()) {
+                    throw new IllegalStateException("DNS ownership ledger exists; disable/audit it first.");
+                }
+                if (recovery.enabled()) {
+                    throw new IllegalStateException("Disable Batch C recovery for this relay diagnostic.");
+                }
+                RootDnsProbePolicy policy =
+                        RootDnsProbePolicy.parse(protocol, endpointUrl, bootstrapIp);
+                RootTrackerPolicy.Config tracker = RootTrackerPolicy.compile(false, "", "");
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                Active chosen = null;
+                for (Active active : selected) {
+                    if (active.profileName.equals(profileName)) {
+                        if (chosen != null) {
+                            throw new IllegalStateException("Selected DNS profile is ambiguous.");
+                        }
+                        chosen = active;
+                    }
+                }
+                if (chosen == null) throw new IllegalStateException("Select a checked DNS tunnel.");
+                stage = "TUNNEL_IDENTITY";
+                rootReady();
+                verifyRecoveryRules();
+                for (Active active : selected) {
+                    NamedTunnel link = new NamedTunnel(active.device);
+                    if (backend.getState(link) != Tunnel.State.UP || !matches(link, active)) {
+                        throw new IllegalStateException("Selected tunnel identity/state is not verified.");
+                    }
+                }
+                stage = "UPSTREAM_ROUTE";
+                if (!chosen.device.equals(routeDevice(policy.family, policy.bootstrapAddress))) {
+                    throw new IllegalStateException("DNS upstream is not routed via selected tunnel.");
+                }
+                stage = "FIREWALL_COLLISION_PREFLIGHT";
+                dnsFirewallPreflight();
+                stage = "RELAY_PREPARE";
+                RootDnsRelayRunner.prepare(appContext);
+                stage = "RELAY_LAUNCH";
+                spawned = RootDnsRelayRunner.start(
+                        appContext, shell, chosen.device, policy, tracker);
+                stage = "PROCESS_IDENTITY";
+                if (!RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
+                    throw new IllegalStateException("Started PID is not the exact Wonhee DNS helper.");
+                }
+                stage = "LOCAL_LISTENER";
+                if (!RootDnsRelayRunner.waitForLoopbackListener(shell)) {
+                    throw new IllegalStateException("Local relay listener not ready.");
+                }
+                stage = "LOCAL_DNS_HEALTH";
+                int answers = RootDnsRelayRunner.healthQuery();
+                if (answers < 1) throw new IllegalStateException("No verified DNS answer.");
+                ok = true;
+                report = "BATCH D.19 — RELAY LIFECYCLE VERIFIED\n"
+                        + "Stages: launch, exact PID, local DNS query PASSED\n"
+                        + "Encrypted upstream: selected verified WireGuard interface\n"
+                        + "Validated IPv4 A answers: " + answers + "\n"
+                        + "No firewall, routing, Android DNS or ownership ledger changed.";
+            } catch (Exception | LinkageError failure) {
+                report = "BATCH D.19 — RELAY TEST REFUSED AT " + stage + "\n"
+                        + "No firewall or DNS settings were installed. "
+                        + "The error stage is safe to share; URLs and private keys are not logged.";
+            }
+            // Preserve exact-process ownership: never kill an unknown or reused PID.
+            if (spawned > 0) {
+                boolean stopped = false;
+                try {
+                    if (RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
+                        RootDnsRelayRunner.stop(appContext, shell, spawned);
+                        for (int attempt = 0; attempt < 10; attempt++) {
+                            if (!RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
+                                stopped = true;
+                                break;
+                            }
+                            Thread.sleep(100);
+                        }
+                    }
+                } catch (Exception | LinkageError failedStop) {
+                    stopped = false;
+                }
+                if (!stopped) {
+                    ok = false;
+                    report += "\nRELAY SHUTDOWN NOT VERIFIED. Keep USB ADB; "
+                            + "inspect port 53535 before further activation.";
+                } else {
+                    report += "\nExact relay PID shutdown verified.";
+                }
+            }
+            finish(callback, ok, report);
+        });
+    }
+
+    /**
      * Batch D DNS-port enforcement. Root interception is NEVER automatic and
      * does not purport to capture application-owned DoH to arbitrary HTTPS
      * endpoints. Existing kernel tunnel identities and routing stay untouched.
@@ -915,6 +1026,7 @@ final class RootMultiKernelSession {
             boolean ok = false;
             boolean ledgerCommitted = false;
             int spawned = -1;
+            String stage = "POLICY_PREFLIGHT";
             String message;
             try {
                 if (guardRecord() != null && !guardRecord().isEmpty()) {
@@ -935,9 +1047,11 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException("Android Private DNS must be set to OFF "
                             + "manually before Wonhee can safely intercept resolver requests.");
                 }
+                stage = "DNS_POLICY_PARSE";
                 RootDnsProbePolicy policy = RootDnsProbePolicy.parse(protocol, endpointUrl, bootstrapIp);
                 RootTrackerPolicy.Config tracker = RootTrackerPolicy.compile(
                         trackerFiltering, trackerCustom, trackerExceptions);
+                stage = "PROFILE_VALIDATION";
                 List<Active> selected = loadAll(profiles);
                 validate(selected);
                 Active chosen = null;
@@ -946,6 +1060,7 @@ final class RootMultiKernelSession {
                     chosen = active;
                 }
                 if (chosen == null) throw new IllegalStateException("Select a checked tunnel for DNS.");
+                stage = "TUNNEL_IDENTITY";
                 rootReady();
                 verifyRecoveryRules();
                 for (Active active : selected) {
@@ -954,30 +1069,43 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("Selected kernel identity changed or tunnel is DOWN.");
                     }
                 }
+                stage = "UPSTREAM_ROUTE";
                 if (!chosen.device.equals(routeDevice(policy.family, policy.bootstrapAddress))) {
                     throw new IllegalStateException("Encrypted DNS upstream does not route via chosen interface.");
                 }
+                stage = "FIREWALL_COLLISION_PREFLIGHT";
                 dnsFirewallPreflight();
+                stage = "RELAY_PREPARE";
                 RootDnsRelayRunner.prepare(appContext);
                 RootDnsRelayRunner.prepareTrackerPolicy(appContext, tracker);
+                stage = "RELAY_LAUNCH";
                 spawned = RootDnsRelayRunner.start(appContext, shell, chosen.device, policy, tracker);
+                stage = "PROCESS_IDENTITY";
                 if (!RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
                     throw new IllegalStateException("DNS relay process identity not verified.");
                 }
+                stage = "LOCAL_LISTENER";
+                if (!RootDnsRelayRunner.waitForLoopbackListener(shell)) {
+                    throw new IllegalStateException("Local relay listener not ready.");
+                }
+                stage = "LOCAL_DNS_HEALTH";
                 int answers = RootDnsRelayRunner.healthQuery();
                 if (answers < 1) throw new IllegalStateException("DNS relay returned no verified answers.");
                 if (tracker.enabled && !RootDnsRelayRunner.blockedHealthQuery()) {
                     throw new IllegalStateException("Tracker filter did not return local NXDOMAIN.");
                 }
+                stage = "OWNERSHIP_LEDGER_COMMIT";
                 // Intent written BEFORE any firewall mutation, with exact PID,
                 // interface and validated resolver configuration for recovery.
                 saveDnsRecord(new DnsRecord(spawned, chosen.device, policy, tracker.enabled).encode());
                 ledgerCommitted = true;
+                stage = "FIREWALL_INSTALL";
                 for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
                     if (shell.run(null, rule.add()) != 0 || !dnsRulePresent(rule)) {
                         throw new IllegalStateException("DNS firewall install/verification refused.");
                     }
                 }
+                stage = "FIREWALL_VERIFY";
                 dnsVerifyOwnedRules(true);
                 ok = true;
                 message = "BATCH D — DNS PORT ENFORCEMENT ACTIVE\n"
@@ -1016,7 +1144,7 @@ final class RootMultiKernelSession {
                         }
                     } catch (Exception ignored) { /* No firewall was installed. */ }
                     RootDnsRelayRunner.removeTrackerPolicy(appContext);
-                    message = "DNS activation REFUSED before firewall changes: "
+                    message = "DNS activation REFUSED before firewall changes [" + stage + "]: "
                             + (failure instanceof IllegalStateException
                                     ? failure.getMessage() : "preflight/transport unavailable")
                             + ". No direct/plaintext fallback was installed.";

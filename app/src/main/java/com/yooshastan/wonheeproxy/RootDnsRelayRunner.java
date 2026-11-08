@@ -89,6 +89,21 @@ final class RootDnsRelayRunner {
         return Integer.parseInt(result.get(0).trim());
     }
 
+    /**
+     * Observe only the exact IPv4 loopback listener that the Go relay creates.
+     * A bounded read-only root /proc check avoids racing DNS health against
+     * asynchronous process startup. This is readiness, not a DNS/leak audit.
+     */
+    static boolean waitForLoopbackListener(RootShell shell) throws Exception {
+        for (int attempt = 0; attempt < 12; attempt++) {
+            if (shell.run(null, "grep -qi '0100007F:D11F' /proc/net/udp") == 0) {
+                return true;
+            }
+            Thread.sleep(150);
+        }
+        return false;
+    }
+
     static boolean sameProcess(Context context, RootShell shell, int pid) throws Exception {
         if (pid < 2 || pid > 9_999_999) return false;
         String path = binary(context).getAbsolutePath();
