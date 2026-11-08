@@ -2977,6 +2977,7 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException("Untracked priority-12500+ rules remain.");
                 }
                 dnsFirewallPreflight();
+                RootFailClosedFirewallRuntime.preflight(shell);
                 Set<String> active = backend.getRunningTunnelNames();
                 for (String name : active) {
                     if (name.startsWith("wnm") || name.equals("wnhome0")
@@ -3036,6 +3037,7 @@ final class RootMultiKernelSession {
                 // Verify all interfaces before touching DNS or routing; a user
                 // cannot accidentally shut down someone else's same-name link.
                 rootReady();
+                RootFailClosedFirewallRuntime.preflight(shell);
                 Set<String> running = backend.getRunningTunnelNames();
                 if (running.contains("wnhome0") || running.contains("wnair0")) {
                     throw new IllegalStateException("Legacy tunnels are running; refuse mixed teardown.");
@@ -3074,6 +3076,7 @@ final class RootMultiKernelSession {
                 }
                 completed.append("Owned split routing: VERIFIED CLEAR\n");
                 stage = "VERIFY_SAFE_TO_STOP";
+                RootFailClosedFirewallRuntime.preflight(shell);
                 if ((dnsRecord() != null && !dnsRecord().isEmpty())
                         || (guardRecord() != null && !guardRecord().isEmpty())) {
                     throw new IllegalStateException("An owned firewall guard remains active.");
