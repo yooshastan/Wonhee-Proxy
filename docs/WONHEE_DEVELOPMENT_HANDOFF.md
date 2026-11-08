@@ -2,6 +2,12 @@
 
 Last updated: 2026-11-08
 
+## F.3e standalone protected-bit route lookup — eighth pass (2026-11-08)
+
+- Root route simulation to AirVPN peer `213.152.161.37`: mark `0x20000` selected `wlan0` via `192.168.50.1` (source `192.168.50.84`); mark `0x0` selected AirVPN interface `wnm68fe81200daa` (source `10.159.187.150`).
+- This validates only the **standalone mark** route behavior. It does not prove the actual WireGuard outer socket uses only `0x20000`.
+- Priority-13000 exact-mark rules `0xc489e/0xcffff` and `0xce8a6/0xcffff` omit bit `0x20000` from their masks. Composite marks may therefore still match VPN-table rules. Next compare base marks `0x1489e`, `0x1e8a6`, `0xc489e`, `0xce8a6` with protected-bit composites `0x3489e`, `0x3e8a6`, `0xe489e`, `0xee8a6` using read-only `ip route get`.
+- No route/firewall/BPF/tunnel modifications; no packet generation. Batch F OFF; issue #41 OPEN; PR #50 draft.
 ## F.3e route-mark interpretation correction — seventh pass (2026-11-08)
 
 - Root route lookups to AirVPN endpoint `213.152.161.37` with marks `0x0`, `0xc489e`, `0xce8a6`, `0x1009d` all selected AirVPN table/interface. Root confirmed. These are not the previously recorded protected transport mark, so this output is **not evidence of a WireGuard recursion loop**.
