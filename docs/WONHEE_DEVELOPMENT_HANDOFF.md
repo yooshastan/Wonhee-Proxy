@@ -2,6 +2,13 @@
 
 Last updated: 2026-11-08
 
+## F.3e per-interface route tables and endpoint recovery — sixth pass (2026-11-08)
+
+- Read-only route tables: wlan0 has IPv4 default via `192.168.50.1` and IPv6 RA default; rmnet16 has IPv4/IPv6 defaults (MTU 1428); ipsec171 has no IPv4 routes and an IPv6 default but remains identified as IMS/IWLAN.
+- AirVPN `wnm68fe81200daa` has IPv4 and IPv6 default routes. HOME `wnma292ddb4b6da` has IPv4 routes only for `10.0.0.0/24`, `10.6.0.0/24`, `10.77.0.0/24`; no default and no IPv6 destination route. Preserve HOME split routing; record that HOME IPv6 destinations are not covered by the displayed route table.
+- Prior project context records AirVPN Europe endpoint `213.152.161.37:47107`; verify it against the currently active profile before treating it as current. ASUS HOME `wgs_client1` public endpoint hostname/IP and UDP port are not present in recovered context.
+- Next user test is a read-only `ip -4 route get 213.152.161.37 mark ...` across candidate marks `0x0`, `0xc489e`, `0xce8a6`, `0x1009d`. This is simulated policy routing only and does not establish the actual WireGuard outer socket's fwmark or packet egress. Obtain HOME endpoint before its equivalent lookup. No packet generation, route or tunnel changes.
+- Batch F OFF; issue #41 OPEN; draft PR #50 remains open.
 ## F.3e active network topology — fifth pass (2026-11-08)
 
 - `dumpsys connectivity` says `Active default network: 176`; network 176 is validated Wi-Fi on `wlan0` (`192.168.50.84/24`, gateway `192.168.50.1`). This is the current Android default network at capture time.
