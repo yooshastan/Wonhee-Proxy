@@ -2,6 +2,12 @@
 
 Last updated: 2026-11-07
 
+## F.3e cgroup BPF and remaining TC inventory — fourth pass (2026-11-08)
+
+- `bpftool cgroup tree /sys/fs/cgroup` reports **14 existing Android BPF attachments on the cgroup-v2 root**: inet ingress/egress, inet sock create/release, IPv4/IPv6 bind and connect, UDP4/UDP6 sendmsg and recvmsg, getsockopt and setsockopt. These are Android system networking controls; do not detach or modify them. Their presence means packet-path analysis must account for socket/cgroup hooks before route and netfilter stages.
+- `tc filter show` displayed no filters on `rmnet16` or `ipsec171`, matching the earlier empty filter results for wlan0 and both selected WireGuard interfaces. `clsact` qdiscs on wlan0/rmnet16/ipsec171 are present but no TC filters were displayed.
+- `bpftool net show` empty TC/netfilter sections does not contradict cgroup BPF attachments; it inventories different attachment types.
+- Remaining read-only item: identify which active physical underlay carries WireGuard outer transport before drawing device-level conclusions. No trace events enabled, no BPF/TC changes, Batch F OFF, issue #41 OPEN, PR #50 draft.
 ## F.3e event formats and attachment inventory — third pass (2026-11-08)
 
 - `skb:kfree_skb` format includes skb address, location, protocol and drop reason; enum explicitly includes `NETFILTER_DROP`, `BPF_CGROUP_EGRESS`, `TC_EGRESS`, `TC_INGRESS`, `QDISC_DROP`, `IP_OUTNOROUTES`, `NEIGH_FAILED`. This can identify certain explicit skb drop outcomes but does not prove successful OUTPUT traversal or identify the exact firewall rule.
