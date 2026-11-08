@@ -75,10 +75,12 @@ Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:n
 ### Attachment inventory
 
 - `bpftool net show` displayed empty XDP, TC, flow-dissector and netfilter sections.
-- `tc filter show` returned no displayed ingress/egress filters for `wlan0`, HOME tunnel `wnma292ddb4b6da`, or AirVPN tunnel `wnm68fe81200daa`.
-- `tc qdisc show` shows `clsact` qdiscs on `rmnet16`, `wlan0`, and `ipsec171`; the latter two relevant-underlay candidates `rmnet16` and `ipsec171` were not included in the user's per-device filter query. Thus the attachment inventory is incomplete.
-- `bpftool prog show` lists loaded Android system programs, including tethering `sched_cls`, CLAT, cgroup-skb ingress/egress, socket filters and cgroup-sock. Loaded does not mean attached to the selected interface. `bpftool net show` does not enumerate every cgroup attachment. Do not detach, pin, load or modify any Android BPF program/map.
-- Next read-only checks: `bpftool cgroup tree`; `tc filter show dev rmnet16 ingress/egress`; `tc filter show dev ipsec171 ingress/egress`; optionally inspect the qdisc/filter details for the currently active underlay only after confirming which interface carries the WireGuard outer transport. No `tc` mutation.
+- `tc filter show` returned no displayed filters for `wlan0`, HOME tunnel `wnma292ddb4b6da`, AirVPN tunnel `wnm68fe81200daa`, `rmnet16`, or `ipsec171`. The latter two were checked after the initial inventory.
+- `tc qdisc show` shows `clsact` qdiscs on `rmnet16`, `wlan0`, and `ipsec171`, but the inspected devices showed no attached TC filters. An empty `clsact` qdisc does not itself mean a filter is attached.
+- `bpftool cgroup tree /sys/fs/cgroup` confirms **14 Android cgroup BPF attachments at the cgroup-v2 root**: inet ingress/egress, inet sock create/release, IPv4/IPv6 bind, IPv4/IPv6 connect, UDP4/UDP6 sendmsg and recvmsg, getsockopt, and setsockopt. These are existing Android networking programs; do not detach, replace, pin, load over, or modify them. Root-cgroup attachment means the cgroup/socket policy layer must be accounted for when reasoning about app traffic.
+- `bpftool net show` displayed empty XDP, TC, flow-dissector and netfilter sections. This does not negate the cgroup attachments shown by `bpftool cgroup tree`; the commands inventory different attachment families.
+- `bpftool prog show` lists Android system programs including tethering `sched_cls`, CLAT, cgroup-skb ingress/egress, socket filters and cgroup-sock. Loaded does not mean attached to a selected network interface. Do not inspect map values or alter any Android BPF program/map.
+- Remaining read-only question: identify the currently active physical underlay carrying the WireGuard outer transport before attributing any device-level observations. No TC/BPF mutation.
 
 ### Decision update
 
