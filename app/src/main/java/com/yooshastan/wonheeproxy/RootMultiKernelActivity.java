@@ -460,6 +460,85 @@ public final class RootMultiKernelActivity extends Activity {
             }
         });
         trackerStatus = label(trackers, "TRACKER FILTER: " + session.trackerLedgerStatus(), 14, PINK);
+        label(trackers, "BATCH E.2 · VERIFY ONE FILTER DOMAIN", 15, PINK);
+        label(trackers, "Read-only diagnosis: compare one domain with your saved "
+                + "filter policy, and (only when Wonhee records active tracker DNS "
+                + "enforcement) query the existing LOCAL relay for A and AAAA. "
+                + "This does not install firewall rules, restart the relay, or "
+                + "verify browser/system-wide DNS coverage. No query history "
+                + "is recorded by Wonhee.", 13, MUTED);
+        EditText sampleBlockDomain = trackerTextEditor(trackers,
+                "app-measurement.com", "");
+        Button testDomain = button(trackers,
+                "Check domain in saved policy + active local DNS · read only");
+        testDomain.setOnClickListener(v -> {
+            if (blocklistBusy) {
+                output.setText("Another list operation is in progress.");
+                return;
+            }
+            final String domain = sampleBlockDomain.getText().toString()
+                    .trim().toLowerCase(java.util.Locale.ROOT);
+            if (!RootTrackerPolicy.validDomain(domain)
+                    || domain.endsWith(".local") || domain.endsWith(".internal")
+                    || domain.endsWith(".arpa")) {
+                output.setText("Enter one valid public-style domain, not a URL or IP.");
+                return;
+            }
+            final boolean selected = trackerFilter.isChecked();
+            final String custom = trackerCustom.getText().toString();
+            final String exceptions = trackerAllow.getText().toString();
+            blocklistBusy = true;
+            output.setText("Comparing saved DNS policy and existing local relay...");
+            new Thread(() -> {
+                String result;
+                try {
+                    RootTrackerPolicy.Config planned = RootTrackerPolicy.compileWithManaged(
+                            selected, custom, exceptions, getFilesDir());
+                    boolean inPlan = planned.shouldBlock(domain);
+                    StringBuilder summary = new StringBuilder(
+                            "BATCH E.2 LOCAL DOMAIN CHECK\n");
+                    summary.append("Domain: ").append(domain)
+                            .append("\nSelected policy: ")
+                            .append(selected ? "ON" : "OFF")
+                            .append("\nSaved policy match: ")
+                            .append(inPlan ? "BLOCK" : "NOT BLOCKED")
+                            .append("\nDNS ledger: ").append(session.dnsLedgerStatus())
+                            .append("\nTracker ledger: ").append(session.trackerLedgerStatus());
+                    boolean running = !"OFF".equals(session.dnsLedgerStatus())
+                            && session.trackerLedgerStatus().startsWith("ENABLED");
+                    if (running && inPlan) {
+                        try {
+                            boolean a = RootDnsRelayRunner.isLocallyBlocked(domain, false);
+                            boolean aaaa = RootDnsRelayRunner.isLocallyBlocked(domain, true);
+                            summary.append("\nExisting local relay A response: ")
+                                    .append(a ? "NXDOMAIN observed" : "NOT verified blocked")
+                                    .append("\nExisting local relay AAAA response: ")
+                                    .append(aaaa ? "NXDOMAIN observed" : "NOT verified blocked")
+                                    .append("\nA matching NXDOMAIN is consistent with filtering, "
+                                            + "but upstream DNS can also answer NXDOMAIN.");
+                        } catch (Exception failure) {
+                            summary.append("\nLOCAL RELAY TEST UNAVAILABLE: "
+                                    + "check owned DNS audit; no firewall rules changed.");
+                        }
+                    } else {
+                        summary.append("\nNo live query sent: ")
+                                .append(running ? "domain not blocked in selected policy."
+                                        : "tracker filtering is not recorded active.");
+                    }
+                    summary.append("\nThis is NOT an Android-app DNS-leak test.");
+                    result = summary.toString();
+                } catch (Exception invalid) {
+                    result = "Domain check REFUSED: saved filter snapshot or "
+                            + "custom rules could not be validated. No DNS changes.";
+                }
+                final String display = result;
+                runOnUiThread(() -> {
+                    blocklistBusy = false;
+                    if (!isFinishing() && !isDestroyed()) output.setText(display);
+                });
+            }, "wonhee-filter-domain-diagnostic").start();
+        });
+
         label(trackers, "BATCH E.1 · MANAGED OFFLINE HOSTS LIST", 15, PINK);
         label(trackers, "Import a standard hosts.txt or one-domain-per-line file "
                 + "(up to 250,000 unique domains / 20 MiB). Duplicates and local-network "
