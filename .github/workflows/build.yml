@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.20 Batch E.1 Managed Hosts Import · Guard Paused
+name: Wonhee Proxy 0.15.21 Batch E.2 Privacy Monitor · Guard Paused
 
 on:
   push:
@@ -75,6 +75,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardSafetyGate.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardProbeEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootBlocklistStore.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootDnsCounters.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTrackerPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/DoHWireMessage.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootSafetyGuide.java \
@@ -124,6 +125,7 @@ jobs:
             core-tests/RootGuardSafetyGateTest.java \
             core-tests/RootGuardProbeEvidenceTest.java \
             core-tests/RootBlocklistStoreTest.java \
+            core-tests/RootDnsCountersTest.java \
             core-tests/RootTrackerPolicyTest.java \
             core-tests/DoHWireMessageTest.java \
             core-tests/RootSafetyGuideTest.java
@@ -173,6 +175,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardSafetyGateTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardProbeEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootBlocklistStoreTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsCountersTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTrackerPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.DoHWireMessageTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSafetyGuideTest
@@ -184,7 +187,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01520-batch-e1-managed-hosts-debug-apk
+          name: wonhee-01521-batch-e2-privacy-monitor-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
