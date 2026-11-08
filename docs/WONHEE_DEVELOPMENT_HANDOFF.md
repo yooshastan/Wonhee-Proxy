@@ -2,6 +2,14 @@
 
 Last updated: 2026-11-07
 
+## F.3d Pixel 8a device result — IPv4 and IPv6 counter movement (2026-11-07)
+
+- User shared 0.15.18 screenshot: `COMPLETE — BATCH F.3d PASSIVE ICMPv6 + OUTPUT COUNTER COMPARISON`. Two independent selected WireGuard identities **VERIFIED**, underlay prediction **wlan0**, split route ledger **3 recorded/3 live EXACT MATCH**, owned IPv4/IPv6 Batch F guard **OFF/ABSENT**. Existing routes stayed configured; screenshot does not establish independent post-test reachability.
+- Bounded manual passive physical capture (up to five seconds/32 headers): **1 parsed, 1 captured** header; **ICMPv6 Neighbor Solicitation type 135: 1**, all other candidate categories 0; tcpdump received by filter 3 (not same as captured packet count), unrecognized IP rows 0, drops 0, physical interface TX **+37**. Evidence **HEADERS_OBSERVED**.
+- Read-only OUTPUT inventory: IPv4 **6 rule entries, 6 jumps/gotos, policy ACCEPT**; IPv6 same. **Both global existing filter/OUTPUT counter comparisons: MOVED.** IPv4 default-policy packet delta **+33**, **5 of 6** rule counters increased, summed rule increments **+166**. IPv6 default-policy packet delta **+44**, **4 of 6** rule counters increased, summed rule increments **+176**. Rule-increment sums are **not unique packet counts**.
+- **Device diagnostic classification PASS**: counter reading, strict rule-layout comparison, packet header classification worked, and preflight reported exact routing/guard OFF. **Attribution still UNVERIFIED**: physical ICMPv6 packet is not tied to specific rule, creator, UID, kernel origin, packet's actual OUTPUT passage or earlier connectivity failure. Global counts may include unrelated flows, and increased counters do not imply an allowable exception or safe fail-close.
+- **Post-0.15.18 Navidrome streaming/public browsing functionality has not yet been independently confirmed by user.** Keep PR #49 draft, issue #41 open and Batch F activation hard-disabled pending recovery/packet provenance evidence.
+
 ## Batch F.3d 0.15.18 — passive pre-existing filter/OUTPUT counter comparison (2026-11-07)
 
 - Following Pixel 8a 0.15.17 F.3c: one outgoing physical-interface **ICMPv6 Neighbor Solicitation type 135**, pre-existing IPv4 and IPv6 OUTPUT chains each six jumps/default ACCEPT, correct two selected WireGuard identities, exact HOME split ledger/live **3/3**, owned F guard OFF/ABSENT. Actual OUTPUT traversal, creator/UID and incident #41 causal path remain unverified; post-0.15.17 functional smoke check was not explicitly reported.
