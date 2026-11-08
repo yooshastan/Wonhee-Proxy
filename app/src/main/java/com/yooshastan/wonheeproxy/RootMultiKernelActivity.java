@@ -166,11 +166,13 @@ public final class RootMultiKernelActivity extends Activity {
         managedStop = button(controls, "Safe stop complete Wonhee stack · one confirmation");
         managedStop.setOnClickListener(v -> stopManagedStack());
         label(controls, "EMERGENCY DNS RECOVERY · NO VPN RESTART REQUIRED", 17, PINK);
-        label(controls, "If DNS still redirects or rejects requests after the tunnels "
-                + "stop, do NOT restart them. Owned DNS shutdown works without an "
-                + "active VPN. If the DNS owner file is missing, first run the "
-                + "read-only orphan audit, then the separately confirmed exact "
-                + "recovery. Unknown firewall rules are never adopted.", 13, MUTED);
+        label(controls, "If DNS redirects or rejects requests and the normal owner "
+                + "record is missing, first run the read-only orphan audit, then "
+                + "the explicitly confirmed exact DNS-only recovery. This works "
+                + "with tunnels UP or DOWN and never disconnects them, changes "
+                + "routing, or terminates an unverified local relay. Removing "
+                + "DNS protection may allow regular Android DNS outside the VPN.",
+                13, MUTED);
         emergencyDnsOff = button(controls,
                 "Disable verified owned DNS · even when tunnels are DOWN");
         emergencyDnsOff.setOnClickListener(v -> new AlertDialog.Builder(this)
@@ -193,16 +195,17 @@ public final class RootMultiKernelActivity extends Activity {
         orphanDnsRepair.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Emergency orphan DNS cleanup?")
                 .setMessage("This is ONLY for lost DNS ownership records. "
-                        + "With both VPN tunnels DOWN, no listener on UDP 53535, "
-                        + "no saved owner record and no routing or Batch F guard, "
+                        + "With no saved DNS owner record and no Batch F guard, "
                         + "Wonhee checks all EIGHT original WN_ DNS firewall "
                         + "signatures and refuses any extra, modified or duplicated "
                         + "WN_ rule. An exact tag match alone cannot prove "
                         + "cryptographic ownership. Only after a second preflight "
                         + "will it record durable recovery intent and remove "
                         + "those exact rules. A partial cleanup may then be "
-                        + "retried after interruption. This may restore DNS "
-                        + "outside the VPN. Keep USB ADB available.")
+                        + "retried after interruption. It leaves existing "
+                        + "tunnels, routing, and DNS relay processes untouched, "
+                        + "even if they are running. Normal Android DNS may "
+                        + "resume outside the VPN. Keep USB ADB available.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Verify and remove orphan DNS", (d, w) ->
                         run("Orphan DNS explicit repair", true, session::recoverOrphanDns))
