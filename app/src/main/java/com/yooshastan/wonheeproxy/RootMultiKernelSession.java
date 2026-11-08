@@ -1188,6 +1188,62 @@ final class RootMultiKernelSession {
         });
     }
 
+    /**
+     * Batch E.2 read-only telemetry: verify exact owned firewall rules and
+     * the specific native relay PID before reading aggregate statistics.
+     * This does not claim universal DNS interception or detect custom DoH.
+     */
+    void auditDnsPrivacy(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String message;
+            try {
+                String record = dnsRecord();
+                if (record == null || record.isEmpty()) {
+                    ok = true;
+                    message = "WONHEE PRIVACY MONITOR\n"
+                            + "Owned DNS enforcement: OFF\n"
+                            + "Live relay counters: UNAVAILABLE (no active owned relay)\n"
+                            + "No firewall modifications made.\n"
+                            + "Coverage cannot be inferred while DNS enforcement is off.";
+                } else {
+                    DnsRecord owned = DnsRecord.decode(record);
+                    shell.start();
+                    dnsVerifyOwnedRules(true);
+                    if (!RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
+                        throw new IllegalStateException("Owned DNS relay is absent.");
+                    }
+                    RootDnsCounters counters =
+                            RootDnsRelayRunner.readStatistics(appContext, shell, owned.pid);
+                    ok = true;
+                    message = "WONHEE PRIVACY MONITOR\n"
+                            + "Owned DNS firewall rules: MATCH\n"
+                            + "Relay identity: VERIFIED\n"
+                            + "Relay encrypted upstream: " + owned.policy.protocol.toUpperCase(java.util.Locale.ROOT)
+                            + " · bound to " + owned.device + "\n"
+                            + "Tracker filtering at relay start: "
+                            + (owned.trackerFiltering ? "ON" : "OFF") + "\n"
+                            + counters.summary() + "\n\n"
+                            + "FIREWALL COVERAGE (RULE CHECK ONLY)\n"
+                            + "IPv4 TCP/UDP 53: locally redirected to Wonhee\n"
+                            + "IPv6 TCP/UDP 53: rejected\n"
+                            + "TCP 853: rejected; non-root UDP 853: rejected\n"
+                            + "NOT PROVEN: per-app effective interception, external DoH/DoH3 "
+                            + "on port 443, hardcoded IPs, other VPN paths, or total leak freedom.\n"
+                            + "Counters reflect queries received by this relay, not all device DNS.";
+                }
+            } catch (Exception | LinkageError refused) {
+                message = "PRIVACY MONITOR CHECK REQUIRED\n"
+                        + "Live DNS rules, relay identity or aggregate stats could not be "
+                        + "verified. No firewall changes were attempted.\n"
+                        + "If DNS remains active, keep tunnels connected and inspect "
+                        + "the existing DNS enforcement audit before any rollback.";
+            }
+            finish(callback, ok, message);
+        });
+    }
+
     void auditRootDns(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
         if (!begin(callback)) return;
         worker.execute(() -> {

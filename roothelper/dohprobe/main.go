@@ -265,6 +265,7 @@ func main() {
 	endpoint := flag.String("url", "", "DoH HTTPS URL")
 	bootstrap := flag.String("bootstrap", "", "numeric upstream IP")
 	trackerFile := flag.String("tracker-file", "", "optional local Batch E tracker policy")
+	statsFile := flag.String("stats-file", "", "private aggregate DNS counters file")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Println("REFUSED CONFIG")
@@ -281,13 +282,16 @@ func main() {
 			fmt.Println("REFUSED TRACKER_POLICY")
 			os.Exit(1)
 		}
-		if err := serveDNS(c,filter); err != nil {
+		if *statsFile == "" {fmt.Println("REFUSED STATS_FILE_REQUIRED");os.Exit(2)}
+		stats, statsErr := newDNSCounters(*statsFile)
+		if statsErr != nil {fmt.Println("REFUSED STATS_PATH");os.Exit(2)}
+		if err := serveDNS(c,filter,stats); err != nil {
 			fmt.Println("REFUSED RELAY_UNAVAILABLE")
 			os.Exit(1)
 		}
 		return
 	}
-	if *trackerFile != "" {fmt.Println("REFUSED CONFIG");os.Exit(2)}
+	if *trackerFile != "" || *statsFile != "" {fmt.Println("REFUSED CONFIG");os.Exit(2)}
 	answers, status := run(c)
 	if status != "OK" {
 		fmt.Println("REFUSED " + status)
