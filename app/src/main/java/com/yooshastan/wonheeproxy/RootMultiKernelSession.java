@@ -2939,6 +2939,153 @@ final class RootMultiKernelSession {
     }
 
     /**
+     * Compare the exact persistent owner ledgers with the live kernel. The
+     * analyzer has no mutation side effects; it deliberately refuses a live
+     * DNS listener, foreign tags, or unknown reserved routing priorities.
+     */
+    private RootLifecycleRecoveryPlan inspectLifecycleRecoveryState() throws Exception {
+        shell.start();
+        rootReady();
+        List<RootSplitRouteRules.Rule> routes =
+                RootSplitRouteRules.decode(savedRules());
+        String dns = dnsRecord();
+        boolean dnsOwned = dns != null && !dns.isEmpty();
+        if (dnsOwned) DnsRecord.decode(dns);
+        boolean routeOwned = !routes.isEmpty();
+
+        // Explicit guard quarantine: a foreign/owned Batch F chain or anchor
+        // is never silently converted into a clean lifecycle state.
+        RootFailClosedFirewallRuntime.preflight(shell);
+        List<String> ipv4 = readRules(4);
+        List<String> ipv6 = readRules(6);
+        int verifiedRoutes = RootSplitRouteRules.verifyRollbackCandidates(routes, ipv4, ipv6);
+        int countedRoutes = countReservedRules();
+        int verifiedTags = 0;
+        int countedTags = 0;
+        for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+            int tagged = countDnsTaggedRules(rule);
+            countedTags += tagged;
+            if (tagged > 0 && dnsRulePresent(rule)) verifiedTags++;
+        }
+        Set<String> running = backend.getRunningTunnelNames();
+        boolean anyTunnel = running.contains("wnhome0") || running.contains("wnair0");
+        for (String name : running) {
+            if (name.startsWith("wnm")) anyTunnel = true;
+        }
+        if (shell.run(null, "test -r /proc/net/udp") != 0) {
+            throw new IllegalStateException("Kernel listener inventory unavailable.");
+        }
+        boolean listener = shell.run(null, "grep -qi '0100007F:D11F' /proc/net/udp") == 0;
+        if (dnsOwned) {
+            DnsRecord owned = DnsRecord.decode(dns);
+            listener |= RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
+        }
+        return RootLifecycleRecoveryPlan.assess(true, true, anyTunnel,
+                listener, dnsOwned, routeOwned, verifiedTags, verifiedRoutes,
+                countedTags, countedRoutes);
+    }
+
+    void auditLifecycleRecovery(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean success = false;
+            String message;
+            try {
+                RootLifecycleRecoveryPlan plan = inspectLifecycleRecoveryState();
+                success = plan.state != RootLifecycleRecoveryPlan.State.BLOCKED_UNKNOWN;
+                message = "BATCH H.2a — READ-ONLY LIFECYCLE RECOVERY AUDIT\n"
+                        + "Status: " + plan.state + "\n" + plan.nextAction + "\n"
+                        + "No interfaces, routing rules, DNS firewall policies or "
+                        + "stored ownership records were modified.\n"
+                        + "A running tunnel is not proof of connectivity or leak freedom.";
+            } catch (Exception | LinkageError failure) {
+                message = "BATCH H.2a — CHECK REQUIRED\n"
+                        + (failure instanceof IllegalStateException
+                                ? failure.getMessage()
+                                : "Unable to independently verify kernel and ledger state.")
+                        + "\nNo changes were attempted. Keep USB ADB available.";
+            }
+            finish(callback, success, message);
+        });
+    }
+
+    /**
+     * Explicit permission to reconcile *stopped* state after a crash/reboot.
+     * The live firewall, listener and route inventory is checked again inside
+     * the same root worker immediately before any exact owned deletion.
+     * If any tunnel is UP, the user must use Batch H.1 Safe stop instead.
+     */
+    void repairStoppedLifecycle(List<SecureTunnelProfileStore.Profile> ignored,
+                                Callback callback) {
+        if (!recovery.manualStop()) {
+            main.post(() -> callback.completed(false,
+                    "REPAIR REFUSED: could not disable unattended recovery intent."));
+            return;
+        }
+        RootMultiRecoveryScheduler.update(appContext);
+        RootMultiRecoveryMonitor.update(appContext);
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String stage = "PREFLIGHT";
+            String message;
+            try {
+                RootLifecycleRecoveryPlan before = inspectLifecycleRecoveryState();
+                if (before.state == RootLifecycleRecoveryPlan.State.CLEAN_STOPPED) {
+                    ok = true;
+                    message = "BATCH H.2a — ALREADY CLEAN\n"
+                            + "No live tunnels, tagged DNS rules or reserved split routes. "
+                            + "No metadata changed.";
+                } else {
+                    if (before.state != RootLifecycleRecoveryPlan.State.REPAIRABLE_STOPPED) {
+                        throw new IllegalStateException(before.nextAction);
+                    }
+                    // Revalidate absent tunnels/relay and exact ownership
+                    // before mutating: prevents a blind stale-ledger reset.
+                    RootLifecycleRecoveryPlan again = inspectLifecycleRecoveryState();
+                    if (again.state != RootLifecycleRecoveryPlan.State.REPAIRABLE_STOPPED) {
+                        throw new IllegalStateException("Live state changed between recovery checks.");
+                    }
+                    stage = "REMOVE_EXACT_DNS";
+                    String ownedDns = dnsRecord();
+                    if (ownedDns != null && !ownedDns.isEmpty()) {
+                        // No verified native relay or loopback listener may
+                        // remain; only the exact signed owned firewall rules
+                        // may be deleted.
+                        dnsRemoveOwnedRules();
+                        dnsFirewallPreflight();
+                        RootDnsRelayRunner.removeTrackerPolicy(appContext);
+                        saveDnsRecord("");
+                    } else {
+                        dnsFirewallPreflight();
+                    }
+                    stage = "REMOVE_EXACT_SPLIT_RULES";
+                    removeOwnedRules();
+                    stage = "VERIFY_CLEAN";
+                    RootLifecycleRecoveryPlan finished = inspectLifecycleRecoveryState();
+                    if (finished.state != RootLifecycleRecoveryPlan.State.CLEAN_STOPPED) {
+                        throw new IllegalStateException("Recovery did not reach clean stopped state.");
+                    }
+                    ok = true;
+                    message = "BATCH H.2a — STOPPED STATE RECOVERED\n"
+                            + "Owned DNS and split-route ledger reconciled with exact kernel state.\n"
+                            + "No WireGuard tunnel was started or disconnected. "
+                            + "Explicit Start full stack is now available.";
+                }
+            } catch (Exception | LinkageError failure) {
+                message = "BATCH H.2a — REPAIR PAUSED [" + stage + "]\n"
+                        + (failure instanceof IllegalStateException
+                                ? failure.getMessage()
+                                : "Root kernel inventory or persistent ledger unavailable.")
+                        + "\nNo unknown rule was intentionally deleted. "
+                        + "Any incomplete exact ownership record remains for retry; "
+                        + "inspect via USB ADB before proceeding.";
+            }
+            finish(callback, ok, message);
+        });
+    }
+
+    /**
      * Read-only preflight for the UI's opt-in phased start sequence.
      * Do not adopt unknown existing interfaces or pretend a pending ledger is
      * a clean shutdown. No autostart on boot is enabled in Batch H.1.
