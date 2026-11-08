@@ -11,6 +11,10 @@ public final class RootTrackerPolicyTest {
         RootTrackerPolicy.Config on = RootTrackerPolicy.compile(true,
                 " Telemetry.Example.COM\ncustom.example.net\n", "metrics.telemetry.example.com");
         check(on.shouldBlock("app-measurement.com"), "built-in");
+        check(on.explain("metrics.telemetry.example.com").startsWith("ALLOWLIST"), "allow explanation");
+        check(on.explain("x.app-measurement.com").startsWith("BLOCKLIST"), "block explanation");
+        check(on.explain("ordinary.example.net").startsWith("NO MATCH"), "no match");
+        check(on.explain("bad name").startsWith("INVALID DOMAIN"), "domain validation");
         check(on.shouldBlock("x.app-measurement.com"), "subdomain");
         check(!on.shouldBlock("notapp-measurement.com"), "boundary");
         check(on.shouldBlock("other.telemetry.example.com"), "custom");
