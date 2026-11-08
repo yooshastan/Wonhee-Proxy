@@ -73,6 +73,19 @@ final class RootTrackerPolicy {
             writer.flush();
         }
 
+        String explain(String domain) {
+            String name = normalize(domain);
+            if (!validDomain(name)) return "INVALID DOMAIN — plain DNS name required.";
+            if (!enabled) return "FILTER OFF — no rules applied in this preview.";
+            for (String exception : allowed) {
+                if (matches(name, exception)) return "ALLOWLIST · " + exception;
+            }
+            for (String blockedDomain : blocked) {
+                if (matches(name, blockedDomain)) return "BLOCKLIST · " + blockedDomain;
+            }
+            return "NO MATCH — this local policy would forward the domain.";
+        }
+
         boolean shouldBlock(String domain) {
             if (!enabled) return false;
             String name = normalize(domain);
