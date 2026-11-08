@@ -67,6 +67,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button dnsEnable;
     private Button dnsDisable;
     private Button dnsEnforcementAudit;
+    private Button dnsPrivacyAudit;
     private Button failClosedEnable;
     private Button failClosedAudit;
     private Button failClosedDisable;
@@ -460,6 +461,53 @@ public final class RootMultiKernelActivity extends Activity {
             }
         });
         trackerStatus = label(trackers, "TRACKER FILTER: " + session.trackerLedgerStatus(), 14, PINK);
+        label(trackers, "BATCH E.2 · DOMAIN FILTER TESTER", 15, PINK);
+        label(trackers, "Check one domain against your selected offline policy. "
+                + "No DNS query, browsing log or firewall change is performed. "
+                + "This tests the planned settings, not necessarily the currently "
+                + "running root relay: a relay keeps the snapshot loaded when it started.",
+                13, MUTED);
+        EditText domainToCheck = trackerTextEditor(trackers,
+                "example-ad-domain.com (single domain)", "");
+        domainToCheck.setSingleLine(true);
+        Button testDomain = button(trackers, "Check domain rule · offline preview");
+        testDomain.setOnClickListener(v -> {
+            if (blocklistBusy || session.isBusy()) {
+                output.setText("Another DNS/blocklist operation is running.");
+                return;
+            }
+            final String domain = domainToCheck.getText().toString().trim();
+            final boolean filter = trackerFilter.isChecked();
+            final String custom = trackerCustom.getText().toString();
+            final String allow = trackerAllow.getText().toString();
+            if (domain.isEmpty() || domain.contains("\n") || domain.contains("\r")) {
+                output.setText("Enter one plain domain without spaces or scheme.");
+                return;
+            }
+            blocklistBusy = true;
+            output.setText("Checking one domain against saved offline policy...");
+            new Thread(() -> {
+                String result;
+                try {
+                    RootTrackerPolicy.Config compiled =
+                            RootTrackerPolicy.compileWithManaged(
+                                    filter, custom, allow, getFilesDir());
+                    result = "OFFLINE DOMAIN RULE CHECK\n" + domain + "\n"
+                            + compiled.explain(domain)
+                            + "\nPolicy preview only; active relay uses the policy loaded "
+                            + "at its last explicit DNS activation.\nNo DNS traffic generated.";
+                } catch (Exception invalid) {
+                    result = "DOMAIN POLICY TEST REFUSED\n"
+                            + "Saved/custom blocklist could not be compiled.";
+                }
+                final String report = result;
+                runOnUiThread(() -> {
+                    blocklistBusy = false;
+                    if (!isFinishing() && !isDestroyed()) output.setText(report);
+                });
+            }, "wonhee-domain-rule-check").start();
+        });
+
         label(trackers, "BATCH E.1 · MANAGED OFFLINE HOSTS LIST", 15, PINK);
         label(trackers, "Import a standard hosts.txt or one-domain-per-line file "
                 + "(up to 250,000 unique domains / 20 MiB). Duplicates and local-network "
@@ -544,6 +592,13 @@ public final class RootMultiKernelActivity extends Activity {
         dnsEnforcementAudit = button(enforcement, "Audit live DNS firewall + relay · read only");
         dnsEnforcementAudit.setOnClickListener(v -> run("Audit DNS enforcement", true,
                 session::auditRootDns));
+        dnsPrivacyAudit = button(enforcement,
+                "Batch E.2 · Privacy Monitor and DNS coverage · read only");
+        dnsPrivacyAudit.setOnClickListener(v -> run("Privacy Monitor", true,
+                session::auditDnsPrivacy));
+        label(enforcement, "Only DNS requests that reach Wonhee's local relay are "
+                + "counted. This audit does not claim to detect independent app "
+                + "DoH/DoH3 on HTTPS port 443. No DNS request names are logged.", 13, MUTED);
         dnsDisable = button(enforcement, "Disable owned DNS rules + restore resolution");
         dnsDisable.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Disable Wonhee's DNS interception?")
@@ -956,7 +1011,9 @@ public final class RootMultiKernelActivity extends Activity {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
             // DNS destinations/probe outcomes must not persist into diagnostics.
-            journal.record("RESULT", action.startsWith("Product D relay lifecycle")
+            journal.record("RESULT", action.startsWith("Privacy Monitor")
+                    ? "Privacy Monitor read-only check " + (ok ? "verified" : "check required")
+                    : action.startsWith("Product D relay lifecycle")
                     ? "Product D relay lifecycle " + (ok ? "verified" : "refused")
                     : action.startsWith("Product D DoH")
                     ? "Product D DoH probe " + (ok ? "verified" : "refused")
@@ -1122,6 +1179,7 @@ public final class RootMultiKernelActivity extends Activity {
                 && "OFF".equals(session.dnsLedgerStatus()));
         if (dnsDisable != null) dnsDisable.setEnabled(idle && !"OFF".equals(session.dnsLedgerStatus()));
         if (dnsEnforcementAudit != null) dnsEnforcementAudit.setEnabled(idle);
+        if (dnsPrivacyAudit != null) dnsPrivacyAudit.setEnabled(idle);
         if (dnsEnforcementStatus != null) {
             dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
         }
