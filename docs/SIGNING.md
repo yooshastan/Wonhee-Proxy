@@ -55,6 +55,46 @@ The script can set these secrets; manual GitHub UI setup is also possible at Set
 
 Do not print sensitive secret values to the terminal or GitHub logs. The secure setup script pipes them to gh secret set without command-line arguments.
 
+## Locally signed 0.15.24 release candidate (before the main branch merges)
+
+The public main branch still contains the older 0.8.6 release. For an official
+0.15.24 APK *without merging hundreds of experimental commits into main*, a
+trusted maintainer may build and sign locally on Fedora from the existing,
+reviewed feature/persistent-official-signing-01524 branch.
+
+Prerequisites: the private original .p12 keystore created by the one-time
+setup, Java 17+ keytool, Go 1.23+ with checksum verification, Android SDK
+platform android-36 and build-tools 35.0.0, and a clean Git worktree.
+
+From the local clone:
+
+    git fetch origin feature/persistent-official-signing-01524
+    git switch feature/persistent-official-signing-01524
+    git pull --ff-only origin feature/persistent-official-signing-01524
+    bash -n scripts/build-wonhee-official-local.sh
+    bash scripts/build-wonhee-official-local.sh
+
+The local helper prompts for the keystore password without echoing it. It
+builds the native ARM64 DNS helper and :app:assembleRelease, validates the APK
+signature against the original local keystore's public SHA-256 certificate,
+verifies Android application ID com.yooshastan.wonheeproxy, and writes:
+
+    dist/wonhee-proxy-official-signed.apk
+    dist/wonhee-proxy-official-signed.sha256
+
+It does not upload a release, reinstall apps or change device networking.
+
+Before installing: Safe stop the existing rootlab app, independently verify
+no WN DNS firewall tags or priority-12500+ rules remain, confirm its WireGuard
+links are DOWN, and separately inspect any loopback UDP 53535 listener. Leave
+rootlab installed and its encrypted profiles untouched. Install the *official*
+APK side by side only if the official package ID is not already occupied.
+
+Local signing produces one candidate, not proof of future upgrade compatibility.
+Once the official candidate is tested, produce a second build with an increased
+versionCode signed by the SAME key, then verify an in-place adb install -r and
+the persistence of its own official-app profiles and settings.
+
 ## Official signed APK build
 
 The workflow is at .github/workflows/build.yml. The **signed-release** job is guarded:
