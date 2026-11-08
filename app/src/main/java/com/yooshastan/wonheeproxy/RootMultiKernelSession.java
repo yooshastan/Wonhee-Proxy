@@ -2919,27 +2919,8 @@ final class RootMultiKernelSession {
      */
     private void removeOwnedRules() throws Exception {
         List<RootSplitRouteRules.Rule> rules = RootSplitRouteRules.decode(savedRules());
-        int found = 0;
-        for (int family : new int[] {4, 6}) {
-            for (String line : readRules(family)) {
-                int priority = RootSplitRouteRules.parsePriority(line);
-                if (priority < RootSplitRouteRules.FIRST_PRIORITY
-                        || priority > RootSplitRouteRules.LAST_PRIORITY) continue;
-                int matches = 0;
-                for (RootSplitRouteRules.Rule owned : rules) {
-                    if (owned.family == family && owned.priority == priority
-                            && owned.matchesListing(line)) matches++;
-                }
-                if (matches != 1) {
-                    throw new IllegalStateException(
-                            "Reserved priority does not exactly match the owned routing ledger.");
-                }
-                found++;
-            }
-        }
-        if (found > rules.size()) {
-            throw new IllegalStateException("Duplicate or untracked routing priority.");
-        }
+        RootSplitRouteRules.verifyRollbackCandidates(
+                rules, readRules(4), readRules(6));
         for (int i = rules.size() - 1; i >= 0; i--) {
             RootSplitRouteRules.Rule rule = rules.get(i);
             if (rulePresent(rule)) {
