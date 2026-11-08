@@ -60,6 +60,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button checkRecovery;
     private Button dohProbe;
     private Button rootDohProbe;
+    private Button relayLifecycleProbe;
     private Button dnsEnable;
     private Button dnsDisable;
     private Button dnsEnforcementAudit;
@@ -345,6 +346,31 @@ public final class RootMultiKernelActivity extends Activity {
                     run("Product D " + protocol + " root-bound probe", false, (profiles, cb) ->
                             session.probeRootDns(profiles, profileName, protocol, url, ip, cb));
                 }).show());
+        relayLifecycleProbe = button(encryptedDns,
+                "Batch D.19 · Test local DNS relay lifecycle · no firewall");
+        relayLifecycleProbe.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Run temporary encrypted DNS relay test?")
+                .setMessage("Uses the same packaged persistent DNS helper as system interception "
+                        + "on the selected identity-verified root tunnel. Wonhee starts a "
+                        + "short-lived localhost-only root relay, verifies its exact PID "
+                        + "and loopback listener, sends one encrypted example.com DNS "
+                        + "health query, and stops only its verified PID. No firewall, "
+                        + "Android DNS, routing, recovery, or kill-switch settings change. "
+                        + "USB ADB recommended; a failed cleanup requires inspection.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Test relay without firewall", (dialog, which) -> {
+                    Object chosen = dohTunnel.getSelectedItem();
+                    String name = chosen == null ? "" : chosen.toString();
+                    String protocol = currentDnsProtocol();
+                    String url = dohUrl.getText().toString();
+                    String bootstrap = dohBootstrap.getText().toString();
+                    run("Product D relay lifecycle test", false, (profiles, cb) ->
+                            session.testRootDnsRelay(profiles, name, protocol, url, bootstrap, cb));
+                }).show());
+        label(encryptedDns, "Run the relay lifecycle test BEFORE enabling system DNS. "
+                + "It separately reports launch, PID identity, listener readiness, and "
+                + "local encrypted DNS response failures without installing firewall rules.",
+                13, PINK);
         dnsProtocol.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view,
                                                  int position, long id) {
@@ -870,7 +896,9 @@ public final class RootMultiKernelActivity extends Activity {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
             // DNS destinations/probe outcomes must not persist into diagnostics.
-            journal.record("RESULT", action.startsWith("Product D DoH")
+            journal.record("RESULT", action.startsWith("Product D relay lifecycle")
+                    ? "Product D relay lifecycle " + (ok ? "verified" : "refused")
+                    : action.startsWith("Product D DoH")
                     ? "Product D DoH probe " + (ok ? "verified" : "refused")
                     : action.startsWith("F.2 manual passive health")
                             ? "F.2 manual snapshot " + (ok ? "completed" : "check required")
@@ -930,6 +958,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (checkRecovery != null) checkRecovery.setEnabled(idle && firewallUnlocked);
         if (dohProbe != null) dohProbe.setEnabled(ready);
         if (rootDohProbe != null) rootDohProbe.setEnabled(ready);
+        if (relayLifecycleProbe != null) relayLifecycleProbe.setEnabled(ready);
         if (dohTunnel != null) dohTunnel.setEnabled(idle);
         if (dnsProtocol != null) dnsProtocol.setEnabled(idle);
         if (dohUrl != null) dohUrl.setEnabled(idle);
