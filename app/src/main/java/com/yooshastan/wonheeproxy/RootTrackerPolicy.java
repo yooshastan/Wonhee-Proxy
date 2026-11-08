@@ -2,6 +2,10 @@ package com.yooshastan.wonheeproxy;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.FileOutputStream;
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,6 +44,33 @@ final class RootTrackerPolicy {
             for (String domain : blocked) result.append("block ").append(domain).append('\n');
             for (String domain : allowed) result.append("allow ").append(domain).append('\n');
             return result.toString();
+        }
+
+        /**
+         * Stream the policy rather than materializing large imports into one
+         * String. Apply a strict 24-MiB limit before creating a root-side file.
+         */
+        void writeTo(FileOutputStream out) throws IOException {
+            if (!enabled) return;
+            final long limit = 24L * 1024 * 1024;
+            long bytes = 0;
+            BufferedWriter writer = new BufferedWriter(
+                    new OutputStreamWriter(out, StandardCharsets.US_ASCII), 32 * 1024);
+            for (String domain : blocked) {
+                bytes += 7L + domain.length(); // "block " + ASCII domain + LF
+                if (bytes > limit) throw new IOException("Managed blocklist is too large for root relay.");
+                writer.write("block ");
+                writer.write(domain);
+                writer.write('\n');
+            }
+            for (String domain : allowed) {
+                bytes += 7L + domain.length(); // "allow " + ASCII domain + LF
+                if (bytes > limit) throw new IOException("Managed allowlist is too large for root relay.");
+                writer.write("allow ");
+                writer.write(domain);
+                writer.write('\n');
+            }
+            writer.flush();
         }
 
         boolean shouldBlock(String domain) {
