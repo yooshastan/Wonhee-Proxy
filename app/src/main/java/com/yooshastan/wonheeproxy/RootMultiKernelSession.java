@@ -2910,17 +2910,185 @@ final class RootMultiKernelSession {
         return markedRoutesPass && protectedBypassPass;
     }
 
+    /**
+     * Exactly owned, retryable routing rollback. The ledger is committed before
+     * rules are added; after a crash only a subset may exist. Preflight every
+     * reserved-priority rule in IPv4 and IPv6 BEFORE deleting the first one.
+     * Missing recorded rules are allowed, but foreign/duplicate/mutated live
+     * rules cause a refusal without touching them.
+     */
     private void removeOwnedRules() throws Exception {
         List<RootSplitRouteRules.Rule> rules = RootSplitRouteRules.decode(savedRules());
+        int found = 0;
+        for (int family : new int[] {4, 6}) {
+            for (String line : readRules(family)) {
+                int priority = RootSplitRouteRules.parsePriority(line);
+                if (priority < RootSplitRouteRules.FIRST_PRIORITY
+                        || priority > RootSplitRouteRules.LAST_PRIORITY) continue;
+                int matches = 0;
+                for (RootSplitRouteRules.Rule owned : rules) {
+                    if (owned.family == family && owned.priority == priority
+                            && owned.matchesListing(line)) matches++;
+                }
+                if (matches != 1) {
+                    throw new IllegalStateException(
+                            "Reserved priority does not exactly match the owned routing ledger.");
+                }
+                found++;
+            }
+        }
+        if (found > rules.size()) {
+            throw new IllegalStateException("Duplicate or untracked routing priority.");
+        }
         for (int i = rules.size() - 1; i >= 0; i--) {
             RootSplitRouteRules.Rule rule = rules.get(i);
             if (rulePresent(rule)) {
                 if (shell.run(null, rule.delete()) != 0 || rulePresent(rule)) {
-                    throw new IllegalStateException("Owned rule removal could not be verified.");
+                    throw new IllegalStateException("Exact owned rule removal incomplete.");
                 }
             }
         }
+        if (countReservedRules() != 0) {
+            throw new IllegalStateException("Reserved routing priorities still installed.");
+        }
         saveRules("");
+    }
+
+    /**
+     * Batch H.1 coordinated stop — safe to retry following a process crash or
+     * partial earlier rollback. The operation never touches unknown policies.
+     * No boot/background autostart and no general-purpose firewall flushing.
+     */
+    void stopManagedStack(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
+        if (!recovery.manualStop()) {
+            main.post(() -> callback.completed(false,
+                    "SAFE STOP REFUSED: cannot persist manual stop of auto-recovery."));
+            return;
+        }
+        RootMultiRecoveryScheduler.update(appContext);
+        RootMultiRecoveryMonitor.update(appContext);
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean success = false;
+            String stage = "PRECHECK";
+            String result;
+            StringBuilder completed = new StringBuilder();
+            try {
+                if (guardRecord() != null && !guardRecord().isEmpty()) {
+                    throw new IllegalStateException("Batch F guard is owned: disable and audit separately.");
+                }
+                if (profiles == null || profiles.isEmpty()) {
+                    throw new IllegalStateException("Select every active Wonhee profile.");
+                }
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                Set<String> chosenDevices = new LinkedHashSet<>();
+                for (Active active : selected) {
+                    if (!chosenDevices.add(active.device)) {
+                        throw new IllegalStateException("Duplicate selected tunnel identity.");
+                    }
+                }
+                shell.start();
+                stage = "VERIFY_TUNNEL_IDENTITIES";
+                // Verify all interfaces before touching DNS or routing; a user
+                // cannot accidentally shut down someone else's same-name link.
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                if (running.contains("wnhome0") || running.contains("wnair0")) {
+                    throw new IllegalStateException("Legacy tunnels are running; refuse mixed teardown.");
+                }
+                for (String name : running) {
+                    if (name.startsWith("wnm") && !chosenDevices.contains(name)) {
+                        throw new IllegalStateException("Unselected Wonhee tunnel is active.");
+                    }
+                }
+                for (Active active : selected) {
+                    if (running.contains(active.device)
+                            && !matches(new NamedTunnel(active.device), active)) {
+                        throw new IllegalStateException("A selected live interface identity differs.");
+                    }
+                }
+                stage = "REMOVE_OWNED_DNS";
+                String dns = dnsRecord();
+                if (dns != null && !dns.isEmpty()) {
+                    DnsRecord owned = DnsRecord.decode(dns);
+                    // This preflights all known DNS firewall tags, including a
+                    // partially installed set after a killed app process.
+                    dnsRemoveOwnedRules();
+                    if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
+                        RootDnsRelayRunner.stop(appContext, shell, owned.pid);
+                    }
+                    RootDnsRelayRunner.removeTrackerPolicy(appContext);
+                    saveDnsRecord("");
+                }
+                // With no ledger, never assume this app owns remaining rules.
+                dnsFirewallPreflight();
+                completed.append("Owned DNS enforcement: VERIFIED OFF\n");
+                stage = "REMOVE_OWNED_ROUTING";
+                removeOwnedRules(); // exact-match, preflight-all, retryable
+                if (!savedRules().isEmpty() || countReservedRules() != 0) {
+                    throw new IllegalStateException("Routing cleanup verification failed.");
+                }
+                completed.append("Owned split routing: VERIFIED CLEAR\n");
+                stage = "VERIFY_SAFE_TO_STOP";
+                if ((dnsRecord() != null && !dnsRecord().isEmpty())
+                        || (guardRecord() != null && !guardRecord().isEmpty())) {
+                    throw new IllegalStateException("An owned firewall guard remains active.");
+                }
+                // A last identity check guards against a link replacement
+                // while the owned rules were being removed.
+                running = backend.getRunningTunnelNames();
+                for (String name : running) {
+                    if (name.startsWith("wnm") && !chosenDevices.contains(name)) {
+                        throw new IllegalStateException("Unexpected Wonhee tunnel appeared.");
+                    }
+                }
+                for (Active active : selected) {
+                    if (running.contains(active.device)
+                            && !matches(new NamedTunnel(active.device), active)) {
+                        throw new IllegalStateException("Tunnel identity changed during cleanup.");
+                    }
+                }
+                stage = "DISCONNECT_SELECTED_TUNNELS";
+                int stopped = 0;
+                for (Active active : selected) {
+                    Tunnel link = new NamedTunnel(active.device);
+                    if (running.contains(active.device)) {
+                        try {
+                            setState(link, Tunnel.State.DOWN, active.configuration);
+                        } catch (Exception | LinkageError ignored) {
+                            // Only the verified live kernel state counts.
+                        }
+                    }
+                    if (backend.getState(link) != Tunnel.State.DOWN) {
+                        throw new IllegalStateException("Selected tunnel remains UP.");
+                    }
+                    managed.remove(active.device);
+                    stopped++;
+                }
+                if (countReservedRules() != 0) {
+                    throw new IllegalStateException("Reserved rules reappeared; check for another writer.");
+                }
+                if (!savedRules().isEmpty() || !dnsRecord().isEmpty()) {
+                    throw new IllegalStateException("Owned policy ledger reappeared.");
+                }
+                success = true;
+                result = "BATCH H.1 — SAFE STOP COMPLETE\n" + completed
+                        + "Selected tunnel states: VERIFIED DOWN (" + stopped + ")\n"
+                        + "Unattended recovery: MANUALLY STOPPED\n"
+                        + "No kill switch was installed; Wi-Fi/cellular may resume.";
+            } catch (Exception | LinkageError failure) {
+                // Leave exact pending ownership records intact on failure.
+                // Never delete unknown rules, force-stop the process, or flush
+                // iptables. Rerunning this method safely resumes a partial stop.
+                result = "BATCH H.1 — SAFE STOP PAUSED [" + stage + "]\n"
+                        + completed
+                        + "No additional tunnel was intentionally stopped after a "
+                        + "failed verification. Keep tunnels connected if any owned "
+                        + "rules remain. Use the read-only audits before retrying.";
+            }
+            finish(callback, success, result);
+        });
     }
 
     void connect(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
