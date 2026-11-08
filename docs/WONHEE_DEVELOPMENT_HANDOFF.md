@@ -2,6 +2,14 @@
 
 Last updated: 2026-11-07
 
+## Batch F.3e — provenance and independent rescue design gate (2026-11-07)
+
+- Read-only F.3d 0.15.18 Pixel snapshot passed: `wlan0` ICMPv6 Neighbor Solicitation type 135 one captured/one parsed, physical TX +37; existing global IPv4 OUTPUT default-policy counter +33 (5/6 rule counters advanced, sum +166), IPv6 OUTPUT default-policy +44 (4/6 advanced, sum +176). Both selected WireGuard identities verified, split route ledger/live 3/3 exact, Batch F owned guard OFF/ABSENT. **This is correlation only: no actual ICMPv6-to-OUTPUT rule/UID/hook provenance.** Post-0.15.18 streaming/browser smoke check remains unconfirmed.
+- Created [draft PR #50](https://github.com/yooshastan/Wonhee-Proxy/pull/50) on `design/batch-f3e-output-provenance-recovery-gates`; plan `docs/PRODUCT_BATCH_F3E_OUTPUT_PROVENANCE_RECOVERY_GATES.md`. **Design-only**: no APK bump, app code, CI change, generated packets, firewall/tunnel/DNS/routing changes, tracer attachment or guard activation.
+- **Next implementation gate:** opt-in read-only inventory of existing trace-event/filtering *capabilities* (not hooking them); no kernel changes, raw event data, private endpoint output or cached identifiers. A tracer attach, eBPF program load, TRACE/NFLOG rule or counter installation is state-changing and requires its own separately reviewed safety design.
+- **Mandatory independent rescue:** USB-connected Fedora/Linux ADB root must work without relying on VPN/network/Termux; inspect exact owned rule and route ledger without arbitrary flushes. Before any live guard/trace tests require independently validated exact-owner rollback, explicit bounded test window and both-IP-family fail-close handling.
+- Stay on stable 0.15.18 with HOME + AirVPN working, Batch F OFF. Connectivity issue [#41](https://github.com/yooshastan/Wonhee-Proxy/issues/41) OPEN, product Batch F unimplemented; do not proceed to G–I merely because these diagnostics compile.
+
 ## F.3d Pixel 8a device result — IPv4 and IPv6 counter movement (2026-11-07)
 
 - User shared 0.15.18 screenshot: `COMPLETE — BATCH F.3d PASSIVE ICMPv6 + OUTPUT COUNTER COMPARISON`. Two independent selected WireGuard identities **VERIFIED**, underlay prediction **wlan0**, split route ledger **3 recorded/3 live EXACT MATCH**, owned IPv4/IPv6 Batch F guard **OFF/ABSENT**. Existing routes stayed configured; screenshot does not establish independent post-test reachability.
