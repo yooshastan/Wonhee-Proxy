@@ -64,10 +64,12 @@ final class RootMultiKernelSession {
     private final SharedPreferences routeLedger;
     private final SharedPreferences dnsLedger;
     private final SharedPreferences guardLedger;
+    private final SharedPreferences orphanDnsLedger;
     private final RootMultiRecoveryPreferences recovery;
     private static final String ROUTE_LEDGER_KEY = "pending_or_installed_rules_v1";
     private static final String DNS_LEDGER_KEY = "pending_dns_policy_v1";
     private static final String GUARD_LEDGER_KEY = "pending_guard_v1";
+    private static final String ORPHAN_DNS_KEY = "pending_orphan_dns_exact_cleanup_v1";
     // Representative app UID inside the Android user range owned by split rules.
     private static final int MARK_AUDIT_UID = 10000;
     // Only links started and identity-verified by this process are in this map.
@@ -117,6 +119,8 @@ final class RootMultiKernelSession {
         routeLedger = app.getSharedPreferences("wonhee_owned_split_routes", Context.MODE_PRIVATE);
         dnsLedger = app.getSharedPreferences("wonhee_owned_dns_policy", Context.MODE_PRIVATE);
         guardLedger = app.getSharedPreferences("wonhee_owned_guard_policy", Context.MODE_PRIVATE);
+        orphanDnsLedger = app.getSharedPreferences(
+                "wonhee_orphan_dns_recovery", Context.MODE_PRIVATE);
         recovery = new RootMultiRecoveryPreferences(app);
     }
 
@@ -225,16 +229,30 @@ final class RootMultiKernelSession {
 
     private String dnsRecord() { return dnsLedger.getString(DNS_LEDGER_KEY, ""); }
 
-    private void requireDnsDisabledForTunnelMutation() {
+    private void requireDnsDisabledForTunnelMutation() throws Exception {
         if (guardRecord() != null && !guardRecord().isEmpty()) {
             throw new IllegalStateException("Disable and audit Batch F's owned kill switch "
                     + "before modifying tunnels or split routes. Keep USB ADB available.");
         }
         String record = dnsRecord();
         if (record != null && !record.isEmpty()) {
-            throw new IllegalStateException("First disable and verify owned DNS firewall "
-                    + "rules. No tunnel or split-routing mutation is safe while DNS is guarded.");
+            throw new IllegalStateException("Use Safe stop or disable verified DNS "
+                    + "enforcement before modifying tunnels or routing.");
         }
+        // A lost SharedPreferences file does NOT imply absence of root
+        // enforcement. Prevent direct tunnel shutdown from stranding orphaned
+        // redirect/reject rules as occurred on Pixel 8a.
+        if (orphanPending()) {
+            throw new IllegalStateException("An interrupted orphan-DNS recovery is still "
+                    + "recorded. Use the emergency DNS recovery controls first.");
+        }
+        shell.start();
+        if (countAllWonheeDnsTags() != 0) {
+            throw new IllegalStateException("Live Wonhee DNS firewall rules remain "
+                    + "despite an empty ownership ledger. Use Orphan DNS Audit "
+                    + "and explicit Recovery first; no tunnel or route changed.");
+        }
+        RootFailClosedFirewallRuntime.preflight(shell);
     }
 
     private void saveDnsRecord(String record) {
@@ -1035,6 +1053,10 @@ final class RootMultiKernelSession {
                 }
                 if (dnsRecord() != null && !dnsRecord().isEmpty()) {
                     throw new IllegalStateException("Existing DNS rollback ledger: disable/recover first.");
+                }
+                if (orphanPending()) {
+                    throw new IllegalStateException("A prior orphan DNS recovery must be "
+                            + "verified complete before activating firewall enforcement.");
                 }
                 if (recovery.enabled()) {
                     throw new IllegalStateException("Turn off Batch C automatic tunnel recovery "
@@ -1955,6 +1977,200 @@ final class RootMultiKernelSession {
                 }
             }
         }
+    }
+
+    /**
+     * Live OUTPUT scan across exactly the three firewall chains that Wonhee
+     * writes. Any extra WN_ tag prevents no-ledger recovery.
+     */
+    private int countAllWonheeDnsTags() throws Exception {
+        int count = 0;
+        for (String cmd : new String[]{
+                "iptables -w -t nat -S OUTPUT",
+                "iptables -w -S OUTPUT",
+                "ip6tables -w -S OUTPUT" }) {
+            List<String> lines = new ArrayList<>();
+            if (shell.run(lines, cmd) != 0) {
+                throw new IllegalStateException("Cannot audit live DNS OUTPUT rules.");
+            }
+            for (String line : lines) {
+                if (!line.contains("WN_")) continue;
+                if (!line.startsWith("-A OUTPUT ")) {
+                    throw new IllegalStateException("Unrecognized Wonhee firewall entry.");
+                }
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private boolean orphanPending() {
+        String recorded = orphanDnsLedger.getString(ORPHAN_DNS_KEY, "");
+        if (recorded == null || recorded.isEmpty()) return false;
+        if (!RootOrphanDnsPolicy.RECOVERY_MARKER.equals(recorded)) {
+            throw new IllegalStateException("Unrecognized orphan recovery record.");
+        }
+        return true;
+    }
+
+    private void setOrphanPending(boolean pending) {
+        if (!orphanDnsLedger.edit().putString(ORPHAN_DNS_KEY,
+                pending ? RootOrphanDnsPolicy.RECOVERY_MARKER : "").commit()) {
+            throw new IllegalStateException("Could not persist orphan DNS rollback intent.");
+        }
+    }
+
+    private RootOrphanDnsPolicy.State inspectOrphanDns() throws Exception {
+        // Must remain usable after a tunnel has been stopped. No wg-quick
+        // backend launch, tunnel creation, DNS forwarder launch or root DNS
+        // change occurs during this inspection.
+        shell.start();
+        if (guardRecord() != null && !guardRecord().isEmpty()) {
+            throw new IllegalStateException("Batch F guard ledger exists; quarantine.");
+        }
+        RootFailClosedFirewallRuntime.preflight(shell);
+
+        String dns = dnsRecord();
+        boolean saved = dns != null && !dns.isEmpty();
+        // Refuse unrecognized records rather than silently reclassifying them.
+        if (saved) DnsRecord.decode(dns);
+        boolean pending = orphanPending();
+        if (saved && pending) {
+            throw new IllegalStateException("Conflicting DNS ownership and orphan recovery records.");
+        }
+
+        int valid = 0;
+        for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+            int tagged = countDnsTaggedRules(rule);
+            if (tagged > 1) {
+                throw new IllegalStateException("Duplicate Wonhee DNS rule tag.");
+            }
+            if (tagged == 1) {
+                if (!dnsRulePresent(rule)) {
+                    throw new IllegalStateException("DNS firewall tag does not match exact saved rule shape.");
+                }
+                valid++;
+            }
+        }
+        int tagged = countAllWonheeDnsTags();
+        if (tagged != valid) {
+            throw new IllegalStateException("Unknown or modified Wonhee OUTPUT rule detected.");
+        }
+
+        // DNS-only cleanup is independent of live tunnels, routing and relay
+        // readiness. Nothing in recoverOrphanDns modifies those components.
+        // Requiring disconnected tunnels would cause a deadlock if a ledger is
+        // missing while the VPN is still running. Guard ownership is the one
+        // separate firewall prerequisite, checked above.
+        return RootOrphanDnsPolicy.classify(saved, true,
+                valid, tagged, pending);
+    }
+
+    void auditOrphanDns(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String result;
+            try {
+                RootOrphanDnsPolicy.State state = inspectOrphanDns();
+                ok = state != RootOrphanDnsPolicy.State.BLOCKED;
+                result = "BATCH H.2b — ORPHAN DNS AUDIT (READ ONLY)\n"
+                        + "State: " + state + "\n"
+                        + (state == RootOrphanDnsPolicy.State.READY_FOR_EXPLICIT_REPAIR
+                            ? "All 8 exact Wonhee DNS rules found with no owner ledger; "
+                              + "recovery requires a second explicit confirmation."
+                            : state == RootOrphanDnsPolicy.State.PENDING_EXACT_REPAIR
+                            ? "A previously confirmed exact cleanup was interrupted; "
+                              + "remaining rules can be revalidated and removed."
+                            : state == RootOrphanDnsPolicy.State.CLEAN
+                            ? "No Wonhee DNS tags remain and the recovery marker is clear."
+                            : state == RootOrphanDnsPolicy.State.SAVED_OWNERSHIP
+                            ? "The normal DNS owner ledger exists. Use Disable owned DNS instead."
+                            : state == RootOrphanDnsPolicy.State.PENDING_CLEARED
+                            ? "Rules are gone; retry explicit recovery to clear the marker."
+                            : "Recovery refused: inspect live DNS and tunnel ownership.")
+                        + "\nNo firewall, VPN or application data was changed.";
+            } catch (Exception | LinkageError failure) {
+                result = "BATCH H.2b — ORPHAN DNS AUDIT REFUSED\n"
+                        + (failure instanceof IllegalStateException
+                                ? failure.getMessage() : "Root or firewall inventory unavailable.")
+                        + "\nNo changes made.";
+            }
+            finish(callback, ok, result);
+        });
+    }
+
+    /**
+     * Manually confirmed emergency repair for a *lost* DNS ownership ledger.
+     * Exact original set of eight is mandatory on first run. Once a signed
+     * persistent intent is committed, a crash-time partial subset may be
+     * retried. Absolutely no background/automatic calling is permitted.
+     */
+    void recoverOrphanDns(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
+        if (!recovery.manualStop()) {
+            main.post(() -> callback.completed(false,
+                    "ORPHAN DNS REPAIR REFUSED: could not persist manual recovery stop."));
+            return;
+        }
+        RootMultiRecoveryScheduler.update(appContext);
+        RootMultiRecoveryMonitor.update(appContext);
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ok = false;
+            String stage = "PREFLIGHT";
+            String result;
+            try {
+                RootOrphanDnsPolicy.State one = inspectOrphanDns();
+                if (one != RootOrphanDnsPolicy.State.READY_FOR_EXPLICIT_REPAIR
+                        && one != RootOrphanDnsPolicy.State.PENDING_EXACT_REPAIR
+                        && one != RootOrphanDnsPolicy.State.PENDING_CLEARED) {
+                    throw new IllegalStateException("State " + one
+                            + " cannot be repaired without the normal ownership record.");
+                }
+                // Another complete live snapshot immediately before first root
+                // mutation, to catch even accidentally changed firewall rules.
+                RootOrphanDnsPolicy.State two = inspectOrphanDns();
+                if (one != two) {
+                    throw new IllegalStateException("Firewall changed during exact recovery preflight.");
+                }
+                stage = "COMMIT_ORPHAN_INTENT";
+                if (!orphanPending()) setOrphanPending(true);
+                stage = "REMOVE_ONLY_EXACT_WONHEE_DNS";
+                // Preflight all tags again before the first deletion.
+                if (inspectOrphanDns() != (one == RootOrphanDnsPolicy.State.READY_FOR_EXPLICIT_REPAIR
+                        ? RootOrphanDnsPolicy.State.PENDING_EXACT_REPAIR : one == RootOrphanDnsPolicy.State.PENDING_EXACT_REPAIR
+                        ? RootOrphanDnsPolicy.State.PENDING_EXACT_REPAIR : RootOrphanDnsPolicy.State.PENDING_CLEARED)) {
+                    throw new IllegalStateException("Live ownership changed after recovery intent.");
+                }
+                dnsRemoveOwnedRules();
+                stage = "VERIFY_NO_WONHEE_DNS";
+                dnsFirewallPreflight();
+                if (countAllWonheeDnsTags() != 0) {
+                    throw new IllegalStateException("Wonhee DNS firewall tags remain; "
+                            + "do not clear recovery intent.");
+                }
+                // No relay is touched: the conservative preflight proved no
+                // listener before mutation. An unknown root process is never killed.
+                stage = "CLEAR_OWNED_RECOVERY_INTENT";
+                setOrphanPending(false);
+                ok = true;
+                result = "BATCH H.2b — ORPHAN DNS RECOVERY VERIFIED\n"
+                        + "The exact remaining Wonhee DNS firewall rules were removed.\n"
+                        + "No tunnels, relay processes, routing, or unrelated firewall "
+                        + "chains were touched. "
+                        + "The orphan recovery marker is clear. "
+                        + "Android's normal DNS may resume without VPN protection.";
+            } catch (Exception | LinkageError failure) {
+                result = "BATCH H.2b — ORPHAN DNS RECOVERY PAUSED [" + stage + "]\n"
+                        + (failure instanceof IllegalStateException
+                                ? failure.getMessage()
+                                : "Root firewall inventory or exact deletion failed.")
+                        + "\nNever flush iptables or clear app data. "
+                        + "Any committed recovery marker is retained for retry "
+                        + "after verifying firewall and tunnel state.";
+            }
+            finish(callback, ok, result);
+        });
     }
 
     /** Strictly isolated, one-shot transport test; not a system DNS resolver. */
@@ -3111,6 +3327,10 @@ final class RootMultiKernelSession {
                 }
                 if (!savedRules().isEmpty()) {
                     throw new IllegalStateException("Split-route ownership ledger must be cleared first.");
+                }
+                if (orphanPending()) {
+                    throw new IllegalStateException("A pending orphan DNS recovery must be "
+                            + "explicitly completed before starting tunnels.");
                 }
                 if (recovery.enabled()) {
                     throw new IllegalStateException(
