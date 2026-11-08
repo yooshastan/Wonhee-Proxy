@@ -2,6 +2,17 @@
 
 Last updated: 2026-11-07
 
+## F.3e Pixel 8a capability discovery — first pass (2026-11-08)
+
+- Root execution PASS (UID 0, Magisk); read-only commands returned tool and kernel metadata.
+- Available: tcpdump, strace, simpleperf, bpftool, tc, iptables-save, ip6tables-save. Missing from PATH: perf, bpftrace, nft (not needed/install not requested).
+- tracefs mounted at `/sys/kernel/tracing`; debugfs tracing path absent and debugfs not listed as mounted. bpffs mounted at `/sys/fs/bpf`; kernel BTF present at `/sys/kernel/btf/vmlinux`.
+- tracing remains OFF (`tracing_on=0`), current tracer `nop`, only available tracer `nop`.
+- User's first available-events grep was capped at 80 rows and showed mac80211/cfg80211/TIPC matches; it does **not** prove absence/presence of core net/skb/socket/netfilter/neighbor events. Need targeted listing and format metadata next.
+- BPF program/link/map inventory not yet read. Do not run `bpftool feature probe`, attach programs, toggle tracefs, mount filesystems, enable events, create rules, or change networking during this capability stage.
+- Initial independent USB ADB root check previously PASS; this current root command also works. Screen-lock/reconnect persistence, required inspection command availability in rescue conditions and exact-owner rollback remain unproven.
+- Updated F.3e design plan and draft [PR #50](https://github.com/yooshastan/Wonhee-Proxy/pull/50). Batch F remains OFF; issue #41 OPEN.
+
 ## Batch F.3e — provenance and independent rescue design gate (2026-11-07)
 
 - Read-only F.3d 0.15.18 Pixel snapshot passed: `wlan0` ICMPv6 Neighbor Solicitation type 135 one captured/one parsed, physical TX +37; existing global IPv4 OUTPUT default-policy counter +33 (5/6 rule counters advanced, sum +166), IPv6 OUTPUT default-policy +44 (4/6 advanced, sum +176). Both selected WireGuard identities verified, split route ledger/live 3/3 exact, Batch F owned guard OFF/ABSENT. **This is correlation only: no actual ICMPv6-to-OUTPUT rule/UID/hook provenance.** Post-0.15.18 streaming/browser smoke check remains unconfirmed.
