@@ -2936,6 +2936,68 @@ final class RootMultiKernelSession {
     }
 
     /**
+     * Read-only preflight for the UI's opt-in phased start sequence.
+     * Do not adopt unknown existing interfaces or pretend a pending ledger is
+     * a clean shutdown. No autostart on boot is enabled in Batch H.1.
+     */
+    void preflightManagedStart(List<SecureTunnelProfileStore.Profile> profiles,
+            Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean success = false;
+            String result;
+            try {
+                if (guardRecord() != null && !guardRecord().isEmpty()) {
+                    throw new IllegalStateException("Experimental Batch F guard remains owned.");
+                }
+                if (dnsRecord() != null && !dnsRecord().isEmpty()) {
+                    throw new IllegalStateException("DNS ownership ledger must be cleared first.");
+                }
+                if (!savedRules().isEmpty()) {
+                    throw new IllegalStateException("Split-route ownership ledger must be cleared first.");
+                }
+                if (recovery.enabled()) {
+                    throw new IllegalStateException(
+                            "Disable Batch C unattended recovery before DNS stack startup.");
+                }
+                if (!"off".equals(Settings.Global.getString(
+                        appContext.getContentResolver(), "private_dns_mode"))) {
+                    throw new IllegalStateException("Set Android Private DNS to OFF first.");
+                }
+                List<Active> entries = loadAll(profiles);
+                if (entries.isEmpty()) {
+                    throw new IllegalStateException("Select HOME and Internet profiles.");
+                }
+                validate(entries);
+                if (RootSplitRouteRules.plan(routeEntries(entries)).isEmpty()) {
+                    throw new IllegalStateException("Selection has no HOME split-route correction.");
+                }
+                rootReady();
+                if (countReservedRules() != 0) {
+                    throw new IllegalStateException("Untracked priority-12500+ rules remain.");
+                }
+                dnsFirewallPreflight();
+                Set<String> active = backend.getRunningTunnelNames();
+                for (String name : active) {
+                    if (name.startsWith("wnm") || name.equals("wnhome0")
+                            || name.equals("wnair0")) {
+                        throw new IllegalStateException("A tunnel is already UP; audit/stop it first.");
+                    }
+                }
+                success = true;
+                result = "Batch H.1 start preflight PASS: no owned DNS/routing ledgers, "
+                        + "no reserved rules or selected running kernel interfaces. "
+                        + "No network changes made.";
+            } catch (Exception | LinkageError refused) {
+                result = "Batch H.1 start REFUSED BEFORE CHANGES: "
+                        + (refused instanceof IllegalStateException
+                                ? refused.getMessage() : "profile/root preflight failed.");
+            }
+            finish(callback, success, result);
+        });
+    }
+
+    /**
      * Batch H.1 coordinated stop — safe to retry following a process crash or
      * partial earlier rollback. The operation never touches unknown policies.
      * No boot/background autostart and no general-purpose firewall flushing.
