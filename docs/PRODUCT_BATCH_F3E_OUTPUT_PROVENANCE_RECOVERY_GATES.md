@@ -115,7 +115,14 @@ Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:n
 - The same endpoint with `mark 0x0` selected `wnm68fe81200daa`, table `wnm68fe81200daa`, source `10.159.187.150`.
 - This proves the **standalone** `0x20000` mark takes the Wi-Fi path in this route simulation, while unmarked lookup is caught by AirVPN routing. It does not prove the actual WireGuard outer socket carries only `0x20000`.
 - Important rule-mask detail: the priority-13000 exact-mark rules for `0xc489e/0xcffff` and `0xce8a6/0xcffff` do not test bit `0x20000` (that bit is absent from the mask). A composite mark that combines the protected bit with one of those base marks may therefore still match the VPN-table rule. Do not infer protection from the standalone test alone.
-- Next read-only simulation: compare each base mark `0x1489e`, `0x1e8a6`, `0xc489e`, `0xce8a6` with the same mark OR'ed with `0x20000` (`0x3489e`, `0x3e8a6`, `0xe489e`, `0xee8a6`). This tests policy behavior only; it does not establish the actual socket mark or packet egress.
+- Completed composite-mark simulations for the AirVPN endpoint:
+  - `0x1489e` and `0x3489e` both select AirVPN.
+  - `0x1e8a6` selects AirVPN; `0x3e8a6` returns `Network is unreachable`.
+  - `0xc489e` and `0xe489e` both select AirVPN.
+  - `0xce8a6` selects AirVPN; `0xee8a6` selects Wi-Fi (`wlan0`).
+- Interpretation: the protected bit does not uniformly override existing routing identity. AirVPN-marked composites still select AirVPN; HOME-marked protected composites differ depending on mark encoding and fall-through rules. `0x3e8a6` is fail-closed for a public destination because the HOME table has no default route; `0xee8a6` reaches the explicit Wi-Fi fallback. This is policy-simulation evidence only, not proof that any live WireGuard socket carries these exact marks.
+- Rule interaction to preserve in analysis: priority-13000 `0xc489e/0xcffff` ignores bit `0x20000`, so `0xe489e` continues to match AirVPN. Priority-13000 `0xce8a6/0xcffff` also ignores that bit; after HOME table miss, later rules/fallbacks produce the observed difference for `0xce8a6` vs `0xee8a6`. Do not alter rules based on this alone.
+- Next: passively capture the known AirVPN peer's outer UDP packets on `any` while generating ordinary traffic through the already-working tunnel; record the physical interface shown by tcpdump. First verify that `213.152.161.37:47107` is still the active profile endpoint. This packet capture is observation only and cannot by itself expose the socket's SO_MARK. Obtain the HOME endpoint separately.
 - No routing/firewall/BPF/tunnel changes. Batch F remains OFF.
 
 ### Decision update
