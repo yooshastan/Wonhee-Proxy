@@ -46,6 +46,8 @@ public final class RootMultiKernelActivity extends Activity {
     private Button disconnect;
     private Button managedStart;
     private Button managedStop;
+    private Button lifecycleAudit;
+    private Button lifecycleRepair;
     private boolean lifecycleBusy;
     private Button preview;
     private Button inspect;
@@ -167,6 +169,36 @@ public final class RootMultiKernelActivity extends Activity {
         managedStart.setOnClickListener(v -> startManagedStack());
         managedStop = button(controls, "Safe stop complete Wonhee stack · one confirmation");
         managedStop.setOnClickListener(v -> stopManagedStack());
+        label(controls, "BATCH H.2a · CRASH / REBOOT RECOVERY", 17, PINK);
+        label(controls, "If the app was interrupted, first inspect whether exact "
+                + "saved ownership still matches live DNS and route rules. "
+                + "Stopped-state repair is only permitted with NO active kernel "
+                + "tunnels, NO local DNS listener and NO unknown firewall rules. "
+                + "Active sessions must use Safe stop above.", 13, MUTED);
+        lifecycleAudit = button(controls,
+                "Audit interrupted startup/shutdown · read only");
+        lifecycleAudit.setOnClickListener(v -> run(
+                "Batch H.2a reconciliation audit", true, session::auditLifecycleRecovery));
+        lifecycleRepair = button(controls,
+                "Repair VERIFIED stopped ownership · opt in");
+        lifecycleRepair.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Repair stale ownership only while stopped?")
+                .setMessage("Batch H.2a will independently inspect all selected "
+                        + "kernel interfaces, the DNS relay, owned DNS firewall "
+                        + "tags, and every IPv4/IPv6 routing priority 12500–12799. "
+                        + "It REFUSES repair if ANY WireGuard tunnel or DNS listener "
+                        + "is running, if a guard chain exists, or if any rule differs "
+                        + "from Wonhee's exact saved ownership. "
+                        + "After verifying the STOPPED state twice, it can remove "
+                        + "exact owned leftover rules and stale ownership entries. "
+                        + "It will NOT start or disconnect tunnels. "
+                        + "Keep USB ADB available; back up important configurations.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Repair verified stopped state", (dialog, which) ->
+                        run("Batch H.2a stopped ownership repair", true,
+                                session::repairStoppedLifecycle))
+                .show());
+
 
         inspect = button(controls, "Read live kernel status");
         inspect.setOnClickListener(v -> run("Read multi-tunnel state", true, session::inspect));
@@ -1025,7 +1057,10 @@ public final class RootMultiKernelActivity extends Activity {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
             // DNS destinations/probe outcomes must not persist into diagnostics.
-            journal.record("RESULT", action.startsWith("Privacy Monitor")
+            journal.record("RESULT", action.startsWith("Batch H.2a")
+                    ? "Batch H.2a recovery audit/repair "
+                            + (ok ? "completed" : "check required")
+                    : action.startsWith("Privacy Monitor")
                     ? "Privacy Monitor read-only check " + (ok ? "verified" : "check required")
                     : action.startsWith("Product D relay lifecycle")
                     ? "Product D relay lifecycle " + (ok ? "verified" : "refused")
@@ -1322,6 +1357,8 @@ public final class RootMultiKernelActivity extends Activity {
         if (managedStart != null) managedStart.setEnabled(ready && firewallUnlocked
                 && "OFF".equals(session.dnsLedgerStatus()));
         if (managedStop != null) managedStop.setEnabled(ready && firewallUnlocked);
+        if (lifecycleAudit != null) lifecycleAudit.setEnabled(idle);
+        if (lifecycleRepair != null) lifecycleRepair.setEnabled(idle);
         if (preview != null) preview.setEnabled(ready);
         if (inspect != null) inspect.setEnabled(idle);
         if (audit != null) audit.setEnabled(ready);
