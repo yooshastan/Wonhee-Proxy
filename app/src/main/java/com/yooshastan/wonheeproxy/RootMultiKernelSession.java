@@ -2057,23 +2057,13 @@ final class RootMultiKernelSession {
             throw new IllegalStateException("Unknown or modified Wonhee OUTPUT rule detected.");
         }
 
-        // Require zero priority-12500+ entries in *both* families. Never
-        // combine orphan firewall recovery with a routing policy rollback.
-        boolean routesClear = savedRules().isEmpty() && countReservedRules() == 0;
-        Set<String> interfaces = backend.getRunningTunnelNames();
-        boolean tunnelsDown = true;
-        for (String name : interfaces) {
-            if (name.startsWith("wnm") || name.equals("wnhome0") || name.equals("wnair0")) {
-                tunnelsDown = false;
-            }
-        }
-        if (shell.run(null, "test -r /proc/net/udp") != 0) {
-            throw new IllegalStateException("Cannot verify loopback DNS listener absence.");
-        }
-        boolean relayAbsent = shell.run(null,
-                "grep -qi '0100007F:D11F' /proc/net/udp") != 0;
-        return RootOrphanDnsPolicy.classify(saved, true, tunnelsDown,
-                relayAbsent, routesClear, valid, tagged, pending);
+        // DNS-only cleanup is independent of live tunnels, routing and relay
+        // readiness. Nothing in recoverOrphanDns modifies those components.
+        // Requiring disconnected tunnels would cause a deadlock if a ledger is
+        // missing while the VPN is still running. Guard ownership is the one
+        // separate firewall prerequisite, checked above.
+        return RootOrphanDnsPolicy.classify(saved, true,
+                valid, tagged, pending);
     }
 
     void auditOrphanDns(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
@@ -2155,8 +2145,9 @@ final class RootMultiKernelSession {
                 dnsRemoveOwnedRules();
                 stage = "VERIFY_NO_WONHEE_DNS";
                 dnsFirewallPreflight();
-                if (countAllWonheeDnsTags() != 0 || countReservedRules() != 0) {
-                    throw new IllegalStateException("Firewall or routing remains; do not clear intent.");
+                if (countAllWonheeDnsTags() != 0) {
+                    throw new IllegalStateException("Wonhee DNS firewall tags remain; "
+                            + "do not clear recovery intent.");
                 }
                 // No relay is touched: the conservative preflight proved no
                 // listener before mutation. An unknown root process is never killed.
@@ -2165,7 +2156,8 @@ final class RootMultiKernelSession {
                 ok = true;
                 result = "BATCH H.2b — ORPHAN DNS RECOVERY VERIFIED\n"
                         + "The exact remaining Wonhee DNS firewall rules were removed.\n"
-                        + "No tunnels or unrelated firewall chains were touched. "
+                        + "No tunnels, relay processes, routing, or unrelated firewall "
+                        + "chains were touched. "
                         + "The orphan recovery marker is clear. "
                         + "Android's normal DNS may resume without VPN protection.";
             } catch (Exception | LinkageError failure) {
