@@ -82,6 +82,15 @@ Next: read format metadata only for `skb:kfree_skb`, `net:net_dev_queue`, `net:n
 - `bpftool prog show` lists Android system programs including tethering `sched_cls`, CLAT, cgroup-skb ingress/egress, socket filters and cgroup-sock. Loaded does not mean attached to a selected network interface. Do not inspect map values or alter any Android BPF program/map.
 - Remaining read-only question: identify the currently active physical underlay carrying the WireGuard outer transport before attributing any device-level observations. No TC/BPF mutation.
 
+### Active network topology — 2026-11-08 (read-only)
+
+- `dumpsys connectivity` reports **Active default network: 176**, whose `NetworkAgentInfo` is validated `WIFI` on `wlan0` (`192.168.50.84/24`, gateway `192.168.50.1`). This identifies Wi-Fi as Android's current default network at capture time.
+- A separate validated `MOBILE[LTE]` network is on `rmnet16`, with `INTERNET` capability and its own IPv4/IPv6 default routes. It is connected, but it is not the active default network in this snapshot.
+- `ipsec171` belongs to `MOBILE[IWLAN]` with `extra: IMS`; its capabilities include `IMS`/`IA` but omit `INTERNET`. Its IPv6 default route is scoped to that network. Treat it as a carrier IMS/IWLAN path, not as the general Internet underlay and not as proof of WireGuard transport.
+- The main IPv4 table contains only the directly connected Wi-Fi subnet; Android's policy rules and per-network routing tables determine the other paths. The displayed rules include both WireGuard interface/table identities and marks, but they do not reveal the peer endpoint route or prove which physical device carries either tunnel's outer UDP packets.
+- **Conclusion:** `wlan0` is the current Android default network; `rmnet16` is a connected validated cellular Internet network; `ipsec171` is a separate IMS/IWLAN network. The actual outer transport for each WireGuard peer remains **UNPROVEN** until its endpoint address and applicable socket/fwmark route are resolved. Do not infer tunnel underlay solely from the default network.
+- Next read-only step: obtain each tunnel peer endpoint IP/port without exposing private keys, then run endpoint-specific `ip route get`/`ip -6 route get` with the relevant mark (if established) and inspect the corresponding per-network route tables. No packet generation or routing changes.
+
 ### Decision update
 
 Tracepoint metadata is sufficiently promising to design a *future* bounded observational prototype, but there is still no proven direct local-OUTPUT success tracepoint in the inventory. A drop reason `NETFILTER_DROP` is useful only for packets actually dropped with that reason; it cannot certify that another packet traversed or bypassed OUTPUT. Keep all active tracing and attachment work unauthorized. Batch F stays OFF.
