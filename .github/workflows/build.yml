@@ -78,6 +78,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardFlowModel.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF3PolicyMatrix.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF4ContinuityContract.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF5LocalControlCandidate.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootUnderlayControlEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootF3cEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootF3dOutputCounters.java \
@@ -133,6 +134,7 @@ jobs:
             core-tests/RootGuardFlowModelTest.java \
             core-tests/RootGuardF3PolicyMatrixTest.java \
             core-tests/RootGuardF4ContinuityContractTest.java \
+            core-tests/RootGuardF5LocalControlCandidateTest.java \
             core-tests/RootUnderlayControlEvidenceTest.java \
             core-tests/RootF3cEvidenceTest.java \
             core-tests/RootF3dOutputCountersTest.java \
@@ -186,6 +188,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardFlowModelTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF3PolicyMatrixTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF4ContinuityContractTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF5LocalControlCandidateTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootUnderlayControlEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootF3cEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootF3dOutputCountersTest
