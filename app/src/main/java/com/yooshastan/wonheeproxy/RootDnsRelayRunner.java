@@ -122,6 +122,37 @@ final class RootDnsRelayRunner {
      * A bounded read-only root /proc check avoids racing DNS health against
      * asynchronous process startup. This is readiness, not a DNS/leak audit.
      */
+    /**
+     * Read-only Android kernel inventory. A resident UDP 53535 listener can
+     * survive app uninstall, losing its original owner ledger. Never launch
+     * a second relay on the same port or mistake the orphan for our new PID.
+     */
+    static boolean loopbackListenerPresent(RootShell shell) throws Exception {
+        if (shell.run(null, "test -r /proc/net/udp") != 0) {
+            throw new IllegalStateException(
+                    "Cannot inspect local UDP listener inventory.");
+        }
+        return shell.run(null,
+                "grep -qi '0100007F:D11F' /proc/net/udp") == 0;
+    }
+
+    static void requireLoopbackPortFree(RootShell shell) throws Exception {
+        if (loopbackListenerPresent(shell)) {
+            throw new IllegalStateException(
+                    "Port 53535 is already bound. A DNS relay may have survived "
+                    + "a previous session or reinstall. No new helper started; "
+                    + "identify the socket owner via read-only ADB before retrying.");
+        }
+    }
+
+    static void requireLoopbackPortReleased(RootShell shell) throws Exception {
+        if (loopbackListenerPresent(shell)) {
+            throw new IllegalStateException(
+                    "DNS listener on 127.0.0.1:53535 remains active. "
+                    + "Ownership must be audited; cleanup cannot be reported complete.");
+        }
+    }
+
     static boolean waitForLoopbackListener(RootShell shell) throws Exception {
         for (int attempt = 0; attempt < 12; attempt++) {
             if (shell.run(null, "grep -qi '0100007F:D11F' /proc/net/udp") == 0) {
@@ -149,6 +180,17 @@ final class RootDnsRelayRunner {
         if (shell.run(null, "kill -TERM " + pid) != 0) {
             throw new IllegalStateException("Cannot stop owned DNS relay process.");
         }
+        // Signal delivery is not shutdown verification. Do not clear the
+        // ownership ledger until the executable identity AND the listening
+        // socket have actually disappeared.
+        for (int attempt = 0; attempt < 24; attempt++) {
+            if (!sameProcess(context, shell, pid)
+                    && !loopbackListenerPresent(shell)) return;
+            Thread.sleep(100);
+        }
+        throw new IllegalStateException(
+                "DNS relay shutdown NOT VERIFIED: PID or UDP 53535 listener remains. "
+                + "Preserve the saved ownership record and inspect with ADB.");
     }
 
     static int healthQuery() throws Exception {
