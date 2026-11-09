@@ -10,7 +10,53 @@ cd "$project_dir"
 store_root="${XDG_DATA_HOME:-$HOME/.local/share}/yooshastan/wonhee-signing"
 store="$store_root/wonhee-release.p12"
 alias="wonhee-release"
-sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+# Use the SDK already configured by Gradle or installed locally, without
+# imposing an older Build Tools version on a newer Android SDK.
+sdk=""
+sdk_candidates=()
+if [[ -n "${ANDROID_SDK_ROOT:-}" ]]; then
+  sdk_candidates+=("$ANDROID_SDK_ROOT")
+fi
+if [[ -n "${ANDROID_HOME:-}" ]]; then
+  sdk_candidates+=("$ANDROID_HOME")
+fi
+if [[ -f local.properties ]]; then
+  local_sdk="$(sed -n 's/^sdk\.dir=//p' local.properties | head -n 1)"
+  if [[ -n "$local_sdk" ]]; then
+    sdk_candidates+=("${local_sdk//\\ / }")
+  fi
+fi
+sdk_candidates+=("$HOME/Android/Sdk" "$HOME/Android/sdk" "/opt/android-sdk" "/usr/lib/android-sdk")
+for candidate in "${sdk_candidates[@]}"; do
+  if [[ -d "$candidate/build-tools" ]]; then
+    sdk="$(cd "$candidate" && pwd)"
+    break
+  fi
+done
+if [[ -z "$sdk" ]]; then
+  echo "Android SDK not found. Set ANDROID_SDK_ROOT to your existing SDK directory." >&2
+  echo "Checked: environment variables, local.properties, ~/Android/Sdk and common system paths." >&2
+  exit 1
+fi
+
+build_tools=""
+while IFS= read -r version; do
+  tools_dir="$sdk/build-tools/$version"
+  if [[ -x "$tools_dir/apksigner" && -x "$tools_dir/aapt" ]]; then
+    build_tools="$tools_dir"
+    break
+  fi
+done < <(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -Vr)
+if [[ -z "$build_tools" ]]; then
+  echo "SDK found at: $sdk" >&2
+  echo "No installed Build Tools version includes both apksigner and aapt." >&2
+  echo "Inspect available versions with: ls -1 \"$sdk/build-tools\"" >&2
+  exit 1
+fi
+export ANDROID_SDK_ROOT="$sdk"
+export ANDROID_HOME="$sdk"
+echo "Using Android SDK: $sdk"
+echo "Using installed Build Tools: ${build_tools##*/}"
 
 for bin in git keytool go java; do
   command -v "$bin" >/dev/null || {
@@ -22,12 +68,6 @@ done
 if [[ ! -f "$store" || -L "$store" ]]; then
   echo "REFUSED: original release keystore missing or symlinked: $store" >&2
   echo "Restore original keystore; NEVER regenerate a deployed release key." >&2
-  exit 1
-fi
-if [[ -z "$sdk" || ! -x "$sdk/build-tools/35.0.0/apksigner" ||
-      ! -x "$sdk/build-tools/35.0.0/aapt" ]]; then
-  echo "Android SDK build-tools 35.0.0 missing; set ANDROID_SDK_ROOT." >&2
-  echo "Install Android SDK platform android-36 and build-tools 35.0.0." >&2
   exit 1
 fi
 
@@ -74,7 +114,7 @@ bash scripts/build-root-doh-helper.sh
 
 apk="app/build/outputs/apk/release/app-release.apk"
 [[ -s "$apk" ]] || { echo "No release APK generated." >&2; exit 1; }
-signer_output="$("$sdk/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk")"
+signer_output="$("$build_tools/apksigner" verify --verbose --print-certs "$apk")"
 actual="$(printf '%s\n' "$signer_output" |
   sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 |
   tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
@@ -82,7 +122,7 @@ if [[ "$actual" != "$expected" ]]; then
   echo "REFUSED: APK signing identity does not match original local keystore." >&2
   exit 1
 fi
-manifest="$("$sdk/build-tools/35.0.0/aapt" dump badging "$apk" | head -n 1)"
+manifest="$("$build_tools/aapt" dump badging "$apk" | head -n 1)"
 if [[ "$manifest" != "package: name='com.yooshastan.wonheeproxy' "* ]]; then
   echo "REFUSED: wrong package identity: $manifest" >&2
   exit 1
