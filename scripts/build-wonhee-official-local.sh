@@ -65,6 +65,36 @@ for bin in git keytool go java; do
   }
 done
 
+# Gradle 8.13 is not compatible with Java 25. Select a stable installed
+# JDK for this one build without changing the Fedora default Java.
+select_gradle_jdk() {
+  local major candidate first_line
+  for major in 17 21; do
+    for candidate in \
+      /usr/lib/jvm/java-"$major"-openjdk \
+      /usr/lib/jvm/java-"$major"-openjdk-* \
+      /usr/lib/jvm/jdk-"$major"* \
+      "$HOME"/.sdkman/candidates/java/"$major"*; do
+      [[ -x "$candidate/bin/java" && -x "$candidate/bin/javac" ]] || continue
+      first_line="$("$candidate/bin/java" -version 2>&1 | head -n 1)"
+      if [[ "$first_line" == *"\"$major."* ]]; then
+        export JAVA_HOME="$(cd "$candidate" && pwd -P)"
+        export PATH="$JAVA_HOME/bin:$PATH"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+if ! select_gradle_jdk; then
+  echo "Gradle 8.13 cannot run under Java 25 (class file major 69)." >&2
+  echo "Install a supported JDK: sudo dnf install -y java-21-openjdk-devel" >&2
+  echo "Or install JDK 17, then rerun this script. Fedora's default Java will not change." >&2
+  exit 1
+fi
+echo "Using Gradle JDK: $JAVA_HOME"
+java -version 2>&1 | head -n 1
+
 if [[ ! -f "$store" || -L "$store" ]]; then
   echo "REFUSED: original release keystore missing or symlinked: $store" >&2
   echo "Restore original keystore; NEVER regenerate a deployed release key." >&2
