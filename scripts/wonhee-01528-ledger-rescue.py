@@ -21,7 +21,10 @@ FILE = BASE / "wonhee_owned_split_routes.xml"
 DNS_FILE = BASE / "wonhee_owned_dns_policy.xml"
 GUARD_FILE = BASE / "wonhee_owned_guard_policy.xml"
 KEY = "pending_or_installed_rules_v1"
-TRAILER = b"\n    "
+# Android SharedPreferences XmlSerializer may encode LF as an XML numeric
+# character reference. Compare decoded XML text for ownership, then remove only
+# the four literal spaces from the raw XML, not the LF/entity or any routing data.
+RAW_TRAILERS = (b"&#10;    ", b"&#xA;    ", b"&#xa;    ", b"\n    ")
 HOME = "wnma292ddb4b6da"
 AIR = "wnm68fe81200daa"
 EXPECTED = [
@@ -69,10 +72,18 @@ def inspect_ledger():
     require(len(matches) == 1, "Expected exactly one plain routing string in XML")
     match = matches[0]
     body = match.group(1)
-    require(body.endswith(TRAILER), "Exact 4-space trailing padding not present; refusing")
-    require(xml_key(FILE, KEY).encode("utf-8") == body,
+    value = xml_key(FILE, KEY)
+    require(value.endswith("\n    ") and
+            len(value) - len(value.rstrip()) == 5,
+            "Actual parsed preference is not exactly LF plus four spaces; refusing")
+    require(any(body.endswith(tail) for tail in RAW_TRAILERS),
+            "Serialized XML is not a recognized LF plus four-space suffix; refusing")
+    decoded_body = body.replace(b"&#10;", b"\n").replace(
+        b"&#xA;", b"\n").replace(b"&#xa;", b"\n")
+    require(decoded_body == value.encode("utf-8"),
             "Raw XML and parsed value disagree; no repair")
-    lines = body[:-4].decode("utf-8").splitlines()
+    clean_value = value[:-4]
+    lines = clean_value.splitlines()
     require(len(lines) == 3, "Expected precisely three nonempty saved routes")
     for idx, (line, expected) in enumerate(zip(lines, EXPECTED)):
         fields = line.split("|")
@@ -88,7 +99,7 @@ def inspect_ledger():
     try:
         root = ET.fromstring(patched)
         node = root.find("./string[@name='pending_or_installed_rules_v1']")
-        require(node is not None and (node.text or "").encode("utf-8") == new_body,
+        require(node is not None and (node.text or "") == clean_value,
                 "Patched XML failed readback verification")
     except ET.ParseError as e:
         raise Refuse("Patched XML would not be valid") from e
