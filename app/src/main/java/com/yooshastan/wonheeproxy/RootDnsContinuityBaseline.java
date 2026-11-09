@@ -94,8 +94,13 @@ final class RootDnsContinuityBaseline {
         if (Math.abs(wallDelta - uptimeDelta) > CLOCK_TOLERANCE_MS) {
             return "REBOOT OR DEVICE CLOCK CHANGE SUSPECTED. Baseline cannot prove continuity.";
         }
-        if (!current.relayVerified || current.relayPid < 2) {
+        if (!current.relayVerified) {
             return "DNS RELAY NOT VERIFIED NOW. Check live listener and DNS firewall audit.";
+        }
+        if (current.relayPid < 2 || current.received < 0 || current.blocked < 0
+                || current.forwarded < 0 || current.failed < 0) {
+            return "DNS AGGREGATE COUNTERS UNAVAILABLE NOW. Relay may still be running; "
+                    + "check its statistics and live audit.";
         }
         if (!current.trackerEnabled) {
             return "TRACKER FILTER NOT VERIFIED AS ENABLED NOW. Check the DNS audit.";
