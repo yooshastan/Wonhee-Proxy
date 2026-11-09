@@ -75,7 +75,7 @@ public final class RootGuardF4ContinuityContractTest {
                 6, "ff02::1:ff00:1", "wlan0", "icmpv6", 0, 0))
                 == RootGuardFlowModel.Result.REJECT,
                 "old terminal REJECT covers representative outgoing IPv6 NS");
-        check(!RootGuardSafetyGate.activationPaused() == false,
+        check(RootGuardSafetyGate.activationPaused(),
                 "Batch F guard must remain paused throughout design/test stage");
 
         System.out.println("RootGuardF4ContinuityContractTest PASS");
