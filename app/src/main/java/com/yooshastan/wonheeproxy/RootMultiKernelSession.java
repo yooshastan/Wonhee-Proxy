@@ -974,6 +974,8 @@ final class RootMultiKernelSession {
                 }
                 stage = "FIREWALL_COLLISION_PREFLIGHT";
                 dnsFirewallPreflight();
+                stage = "RELAY_PORT_PREFLIGHT";
+                RootDnsRelayRunner.requireLoopbackPortFree(shell);
                 stage = "RELAY_PREPARE";
                 RootDnsRelayRunner.prepare(appContext);
                 stage = "RELAY_LAUNCH";
@@ -1097,6 +1099,8 @@ final class RootMultiKernelSession {
                 }
                 stage = "FIREWALL_COLLISION_PREFLIGHT";
                 dnsFirewallPreflight();
+                stage = "RELAY_PORT_PREFLIGHT";
+                RootDnsRelayRunner.requireLoopbackPortFree(shell);
                 stage = "RELAY_PREPARE";
                 RootDnsRelayRunner.prepare(appContext);
                 RootDnsRelayRunner.prepareTrackerPolicy(appContext, tracker);
@@ -1150,6 +1154,7 @@ final class RootMultiKernelSession {
                         if (spawned > 0 && RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
                             RootDnsRelayRunner.stop(appContext, shell, spawned);
                         }
+                        RootDnsRelayRunner.requireLoopbackPortReleased(shell);
                         RootDnsRelayRunner.removeTrackerPolicy(appContext);
                         saveDnsRecord("");
                         message = "DNS activation failed; exact owned rules rolled back. "
@@ -1194,6 +1199,7 @@ final class RootMultiKernelSession {
                 if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
                     RootDnsRelayRunner.stop(appContext, shell, owned.pid);
                 }
+                RootDnsRelayRunner.requireLoopbackPortReleased(shell);
                 RootDnsRelayRunner.removeTrackerPolicy(appContext);
                 saveDnsRecord("");
                 ok = true;
@@ -1274,19 +1280,30 @@ final class RootMultiKernelSession {
             try {
                 String record = dnsRecord();
                 if (record == null || record.isEmpty()) {
-                    ok = true;
-                    message = "DNS enforcement: OFF in owned ledger. This is not proof "
-                            + "that no outside firewall rules exist.";
+                    shell.start();
+                    int liveTags = countAllWonheeDnsTags();
+                    boolean listener = RootDnsRelayRunner.loopbackListenerPresent(shell);
+                    ok = liveTags == 0 && !listener;
+                    message = "DNS ledger: EMPTY\n"
+                            + "Wonhee firewall OUTPUT rules: " + liveTags + "\n"
+                            + "UDP 127.0.0.1:53535 listener: "
+                            + (listener ? "PRESENT — unidentified, needs read-only owner audit"
+                                    : "ABSENT") + "\n"
+                            + (ok ? "No Wonhee DNS interception or relay listener detected."
+                                    : "DNS CLEANUP NOT COMPLETE. Never flush iptables or "
+                                    + "kill an unverified process. Inspect before startup.");
                 } else {
                     DnsRecord owned = DnsRecord.decode(record);
                     shell.start();
                     dnsVerifyOwnedRules(true);
                     boolean alive = RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
+                    boolean listener = RootDnsRelayRunner.loopbackListenerPresent(shell);
                     boolean trackerConfirmed = !owned.trackerFiltering ||
                             (alive && RootDnsRelayRunner.blockedHealthQuery());
-                    ok = alive && trackerConfirmed;
+                    ok = alive && listener && trackerConfirmed;
                     message = "DNS enforcement ledger: OWNED\nExact firewall rules: MATCH\n"
                             + "Relay process: " + (alive ? "ALIVE" : "MISSING — DNS remains fail-closed")
+                            + "\nLoopback UDP 53535: " + (listener ? "LISTENING" : "NOT LISTENING")
                             + "\nBatch E tracker filter: " + (owned.trackerFiltering
                             ? (trackerConfirmed ? "LOCAL BLOCK VERIFIED" : "REFUSED OR UNAVAILABLE") : "OFF")
                             + "\nUpstream tunnel: " + owned.device + " (identity not rechecked by this audit)";
@@ -2073,9 +2090,13 @@ final class RootMultiKernelSession {
             String result;
             try {
                 RootOrphanDnsPolicy.State state = inspectOrphanDns();
-                ok = state != RootOrphanDnsPolicy.State.BLOCKED;
-                result = "BATCH H.2b — ORPHAN DNS AUDIT (READ ONLY)\n"
-                        + "State: " + state + "\n"
+                boolean listener = RootDnsRelayRunner.loopbackListenerPresent(shell);
+                ok = state != RootOrphanDnsPolicy.State.BLOCKED
+                        && (!listener || state == RootOrphanDnsPolicy.State.SAVED_OWNERSHIP);
+                result = "BATCH H.2c — ORPHAN DNS / LISTENER AUDIT (READ ONLY)\n"
+                        + "Firewall ownership: " + state + "\n"
+                        + "UDP 127.0.0.1:53535: "
+                        + (listener ? "LISTENER PRESENT" : "NO LISTENER") + "\n"
                         + (state == RootOrphanDnsPolicy.State.READY_FOR_EXPLICIT_REPAIR
                             ? "All 8 exact Wonhee DNS rules found with no owner ledger; "
                               + "recovery requires a second explicit confirmation."
@@ -2083,7 +2104,10 @@ final class RootMultiKernelSession {
                             ? "A previously confirmed exact cleanup was interrupted; "
                               + "remaining rules can be revalidated and removed."
                             : state == RootOrphanDnsPolicy.State.CLEAN
-                            ? "No Wonhee DNS tags remain and the recovery marker is clear."
+                            ? (listener ? "Firewall rules are clear, but an unidentified "
+                                    + "DNS listener remains. Do not start another relay."
+                                    : "No Wonhee DNS tags or relay listener remain; "
+                                    + "the recovery marker is clear.")
                             : state == RootOrphanDnsPolicy.State.SAVED_OWNERSHIP
                             ? "The normal DNS owner ledger exists. Use Disable owned DNS instead."
                             : state == RootOrphanDnsPolicy.State.PENDING_CLEARED
@@ -3353,6 +3377,9 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException("Untracked priority-12500+ rules remain.");
                 }
                 dnsFirewallPreflight();
+                // Fail BEFORE connecting either tunnel if a prior DNS helper
+                // survived the last stop or an app reinstall.
+                RootDnsRelayRunner.requireLoopbackPortFree(shell);
                 RootFailClosedFirewallRuntime.preflight(shell);
                 Set<String> active = backend.getRunningTunnelNames();
                 for (String name : active) {
@@ -3453,6 +3480,7 @@ final class RootMultiKernelSession {
                     if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
                         RootDnsRelayRunner.stop(appContext, shell, owned.pid);
                     }
+                    RootDnsRelayRunner.requireLoopbackPortReleased(shell);
                     RootDnsRelayRunner.removeTrackerPolicy(appContext);
                     saveDnsRecord("");
                 }

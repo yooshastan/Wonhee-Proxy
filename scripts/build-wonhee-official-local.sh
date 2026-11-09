@@ -10,7 +10,53 @@ cd "$project_dir"
 store_root="${XDG_DATA_HOME:-$HOME/.local/share}/yooshastan/wonhee-signing"
 store="$store_root/wonhee-release.p12"
 alias="wonhee-release"
-sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+# Use the SDK already configured by Gradle or installed locally, without
+# imposing an older Build Tools version on a newer Android SDK.
+sdk=""
+sdk_candidates=()
+if [[ -n "${ANDROID_SDK_ROOT:-}" ]]; then
+  sdk_candidates+=("$ANDROID_SDK_ROOT")
+fi
+if [[ -n "${ANDROID_HOME:-}" ]]; then
+  sdk_candidates+=("$ANDROID_HOME")
+fi
+if [[ -f local.properties ]]; then
+  local_sdk="$(sed -n 's/^sdk\.dir=//p' local.properties | head -n 1)"
+  if [[ -n "$local_sdk" ]]; then
+    sdk_candidates+=("${local_sdk//\\ / }")
+  fi
+fi
+sdk_candidates+=("$HOME/Android/Sdk" "$HOME/Android/sdk" "/opt/android-sdk" "/usr/lib/android-sdk")
+for candidate in "${sdk_candidates[@]}"; do
+  if [[ -d "$candidate/build-tools" ]]; then
+    sdk="$(cd "$candidate" && pwd)"
+    break
+  fi
+done
+if [[ -z "$sdk" ]]; then
+  echo "Android SDK not found. Set ANDROID_SDK_ROOT to your existing SDK directory." >&2
+  echo "Checked: environment variables, local.properties, ~/Android/Sdk and common system paths." >&2
+  exit 1
+fi
+
+build_tools=""
+while IFS= read -r version; do
+  tools_dir="$sdk/build-tools/$version"
+  if [[ -x "$tools_dir/apksigner" && -x "$tools_dir/aapt" ]]; then
+    build_tools="$tools_dir"
+    break
+  fi
+done < <(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -Vr)
+if [[ -z "$build_tools" ]]; then
+  echo "SDK found at: $sdk" >&2
+  echo "No installed Build Tools version includes both apksigner and aapt." >&2
+  echo "Inspect available versions with: ls -1 \"$sdk/build-tools\"" >&2
+  exit 1
+fi
+export ANDROID_SDK_ROOT="$sdk"
+export ANDROID_HOME="$sdk"
+echo "Using Android SDK: $sdk"
+echo "Using installed Build Tools: ${build_tools##*/}"
 
 for bin in git keytool go java; do
   command -v "$bin" >/dev/null || {
@@ -19,20 +65,74 @@ for bin in git keytool go java; do
   }
 done
 
+# Gradle 8.13 is not compatible with Java 25. Respect the user's chosen
+# Java and javac alternatives first, then discover Fedora's full JDK paths.
+# This changes only this script's environment, NOT system alternatives.
+select_gradle_jdk() {
+  local candidate first_line javac_line major javac_major resolved binary
+  local -a candidates=()
+
+  if [[ -n "${JAVA_HOME:-}" ]]; then
+    candidates+=("$JAVA_HOME")
+  fi
+  for binary in java javac; do
+    resolved="$(readlink -f "$(command -v "$binary")" 2>/dev/null || true)"
+    if [[ "$resolved" == */bin/"$binary" ]]; then
+      candidates+=("${resolved%/bin/$binary}")
+    fi
+  done
+  candidates+=(
+    /usr/lib/jvm/java-21-openjdk
+    /usr/lib/jvm/java-17-openjdk
+    /usr/lib/jvm/java-21-openjdk-*
+    /usr/lib/jvm/java-17-openjdk-*
+    /usr/lib/jvm/*
+    "$HOME"/.sdkman/candidates/java/*
+    "$HOME"/.jdks/*
+  )
+
+  for candidate in "${candidates[@]}"; do
+    [[ -x "$candidate/bin/java" && -x "$candidate/bin/javac" ]] || continue
+    first_line="$("$candidate/bin/java" -version 2>&1 | head -n 1)"
+    javac_line="$("$candidate/bin/javac" -version 2>&1 | head -n 1)"
+
+    # Handles 'openjdk version "21"', '"21.0.9"' and vendor JDK variants
+    # without relying on Fedora directory names or brittle major patterns.
+    [[ "$first_line" == *\"* ]] || continue
+    major="${first_line#*\"}"
+    major="${major%%[!0-9]*}"
+    javac_major="${javac_line#javac }"
+    javac_major="${javac_major%%[!0-9]*}"
+    if [[ ( "$major" == 17 || "$major" == 21 ) && "$javac_major" == "$major" ]]; then
+      export JAVA_HOME="$(cd "$candidate" && pwd -P)"
+      export PATH="$JAVA_HOME/bin:$PATH"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! select_gradle_jdk; then
+  echo "Could not find a Java 17/21 JDK with a matching javac compiler." >&2
+  echo "Current Java: $(java -version 2>&1 | head -n 1)" >&2
+  echo "Current javac: $(javac -version 2>&1 | head -n 1)" >&2
+  echo "Installed Fedora JDKs:" >&2
+  ls -1 /usr/lib/jvm/ 2>/dev/null >&2 || true
+  echo "Install the JDK (not only JRE): sudo dnf install java-21-openjdk-devel" >&2
+  echo "You can also set JAVA_HOME explicitly; system defaults are unchanged." >&2
+  exit 1
+fi
+echo "Using Gradle JDK: $JAVA_HOME"
+java -version 2>&1 | head -n 1
+
 if [[ ! -f "$store" || -L "$store" ]]; then
   echo "REFUSED: original release keystore missing or symlinked: $store" >&2
   echo "Restore original keystore; NEVER regenerate a deployed release key." >&2
   exit 1
 fi
-if [[ -z "$sdk" || ! -x "$sdk/build-tools/35.0.0/apksigner" ||
-      ! -x "$sdk/build-tools/35.0.0/aapt" ]]; then
-  echo "Android SDK build-tools 35.0.0 missing; set ANDROID_SDK_ROOT." >&2
-  echo "Install Android SDK platform android-36 and build-tools 35.0.0." >&2
-  exit 1
-fi
 
 branch="$(git branch --show-current)"
-if [[ "$branch" != feature/persistent-official-signing-01524 ]]; then
+if [[ "$branch" != feature/batch-h2c-dns-listener-lifecycle-01525 ]]; then
   echo "REFUSED: expected reviewed signing branch; currently: $branch" >&2
   exit 1
 fi
@@ -74,7 +174,7 @@ bash scripts/build-root-doh-helper.sh
 
 apk="app/build/outputs/apk/release/app-release.apk"
 [[ -s "$apk" ]] || { echo "No release APK generated." >&2; exit 1; }
-signer_output="$("$sdk/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk")"
+signer_output="$("$build_tools/apksigner" verify --verbose --print-certs "$apk")"
 actual="$(printf '%s\n' "$signer_output" |
   sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 |
   tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
@@ -82,7 +182,7 @@ if [[ "$actual" != "$expected" ]]; then
   echo "REFUSED: APK signing identity does not match original local keystore." >&2
   exit 1
 fi
-manifest="$("$sdk/build-tools/35.0.0/aapt" dump badging "$apk" | head -n 1)"
+manifest="$("$build_tools/aapt" dump badging "$apk" | head -n 1)"
 if [[ "$manifest" != "package: name='com.yooshastan.wonheeproxy' "* ]]; then
   echo "REFUSED: wrong package identity: $manifest" >&2
   exit 1
