@@ -974,6 +974,8 @@ final class RootMultiKernelSession {
                 }
                 stage = "FIREWALL_COLLISION_PREFLIGHT";
                 dnsFirewallPreflight();
+                stage = "RELAY_PORT_PREFLIGHT";
+                RootDnsRelayRunner.requireLoopbackPortFree(shell);
                 stage = "RELAY_PREPARE";
                 RootDnsRelayRunner.prepare(appContext);
                 stage = "RELAY_LAUNCH";
@@ -1097,6 +1099,8 @@ final class RootMultiKernelSession {
                 }
                 stage = "FIREWALL_COLLISION_PREFLIGHT";
                 dnsFirewallPreflight();
+                stage = "RELAY_PORT_PREFLIGHT";
+                RootDnsRelayRunner.requireLoopbackPortFree(shell);
                 stage = "RELAY_PREPARE";
                 RootDnsRelayRunner.prepare(appContext);
                 RootDnsRelayRunner.prepareTrackerPolicy(appContext, tracker);
@@ -1150,6 +1154,7 @@ final class RootMultiKernelSession {
                         if (spawned > 0 && RootDnsRelayRunner.sameProcess(appContext, shell, spawned)) {
                             RootDnsRelayRunner.stop(appContext, shell, spawned);
                         }
+                        RootDnsRelayRunner.requireLoopbackPortReleased(shell);
                         RootDnsRelayRunner.removeTrackerPolicy(appContext);
                         saveDnsRecord("");
                         message = "DNS activation failed; exact owned rules rolled back. "
@@ -1194,6 +1199,7 @@ final class RootMultiKernelSession {
                 if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
                     RootDnsRelayRunner.stop(appContext, shell, owned.pid);
                 }
+                RootDnsRelayRunner.requireLoopbackPortReleased(shell);
                 RootDnsRelayRunner.removeTrackerPolicy(appContext);
                 saveDnsRecord("");
                 ok = true;
@@ -1274,19 +1280,30 @@ final class RootMultiKernelSession {
             try {
                 String record = dnsRecord();
                 if (record == null || record.isEmpty()) {
-                    ok = true;
-                    message = "DNS enforcement: OFF in owned ledger. This is not proof "
-                            + "that no outside firewall rules exist.";
+                    shell.start();
+                    int liveTags = countAllWonheeDnsTags();
+                    boolean listener = RootDnsRelayRunner.loopbackListenerPresent(shell);
+                    ok = liveTags == 0 && !listener;
+                    message = "DNS ledger: EMPTY\n"
+                            + "Wonhee firewall OUTPUT rules: " + liveTags + "\n"
+                            + "UDP 127.0.0.1:53535 listener: "
+                            + (listener ? "PRESENT — unidentified, needs read-only owner audit"
+                                    : "ABSENT") + "\n"
+                            + (ok ? "No Wonhee DNS interception or relay listener detected."
+                                    : "DNS CLEANUP NOT COMPLETE. Never flush iptables or "
+                                    + "kill an unverified process. Inspect before startup.");
                 } else {
                     DnsRecord owned = DnsRecord.decode(record);
                     shell.start();
                     dnsVerifyOwnedRules(true);
                     boolean alive = RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
+                    boolean listener = RootDnsRelayRunner.loopbackListenerPresent(shell);
                     boolean trackerConfirmed = !owned.trackerFiltering ||
                             (alive && RootDnsRelayRunner.blockedHealthQuery());
-                    ok = alive && trackerConfirmed;
+                    ok = alive && listener && trackerConfirmed;
                     message = "DNS enforcement ledger: OWNED\nExact firewall rules: MATCH\n"
                             + "Relay process: " + (alive ? "ALIVE" : "MISSING — DNS remains fail-closed")
+                            + "\nLoopback UDP 53535: " + (listener ? "LISTENING" : "NOT LISTENING")
                             + "\nBatch E tracker filter: " + (owned.trackerFiltering
                             ? (trackerConfirmed ? "LOCAL BLOCK VERIFIED" : "REFUSED OR UNAVAILABLE") : "OFF")
                             + "\nUpstream tunnel: " + owned.device + " (identity not rechecked by this audit)";
@@ -3453,6 +3470,7 @@ final class RootMultiKernelSession {
                     if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)) {
                         RootDnsRelayRunner.stop(appContext, shell, owned.pid);
                     }
+                    RootDnsRelayRunner.requireLoopbackPortReleased(shell);
                     RootDnsRelayRunner.removeTrackerPolicy(appContext);
                     saveDnsRecord("");
                 }
