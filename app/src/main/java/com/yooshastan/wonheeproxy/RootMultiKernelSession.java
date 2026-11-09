@@ -2090,9 +2090,13 @@ final class RootMultiKernelSession {
             String result;
             try {
                 RootOrphanDnsPolicy.State state = inspectOrphanDns();
-                ok = state != RootOrphanDnsPolicy.State.BLOCKED;
-                result = "BATCH H.2b — ORPHAN DNS AUDIT (READ ONLY)\n"
-                        + "State: " + state + "\n"
+                boolean listener = RootDnsRelayRunner.loopbackListenerPresent(shell);
+                ok = state != RootOrphanDnsPolicy.State.BLOCKED
+                        && (!listener || state == RootOrphanDnsPolicy.State.SAVED_OWNERSHIP);
+                result = "BATCH H.2c — ORPHAN DNS / LISTENER AUDIT (READ ONLY)\n"
+                        + "Firewall ownership: " + state + "\n"
+                        + "UDP 127.0.0.1:53535: "
+                        + (listener ? "LISTENER PRESENT" : "NO LISTENER") + "\n"
                         + (state == RootOrphanDnsPolicy.State.READY_FOR_EXPLICIT_REPAIR
                             ? "All 8 exact Wonhee DNS rules found with no owner ledger; "
                               + "recovery requires a second explicit confirmation."
@@ -2100,7 +2104,10 @@ final class RootMultiKernelSession {
                             ? "A previously confirmed exact cleanup was interrupted; "
                               + "remaining rules can be revalidated and removed."
                             : state == RootOrphanDnsPolicy.State.CLEAN
-                            ? "No Wonhee DNS tags remain and the recovery marker is clear."
+                            ? (listener ? "Firewall rules are clear, but an unidentified "
+                                    + "DNS listener remains. Do not start another relay."
+                                    : "No Wonhee DNS tags or relay listener remain; "
+                                    + "the recovery marker is clear.")
                             : state == RootOrphanDnsPolicy.State.SAVED_OWNERSHIP
                             ? "The normal DNS owner ledger exists. Use Disable owned DNS instead."
                             : state == RootOrphanDnsPolicy.State.PENDING_CLEARED
