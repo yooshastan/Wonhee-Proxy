@@ -686,19 +686,25 @@ final class RootMultiKernelSession {
         worker.execute(() -> {
             boolean ok = false;
             String result;
+            String stage = "PROFILE_LOAD";
             try {
                 List<Active> selected = loadAll(profiles);
+                stage = "ROUTE_PLANNING";
                 List<RootSplitRouteRules.Rule> planned = RootSplitRouteRules.plan(routeEntries(selected));
+                stage = "ROOT_BACKEND";
                 rootReady();
                 StringBuilder report = new StringBuilder("READ-ONLY ROOT ROUTE AUDIT\n");
                 report.append(RootSplitRouteRules.preview(planned)).append('\n');
+                stage = "SPLIT_LEDGER_DECODE";
                 List<RootSplitRouteRules.Rule> stored = RootSplitRouteRules.decode(savedRules());
                 report.append("Wonhee rollback ledger: ").append(stored.isEmpty()
                         ? "EMPTY" : stored.size() + " proposed/installed rule(s)").append('\n');
+                stage = "LIVE_RESERVED_RULE_INVENTORY";
                 int reserved = countReservedRules();
                 report.append("Live reserved-priority rules: ").append(reserved).append('\n');
                 // Exact kernel rules and recorded ownership must match before
                 // a route MATCH can count as a successful ownership audit.
+                stage = "EXACT_ROUTING_OWNERSHIP";
                 boolean ownedExact = !stored.isEmpty() && reserved == stored.size()
                         && rulesMatchExactly(stored);
                 boolean ownershipOk = RootSplitRouteRules.auditOwnershipConsistent(
@@ -717,6 +723,7 @@ final class RootMultiKernelSession {
                             + "do not agree. Keep tunnels connected and investigate "
                             + "before changing rules; do not assume ownership.\n");
                 }
+                stage = "KERNEL_ROUTE_SIMULATION";
                 int matched = 0;
                 for (RootSplitRouteRules.Rule rule : planned) {
                     String actual = routeDevice(rule.family, rule.probe);
@@ -741,6 +748,7 @@ final class RootMultiKernelSession {
                         }
                     }
                 }
+                stage = "ANDROID_MARK_ROUTE_SIMULATION";
                 boolean markAwareOk = appendMarkAwareRouteAudit(routeEntries(selected), planned, report);
                 report.append("Split-route matches: ").append(matched).append('/')
                         .append(planned.size()).append(". These are UID-0 and representative "
@@ -748,9 +756,14 @@ final class RootMultiKernelSession {
                         + "packet capture or kill-switch tests.");
                 result = report.toString();
                 ok = ownershipOk && matched == planned.size() && markAwareOk;
-            } catch (Exception | LinkageError ignored) {
-                result = "Route audit could not complete. Verify root, saved profiles, "
-                        + "and any owned-rule ledger. No routes were changed.";
+            } catch (Exception | LinkageError failure) {
+                // The UI reports a stage and exception class only. Do not dump
+                // raw preferences or diagnostic shell output: it may contain
+                // private VPN endpoint or profile data.
+                result = "READ-ONLY ROUTE AUDIT FAILED [" + stage + "] ("
+                        + failure.getClass().getSimpleName() + "). "
+                        + "Check selected profiles, root tools and ownership ledgers. "
+                        + "No routes were changed.";
             }
             finish(callback, ok, result);
         });
