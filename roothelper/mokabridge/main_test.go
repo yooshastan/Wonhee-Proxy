@@ -61,7 +61,9 @@ func testHandler(t *testing.T, server *httptest.Server) http.Handler {
 }
 
 func bridgeRequest(method, path string, authorized bool) *http.Request {
-	req := httptest.NewRequest(method, "http://127.0.0.1"+path, nil)
+	// Incoming HTTP servers receive origin-form request targets, not absolute
+	// URLs. Test the same shape the real loopback listener will see.
+	req := httptest.NewRequest(method, path, nil)
 	if authorized {
 		req.Header.Set(tokenHeader, hex.EncodeToString(testConfig().token))
 	}
