@@ -3365,6 +3365,40 @@ final class RootMultiKernelSession {
     }
 
     /**
+     * Read-only update gate: ONLY a clean stopped live+ledger audit is ready.
+     * Android's external package installer cannot be intercepted by this app.
+     * The Fedora safe-installer independently re-audits the device just before
+     * invoking adb install. This callback is not an authorization token.
+     */
+    void verifyUpdateReadiness(List<SecureTunnelProfileStore.Profile> ignored,
+                               Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ready = false;
+            String message;
+            try {
+                RootLifecycleRecoveryPlan plan = inspectLifecycleRecoveryState();
+                ready = plan.state == RootLifecycleRecoveryPlan.State.CLEAN_STOPPED;
+                message = ready
+                        ? "UPDATE PREFLIGHT — CLEAN STOPPED\\n"
+                          + "No active Wonhee tunnel, owned DNS intercept or relay, "
+                          + "reserved split rule, or pending owner ledger observed.\\n"
+                          + "Verify again in the trusted installation script immediately "
+                          + "before upgrading. Unprotected network access is now possible."
+                        : "UPDATE BLOCKED — " + plan.state + "\\n" + plan.nextAction
+                          + "\\nNo package update should be attempted.";
+            } catch (Exception | LinkageError failure) {
+                message = "UPDATE BLOCKED — CANNOT VERIFY LIVE STATE\\n"
+                        + (failure instanceof IllegalStateException
+                            ? failure.getMessage()
+                            : "Kernel interfaces, ownership or root audit unavailable.")
+                        + "\\nDo not force the update or clear firewall rules.";
+            }
+            finish(callback, ready, message);
+        });
+    }
+
+    /**
      * Explicit permission to reconcile *stopped* state after a crash/reboot.
      * The live firewall, listener and route inventory is checked again inside
      * the same root worker immediately before any exact owned deletion.
