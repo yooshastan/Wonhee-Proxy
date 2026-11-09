@@ -43,6 +43,10 @@ public final class RootDnsContinuityBaselineTest {
                 read(wall + 1000, uptime + 1000, 300, 2, 2, 55, 22, 28, 5,
                         false, true)).contains("NOT VERIFIED"), "Missing relay");
         check(RootDnsContinuityBaseline.compare(decoded,
+                read(wall + 1000, uptime + 1000, 0, 2, 2, -1, -1, -1, -1,
+                        true, true)).contains("COUNTERS UNAVAILABLE"),
+                "Statistics unavailable is not an unverified listener or counter reset");
+        check(RootDnsContinuityBaseline.compare(decoded,
                 read(wall + 1000, uptime + 1000, 300, 2, 2, 55, 22, 28, 5,
                         true, false)).contains("TRACKER FILTER"), "Disabled filter");
         check(RootDnsContinuityBaseline.compare(decoded,
