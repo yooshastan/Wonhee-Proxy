@@ -1488,16 +1488,16 @@ public final class RootMultiKernelActivity extends Activity {
                     session.stopManagedStack(chosen, (stopped, result) -> {
                         if (!stopped) {
                             finishManagedLifecycle(false,
-                                    "UPDATE BLOCKED — Safe Stop did not finish.\\n" + result);
+                                    "UPDATE BLOCKED — Safe Stop did not finish.\n" + result);
                             return;
                         }
                         output.setText("UPDATE PREPARATION — independent stopped-state audit...");
                         session.verifyUpdateReadiness(chosen, (ready, audit) -> {
                             if (ready) RootMultiTrafficNotificationService.stop(this);
                             finishManagedLifecycle(ready,
-                                    (ready ? "UPDATE PREPARED — use guarded Fedora installer.\\n"
-                                            : "UPDATE BLOCKED — do NOT install.\\n")
-                                    + result + "\\n" + audit);
+                                    (ready ? "UPDATE PREPARED — use guarded Fedora installer.\n"
+                                            : "UPDATE BLOCKED — do NOT install.\n")
+                                    + result + "\n" + audit);
                         });
                     });
                 }).show();
