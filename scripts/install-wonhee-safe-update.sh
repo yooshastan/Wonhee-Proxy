@@ -4,11 +4,11 @@ set -euo pipefail
 umask 077
 fail() { echo "UPDATE REFUSED: $*" >&2; exit 1; }
 pkg=com.yooshastan.wonheeproxy
-apk="\${1:-dist/wonhee-proxy-official-signed.apk}"
+apk="${1:-dist/wonhee-proxy-official-signed.apk}"
 [[ -s "$apk" ]] || fail "Signed official APK missing: $apk"
-[[ -z "\${WONHEE_SKIP_SAFE_STOP:-}" ]] || fail "Safe Stop bypass not supported."
+[[ -z "${WONHEE_SKIP_SAFE_STOP:-}" ]] || fail "Safe Stop bypass not supported."
 command -v adb >/dev/null || fail "adb unavailable."
-sdk="\${ANDROID_SDK_ROOT:-\${ANDROID_HOME:-$HOME/Android/Sdk}}"
+sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
 [[ -d "$sdk/build-tools" ]] || fail "Android SDK Build Tools unavailable."
 tools_dir=""
 while read -r ver; do
@@ -17,20 +17,20 @@ while read -r ver; do
 done < <(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -Vr)
 [[ -n "$tools_dir" ]] || fail "Need aapt and apksigner."
 adb_cmd=(adb)
-if [[ -n "\${ANDROID_SERIAL:-}" ]]; then
+if [[ -n "${ANDROID_SERIAL:-}" ]]; then
     adb_cmd+=(-s "$ANDROID_SERIAL")
 else
     mapfile -t devices < <(adb devices | awk 'NR>1 && $2=="device" {print $1}')
-    [[ \${#devices[@]} -eq 1 ]] || fail "Require exactly one authorized device or ANDROID_SERIAL."
-    adb_cmd+=(-s "\${devices[0]}")
+    [[ ${#devices[@]} -eq 1 ]] || fail "Require exactly one authorized device or ANDROID_SERIAL."
+    adb_cmd+=(-s "${devices[0]}")
 fi
-[[ "$("\${adb_cmd[@]}" get-state)" == device ]] || fail "ADB device unavailable."
+[[ "$("${adb_cmd[@]}" get-state)" == device ]] || fail "ADB device unavailable."
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
-installed="$("\${adb_cmd[@]}" shell pm path "$pkg" | tr -d '\r' |
+installed="$("${adb_cmd[@]}" shell pm path "$pkg" | tr -d '\r' |
     sed -n 's/^package://p' | grep '/base.apk$' | head -n 1)"
 [[ -n "$installed" ]] || fail "Official Wonhee app not installed."
-"\${adb_cmd[@]}" pull "$installed" "$tmp/current.apk" >/dev/null ||
+"${adb_cmd[@]}" pull "$installed" "$tmp/current.apk" >/dev/null ||
     fail "Cannot inspect installed APK."
 fingerprint() {
     "$tools_dir/apksigner" verify --verbose --print-certs "$1" |
@@ -54,7 +54,7 @@ new_v="$(vcode "$new_meta")"
 [[ "$old_v" =~ ^[0-9]+$ && "$new_v" =~ ^[0-9]+$ ]] ||
     fail "Invalid app version metadata."
 (( 10#$new_v > 10#$old_v )) || fail "A strictly higher versionCode is required."
-root_read() { "\${adb_cmd[@]}" shell "su -c '$1'" | tr -d '\r'; }
+root_read() { "${adb_cmd[@]}" shell "su -c '$1'" | tr -d '\r'; }
 audit_clean() {
     local links rules4 rules6 fw4 fw6 net family
     [[ "$(root_read 'id -u')" == 0 ]] || fail "Root inventory unavailable."
@@ -88,5 +88,5 @@ audit_clean
 read -r -p 'Type UPDATE after checking the in-app Safe Stop report: ' choice
 [[ "$choice" == UPDATE ]] || fail "Cancelled; nothing installed."
 audit_clean
-"\${adb_cmd[@]}" install -r "$apk" || fail "Android refused the update; no uninstall attempted."
+"${adb_cmd[@]}" install -r "$apk" || fail "Android refused the update; no uninstall attempted."
 echo "Update installed. Check profiles/settings before restarting tunnels and DNS."
