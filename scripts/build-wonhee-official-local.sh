@@ -65,31 +65,61 @@ for bin in git keytool go java; do
   }
 done
 
-# Gradle 8.13 is not compatible with Java 25. Select a stable installed
-# JDK for this one build without changing the Fedora default Java.
+# Gradle 8.13 is not compatible with Java 25. Respect the user's chosen
+# Java and javac alternatives first, then discover Fedora's full JDK paths.
+# This changes only this script's environment, NOT system alternatives.
 select_gradle_jdk() {
-  local major candidate first_line
-  for major in 17 21; do
-    for candidate in \
-      /usr/lib/jvm/java-"$major"-openjdk \
-      /usr/lib/jvm/java-"$major"-openjdk-* \
-      /usr/lib/jvm/jdk-"$major"* \
-      "$HOME"/.sdkman/candidates/java/"$major"*; do
-      [[ -x "$candidate/bin/java" && -x "$candidate/bin/javac" ]] || continue
-      first_line="$("$candidate/bin/java" -version 2>&1 | head -n 1)"
-      if [[ "$first_line" == *"\"$major."* ]]; then
-        export JAVA_HOME="$(cd "$candidate" && pwd -P)"
-        export PATH="$JAVA_HOME/bin:$PATH"
-        return 0
-      fi
-    done
+  local candidate first_line javac_line major javac_major resolved binary
+  local -a candidates=()
+
+  if [[ -n "${JAVA_HOME:-}" ]]; then
+    candidates+=("$JAVA_HOME")
+  fi
+  for binary in java javac; do
+    resolved="$(readlink -f "$(command -v "$binary")" 2>/dev/null || true)"
+    if [[ "$resolved" == */bin/"$binary" ]]; then
+      candidates+=("${resolved%/bin/$binary}")
+    fi
+  done
+  candidates+=(
+    /usr/lib/jvm/java-21-openjdk
+    /usr/lib/jvm/java-17-openjdk
+    /usr/lib/jvm/java-21-openjdk-*
+    /usr/lib/jvm/java-17-openjdk-*
+    /usr/lib/jvm/*
+    "$HOME"/.sdkman/candidates/java/*
+    "$HOME"/.jdks/*
+  )
+
+  for candidate in "${candidates[@]}"; do
+    [[ -x "$candidate/bin/java" && -x "$candidate/bin/javac" ]] || continue
+    first_line="$("$candidate/bin/java" -version 2>&1 | head -n 1)"
+    javac_line="$("$candidate/bin/javac" -version 2>&1 | head -n 1)"
+
+    # Handles 'openjdk version "21"', '"21.0.9"' and vendor JDK variants
+    # without relying on Fedora directory names or brittle major patterns.
+    [[ "$first_line" == *\"* ]] || continue
+    major="${first_line#*\"}"
+    major="${major%%[!0-9]*}"
+    javac_major="${javac_line#javac }"
+    javac_major="${javac_major%%[!0-9]*}"
+    if [[ ( "$major" == 17 || "$major" == 21 ) && "$javac_major" == "$major" ]]; then
+      export JAVA_HOME="$(cd "$candidate" && pwd -P)"
+      export PATH="$JAVA_HOME/bin:$PATH"
+      return 0
+    fi
   done
   return 1
 }
+
 if ! select_gradle_jdk; then
-  echo "Gradle 8.13 cannot run under Java 25 (class file major 69)." >&2
-  echo "Install a supported JDK: sudo dnf install -y java-21-openjdk-devel" >&2
-  echo "Or install JDK 17, then rerun this script. Fedora's default Java will not change." >&2
+  echo "Could not find a Java 17/21 JDK with a matching javac compiler." >&2
+  echo "Current Java: $(java -version 2>&1 | head -n 1)" >&2
+  echo "Current javac: $(javac -version 2>&1 | head -n 1)" >&2
+  echo "Installed Fedora JDKs:" >&2
+  ls -1 /usr/lib/jvm/ 2>/dev/null >&2 || true
+  echo "Install the JDK (not only JRE): sudo dnf install java-21-openjdk-devel" >&2
+  echo "You can also set JAVA_HOME explicitly; system defaults are unchanged." >&2
   exit 1
 fi
 echo "Using Gradle JDK: $JAVA_HOME"
