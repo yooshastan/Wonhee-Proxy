@@ -1150,9 +1150,10 @@ public final class RootMultiKernelActivity extends Activity {
             if (ok && action.startsWith("Connect multi-tunnel")
                     && wantsRootTrafficNotification() && mayDisplayRootNotifications()) {
                 RootMultiTrafficNotificationService.startIfPossible(this);
-            } else if (ok && action.startsWith("Disconnect multi-tunnel")) {
-                RootMultiTrafficNotificationService.stop(this);
             }
+            // A manual disconnect may stop only ONE of several selected
+            // tunnels. Keep the notification alive for remaining verified
+            // links; its read-only sampler self-stops after all are gone.
             updateButtons();
         });
         updateButtons();
