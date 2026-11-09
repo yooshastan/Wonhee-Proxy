@@ -3293,51 +3293,80 @@ final class RootMultiKernelSession {
      * DNS listener, foreign tags, or unknown reserved routing priorities.
      */
     private RootLifecycleRecoveryPlan inspectLifecycleRecoveryState() throws Exception {
-        shell.start();
-        rootReady();
-        List<RootSplitRouteRules.Rule> routes =
-                RootSplitRouteRules.decode(savedRules());
-        String dns = dnsRecord();
-        boolean dnsOwned = dns != null && !dns.isEmpty();
-        if (dnsOwned) DnsRecord.decode(dns);
-        boolean routeOwned = !routes.isEmpty();
+        // All phases below are read-only. Stage-specific errors are intentionally
+        // data-free: do not reveal resolver URLs, profiles, keys or full shell
+        // command output in UI or persistent diagnostics.
+        String stage = "ROOT_SHELL";
+        try {
+            shell.start();
+            stage = "ROOT_BACKEND";
+            rootReady();
+            stage = "SPLIT_LEDGER_DECODE";
+            List<RootSplitRouteRules.Rule> routes =
+                    RootSplitRouteRules.decode(savedRules());
+            stage = "DNS_LEDGER_DECODE";
+            String dns = dnsRecord();
+            boolean dnsOwned = dns != null && !dns.isEmpty();
+            if (dnsOwned) DnsRecord.decode(dns);
+            boolean routeOwned = !routes.isEmpty();
 
-        // The guard ledger is separately owned: never infer it is safe merely
-        // because live chains appear absent after reboot.
-        if (guardRecord() != null && !guardRecord().isEmpty()) {
+            stage = "GUARD_LEDGER";
+            // The guard ledger is separately owned; never infer it is safe merely
+            // because live chains appear absent after reboot.
+            if (guardRecord() != null && !guardRecord().isEmpty()) {
+                throw new IllegalStateException(
+                        "Batch F ownership record exists. Audit/disable that guard separately.");
+            }
+            stage = "GUARD_FIREWALL_PREFLIGHT";
+            RootFailClosedFirewallRuntime.preflight(shell);
+            stage = "IPV4_RULE_INVENTORY";
+            List<String> ipv4 = readRules(4);
+            stage = "IPV6_RULE_INVENTORY";
+            List<String> ipv6 = readRules(6);
+            stage = "SPLIT_RULE_OWNERSHIP";
+            int verifiedRoutes = RootSplitRouteRules.verifyRollbackCandidates(routes, ipv4, ipv6);
+            stage = "RESERVED_ROUTE_COUNT";
+            int countedRoutes = countReservedRules();
+            int verifiedTags = 0;
+            int countedTags = 0;
+            stage = "DNS_FIREWALL_OWNERSHIP";
+            for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+                int tagged = countDnsTaggedRules(rule);
+                countedTags += tagged;
+                if (tagged > 0 && dnsRulePresent(rule)) verifiedTags++;
+            }
+            stage = "WIREGUARD_INTERFACE_INVENTORY";
+            Set<String> running = backend.getRunningTunnelNames();
+            boolean anyTunnel = running.contains("wnhome0") || running.contains("wnair0");
+            for (String name : running) {
+                if (name.startsWith("wnm")) anyTunnel = true;
+            }
+            stage = "DNS_SOCKET_INVENTORY";
+            if (shell.run(null, "test -r /proc/net/udp") != 0) {
+                throw new IllegalStateException("Kernel listener inventory unavailable.");
+            }
+            boolean listener = shell.run(null, "grep -qi '0100007F:D11F' /proc/net/udp") == 0;
+            if (dnsOwned) {
+                stage = "DNS_RELAY_PROCESS_IDENTITY";
+                DnsRecord owned = DnsRecord.decode(dns);
+                listener |= RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
+            }
+            stage = "CLASSIFY_STOPPED_STATE";
+            return RootLifecycleRecoveryPlan.assess(true, true, anyTunnel,
+                    listener, dnsOwned, routeOwned, verifiedTags, verifiedRoutes,
+                    countedTags, countedRoutes);
+        } catch (IllegalStateException known) {
             throw new IllegalStateException(
-                    "Batch F ownership record exists. Audit/disable that guard separately.");
+                    "Read-only lifecycle check [" + stage + "]: " + known.getMessage(), known);
+        } catch (Exception | LinkageError unclassified) {
+            // Existing builds hide IllegalArgumentException behind generic
+            // "Unable to independently verify" and cannot identify which
+            // ledger or kernel inventory triggered it.
+            throw new IllegalStateException(
+                    "Read-only lifecycle check [" + stage + "] failed ("
+                            + unclassified.getClass().getSimpleName()
+                            + "). No mutation performed.", unclassified);
         }
-        // Explicit guard quarantine: a foreign/owned Batch F chain or anchor
-        // is never silently converted into a clean lifecycle state.
-        RootFailClosedFirewallRuntime.preflight(shell);
-        List<String> ipv4 = readRules(4);
-        List<String> ipv6 = readRules(6);
-        int verifiedRoutes = RootSplitRouteRules.verifyRollbackCandidates(routes, ipv4, ipv6);
-        int countedRoutes = countReservedRules();
-        int verifiedTags = 0;
-        int countedTags = 0;
-        for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
-            int tagged = countDnsTaggedRules(rule);
-            countedTags += tagged;
-            if (tagged > 0 && dnsRulePresent(rule)) verifiedTags++;
-        }
-        Set<String> running = backend.getRunningTunnelNames();
-        boolean anyTunnel = running.contains("wnhome0") || running.contains("wnair0");
-        for (String name : running) {
-            if (name.startsWith("wnm")) anyTunnel = true;
-        }
-        if (shell.run(null, "test -r /proc/net/udp") != 0) {
-            throw new IllegalStateException("Kernel listener inventory unavailable.");
-        }
-        boolean listener = shell.run(null, "grep -qi '0100007F:D11F' /proc/net/udp") == 0;
-        if (dnsOwned) {
-            DnsRecord owned = DnsRecord.decode(dns);
-            listener |= RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
-        }
-        return RootLifecycleRecoveryPlan.assess(true, true, anyTunnel,
-                listener, dnsOwned, routeOwned, verifiedTags, verifiedRoutes,
-                countedTags, countedRoutes);
     }
 
     void auditLifecycleRecovery(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
