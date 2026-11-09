@@ -32,6 +32,10 @@ jobs:
           fi
       - name: Verify permanent release-signing setup script syntax
         run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh
+      - name: Prove safe installer refuses unsafe live/root states
+        run: |
+          bash -n scripts/test-wonhee-safe-update.sh
+          bash scripts/test-wonhee-safe-update.sh
       - name: Run standalone proxy core tests
         run: |
           mkdir -p /tmp/wonhee-classes
