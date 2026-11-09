@@ -130,6 +130,113 @@ final class RootMultiKernelSession {
     }
 
     boolean isBusy() { return busy; }
+    /**
+     * Read-only per-process snapshot for the opt-in root-tunnel notification.
+     * Never enables root, reconnects tunnels, installs routes or queries DNS.
+     * Only names and public keys from encrypted, locally saved configurations
+     * are used for identity verification; no endpoints or keys are returned.
+     */
+    interface TrafficCallback { void completed(RootTrafficSnapshot snapshot); }
+
+    static final class RootTrafficSnapshot {
+        final int verifiedTunnels;
+        final int presentTunnels;
+        final boolean countersAvailable;
+        final long received;
+        final long sent;
+        final boolean dnsVerified;
+        final boolean trackerEnabled;
+        final Long blocked;
+        final boolean rootsAvailable;
+
+        RootTrafficSnapshot(int verifiedTunnels, int presentTunnels,
+                boolean countersAvailable, long received, long sent,
+                boolean dnsVerified, boolean trackerEnabled, Long blocked,
+                boolean rootsAvailable) {
+            this.verifiedTunnels = verifiedTunnels;
+            this.presentTunnels = presentTunnels;
+            this.countersAvailable = countersAvailable;
+            this.received = received;
+            this.sent = sent;
+            this.dnsVerified = dnsVerified;
+            this.trackerEnabled = trackerEnabled;
+            this.blocked = blocked;
+            this.rootsAvailable = rootsAvailable;
+        }
+    }
+
+    void readRootTrafficSnapshot(TrafficCallback callback) {
+        if (callback == null) return;
+        if (busy) {
+            main.post(() -> callback.completed(null)); // Skip, do not race root mutations.
+            return;
+        }
+        worker.execute(() -> {
+            RootTrafficSnapshot snapshot = null;
+            try {
+                shell.start();
+                Set<String> running = backend.getRunningTunnelNames();
+                List<SecureTunnelProfileStore.Profile> profiles =
+                        new SecureTunnelProfileStore(appContext).load();
+                int present = 0;
+                int verified = 0;
+                boolean complete = true;
+                long rx = 0, tx = 0;
+                for (SecureTunnelProfileStore.Profile profile : profiles) {
+                    String device = RootMultiTunnelPlan.interfaceName(profile.name);
+                    if (!running.contains(device)) continue;
+                    present++;
+                    Active active = load(profile);
+                    if (!matches(new NamedTunnel(device), active)
+                            || backend.getState(new NamedTunnel(device)) != Tunnel.State.UP) {
+                        complete = false;
+                        continue;
+                    }
+                    verified++;
+                    RootTunnelTransfer counters = readTransfer(device);
+                    if (counters == null || counters.received < 0 || counters.sent < 0
+                            || Long.MAX_VALUE - rx < counters.received
+                            || Long.MAX_VALUE - tx < counters.sent) {
+                        complete = false;
+                        continue;
+                    }
+                    rx += counters.received;
+                    tx += counters.sent;
+                }
+                // Reject an incomplete aggregate rather than display a plausible
+                // but silently undercounted rate.
+                boolean countersAvailable = present > 0 && verified == present && complete;
+                boolean dnsVerified = false, trackerEnabled = false;
+                Long blocked = null;
+                String saved = dnsRecord();
+                if (saved != null && !saved.isEmpty()) {
+                    try {
+                        DnsRecord owned = DnsRecord.decode(saved);
+                        trackerEnabled = owned.trackerFiltering;
+                        if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)
+                                && RootDnsRelayRunner.loopbackListenerPresent(shell)) {
+                            dnsVerified = true;
+                            if (trackerEnabled) {
+                                blocked = RootDnsRelayRunner.readStatistics(
+                                        appContext, shell, owned.pid).blocked;
+                            }
+                        }
+                    } catch (Exception | LinkageError ignored) {
+                        // Unverified DNS / unknown block count is not zero.
+                    }
+                }
+                snapshot = new RootTrafficSnapshot(verified, present,
+                        countersAvailable, rx, tx, dnsVerified, trackerEnabled,
+                        blocked, true);
+            } catch (Exception | LinkageError unavailable) {
+                snapshot = new RootTrafficSnapshot(0, 0, false, 0, 0,
+                        false, false, null, false);
+            }
+            final RootTrafficSnapshot result = snapshot;
+            main.post(() -> callback.completed(result));
+        });
+    }
+
 
     private synchronized boolean begin(Callback callback) {
         if (busy) {

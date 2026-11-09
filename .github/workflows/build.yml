@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.25 Batch H.2c DNS Listener Lifecycle · Guard Paused
+name: Wonhee Proxy 0.15.26 Batch F.5 UI & Root Traffic Preview · Guard Paused
 
 on:
   push:
@@ -78,6 +78,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardFlowModel.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF3PolicyMatrix.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF4ContinuityContract.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootGuardF5LocalControlCandidate.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootUnderlayControlEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootF3cEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootF3dOutputCounters.java \
@@ -133,6 +134,7 @@ jobs:
             core-tests/RootGuardFlowModelTest.java \
             core-tests/RootGuardF3PolicyMatrixTest.java \
             core-tests/RootGuardF4ContinuityContractTest.java \
+            core-tests/RootGuardF5LocalControlCandidateTest.java \
             core-tests/RootUnderlayControlEvidenceTest.java \
             core-tests/RootF3cEvidenceTest.java \
             core-tests/RootF3dOutputCountersTest.java \
@@ -186,6 +188,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardFlowModelTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF3PolicyMatrixTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF4ContinuityContractTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootGuardF5LocalControlCandidateTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootUnderlayControlEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootF3cEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootF3dOutputCountersTest
@@ -204,7 +207,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01525-batch-h2c-dns-listener-lifecycle-debug-apk
+          name: wonhee-01526-batch-f5-preview-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

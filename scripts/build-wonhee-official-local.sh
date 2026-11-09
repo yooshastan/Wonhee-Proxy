@@ -132,7 +132,7 @@ if [[ ! -f "$store" || -L "$store" ]]; then
 fi
 
 branch="$(git branch --show-current)"
-if [[ "$branch" != feature/batch-h2c-dns-listener-lifecycle-01525 ]]; then
+if [[ "$branch" != feature/batch-f5-control-policy-ui-design ]]; then
   echo "REFUSED: expected reviewed signing branch; currently: $branch" >&2
   exit 1
 fi

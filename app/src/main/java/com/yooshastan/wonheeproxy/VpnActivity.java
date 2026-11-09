@@ -259,6 +259,9 @@ public final class VpnActivity extends Activity {
         importButton.setOnClickListener(v -> chooseConfig());
         Button rootDualLab = button(configCard, "Open root control center · 2 tunnels");
         rootDualLab.setOnClickListener(v -> startActivity(new Intent(this, RootDualKernelActivity.class)));
+        Button rootDashboard = button(configCard, "Preview new multi-connection dashboard · read only");
+        rootDashboard.setOnClickListener(v -> startActivity(
+                new Intent(this, WonheeDashboardPreviewActivity.class)));
         tunnelList = new LinearLayout(this);
         tunnelList.setOrientation(LinearLayout.VERTICAL);
         configCard.addView(tunnelList);

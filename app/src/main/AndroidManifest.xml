@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <queries>
         <package android:name="com.yooshastan.ultmessenger.foss.beta" />
@@ -21,6 +22,7 @@
         android:usesCleartextTraffic="false">
         <activity android:name=".RootDualKernelActivity" android:exported="false" />
         <activity android:name=".RootMultiKernelActivity" android:exported="false" />
+        <activity android:name=".WonheeDashboardPreviewActivity" android:exported="false" />
         <activity android:name=".VpnActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -42,6 +44,17 @@
             android:name=".VpnTrafficNotificationService"
             android:exported="false"
             android:foregroundServiceType="systemExempted" />
+        <!-- Opt-in root kernel-WireGuard traffic notification. No Android VPN registration.
+             A specialUse FGS is needed because the root tunnel traffic sampler is
+             not a connected Bluetooth device, data sync or Android VpnService. -->
+        <service
+            android:name=".RootMultiTrafficNotificationService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-requested persistent root WireGuard tunnel speed and DNS blocking counters" />
+        </service>
         <!-- Persisted best-effort periodic VPN recovery. Android can defer it in Doze. -->
         <service
             android:name=".VpnRecoveryJobService"
