@@ -148,11 +148,12 @@ final class RootMultiKernelSession {
         final boolean trackerEnabled;
         final Long blocked;
         final boolean rootsAvailable;
+        final RootDnsCounters dnsCounters;
 
         RootTrafficSnapshot(int verifiedTunnels, int presentTunnels,
                 boolean countersAvailable, long received, long sent,
                 boolean dnsVerified, boolean trackerEnabled, Long blocked,
-                boolean rootsAvailable) {
+                boolean rootsAvailable, RootDnsCounters dnsCounters) {
             this.verifiedTunnels = verifiedTunnels;
             this.presentTunnels = presentTunnels;
             this.countersAvailable = countersAvailable;
@@ -162,6 +163,7 @@ final class RootMultiKernelSession {
             this.trackerEnabled = trackerEnabled;
             this.blocked = blocked;
             this.rootsAvailable = rootsAvailable;
+            this.dnsCounters = dnsCounters;
         }
     }
 
@@ -208,6 +210,7 @@ final class RootMultiKernelSession {
                 boolean countersAvailable = present > 0 && verified == present && complete;
                 boolean dnsVerified = false, trackerEnabled = false;
                 Long blocked = null;
+                RootDnsCounters dnsCounters = null;
                 String saved = dnsRecord();
                 if (saved != null && !saved.isEmpty()) {
                     try {
@@ -216,10 +219,9 @@ final class RootMultiKernelSession {
                         if (RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid)
                                 && RootDnsRelayRunner.loopbackListenerPresent(shell)) {
                             dnsVerified = true;
-                            if (trackerEnabled) {
-                                blocked = RootDnsRelayRunner.readStatistics(
-                                        appContext, shell, owned.pid).blocked;
-                            }
+                            dnsCounters = RootDnsRelayRunner.readStatistics(
+                                    appContext, shell, owned.pid);
+                            if (trackerEnabled) blocked = dnsCounters.blocked;
                         }
                     } catch (Exception | LinkageError ignored) {
                         // Unverified DNS / unknown block count is not zero.
@@ -227,10 +229,10 @@ final class RootMultiKernelSession {
                 }
                 snapshot = new RootTrafficSnapshot(verified, present,
                         countersAvailable, rx, tx, dnsVerified, trackerEnabled,
-                        blocked, true);
+                        blocked, true, dnsCounters);
             } catch (Exception | LinkageError unavailable) {
                 snapshot = new RootTrafficSnapshot(0, 0, false, 0, 0,
-                        false, false, null, false);
+                        false, false, null, false, null);
             }
             final RootTrafficSnapshot result = snapshot;
             main.post(() -> callback.completed(result));

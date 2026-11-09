@@ -1,11 +1,14 @@
 package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.SharedPreferences;
 import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -31,6 +34,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private static final int WHITE = 0xfffff7fd;
     private static final int MUTED = 0xffc9bed2;
     private static final long REFRESH_MS = 8_000L;
+    private static final String DNS_CHECKPOINT_PREFS = "wonhee-dns-checkpoint-v1";
+    private static final String DNS_CHECKPOINT_KEY = "aggregate-only";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = this::refreshSnapshot;
@@ -230,6 +235,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, "Blocked count measures DNS replies blocked by Wonhee's verified "
                 + "active relay since that relay started. It is not a count of page ads, "
                 + "all trackers, or device-wide traffic.", 12, MUTED);
+        showDnsCoverage();
     }
 
     private void activityTab() {
@@ -248,10 +254,103 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     13, MUTED);
         }
         text(group, "DNS blocked replies: " + blockedCount(), 14, WHITE);
+        text(group, "DNS relay continuity: " + dnsBaselineComparison(), 12, MUTED);
         text(group, "Live ↓/↑ rates are available through the optional notification "
                 + "in the advanced connection controls.", 12, MUTED);
         button(group, "Read current tunnel and firewall diagnostics",
                 () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
+    }
+
+    private RootDnsContinuityBaseline.Reading currentDnsReading() {
+        RootMultiKernelSession.RootTrafficSnapshot s = lastSnapshot;
+        if (s == null) return null;
+        RootDnsCounters counters = s.dnsCounters;
+        return new RootDnsContinuityBaseline.Reading(
+                System.currentTimeMillis(), SystemClock.elapsedRealtime(),
+                s.rootsAvailable, s.dnsVerified, s.trackerEnabled,
+                s.verifiedTunnels, s.presentTunnels,
+                counters == null ? 0 : counters.pid,
+                counters == null ? -1 : counters.received,
+                counters == null ? -1 : counters.blocked,
+                counters == null ? -1 : counters.forwarded,
+                counters == null ? -1 : counters.failed);
+    }
+
+    private SharedPreferences dnsBaselinePreferences() {
+        return getSharedPreferences(DNS_CHECKPOINT_PREFS, MODE_PRIVATE);
+    }
+
+    private String dnsBaselineComparison() {
+        String encoded = dnsBaselinePreferences().getString(DNS_CHECKPOINT_KEY, null);
+        if (encoded == null) {
+            return "No baseline saved — record a verified session to compare overnight.";
+        }
+        try {
+            RootDnsContinuityBaseline.Reading previous =
+                    RootDnsContinuityBaseline.decode(encoded);
+            return RootDnsContinuityBaseline.compare(previous, currentDnsReading());
+        } catch (IllegalArgumentException invalid) {
+            return "Saved baseline unreadable. Clear it and capture a new verified baseline.";
+        }
+    }
+
+    private void captureDnsBaseline() {
+        RootDnsContinuityBaseline.Reading sample = currentDnsReading();
+        try {
+            String encoded = RootDnsContinuityBaseline.encode(sample);
+            if (!dnsBaselinePreferences().edit().putString(DNS_CHECKPOINT_KEY, encoded).commit()) {
+                throw new IllegalStateException("Could not persist this baseline.");
+            }
+            render();
+            new AlertDialog.Builder(this).setTitle("DNS baseline saved")
+                    .setMessage("Only aggregate DNS counters, relay PID, tunnel counts "
+                            + "and timestamps were saved locally. Open this tab before "
+                            + "refreshing the tunnels next time. No DNS history or "
+                            + "addresses were recorded.")
+                    .setPositiveButton("OK", null).show();
+        } catch (IllegalArgumentException | IllegalStateException unavailable) {
+            new AlertDialog.Builder(this).setTitle("Baseline unavailable")
+                    .setMessage("Verify the root tunnel identities and DNS relay, "
+                            + "enable tracker filtering, then wait for aggregate counters. "
+                            + "No baseline was stored.")
+                    .setPositiveButton("OK", null).show();
+        }
+    }
+
+    private void showDnsCoverage() {
+        LinearLayout group = card(content);
+        text(group, "DNS COVERAGE & OVERNIGHT CHECK", 16, PINK);
+        text(group, "Local relay: " + dnsState(), 13, WHITE);
+        text(group, "Tracker filter: " + blockState(), 13, WHITE);
+        text(group, "DNS-port rules: live enforcement must be checked in "
+                + "Advanced Controls. This overview does not audit kernel rules.", 12, MUTED);
+        text(group, "Browser encrypted DNS: UNVERIFIED. Brave Secure DNS or other "
+                + "apps' own DoH/DoQ can bypass Wonhee's filtered local DNS. "
+                + "A working relay does not prove full-device coverage.", 12, LAVENDER);
+        text(group, dnsBaselineComparison(), 12, WHITE);
+        button(group, "Save verified DNS baseline for overnight comparison",
+                this::captureDnsBaseline);
+        button(group, "Clear saved DNS baseline", () -> {
+            dnsBaselinePreferences().edit().remove(DNS_CHECKPOINT_KEY).apply();
+            render();
+        });
+        button(group, "How to check browser DNS bypass", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Browser DNS bypass — manual check")
+                        .setMessage("In Brave, review Settings → Brave Shields & privacy "
+                                + "→ Use secure DNS. Disabling browser-specific Secure DNS "
+                                + "lets its ordinary DNS requests use the system/Wonhee "
+                                + "path. Keep your device's known working Android Private "
+                                + "DNS configuration unchanged. Re-test in a fresh tab, "
+                                + "then compare against direct queries to 127.0.0.1:53535. "
+                                + "This check never changes a setting automatically. "
+                                + "Use PCAPdroid root capture on the physical interface "
+                                + "for independent network evidence; leave MITM and "
+                                + "full payload recording off.")
+                        .setPositiveButton("OK", null).show());
+        text(group, "Baseline comparison is local and aggregate-only; it cannot "
+                + "certify uninterrupted uptime, packet-leak freedom or kill-switch "
+                + "coverage. The all-traffic guard stays safety-paused.", 12, MUTED);
     }
 
     private String dnsFirewallLedgerState() {

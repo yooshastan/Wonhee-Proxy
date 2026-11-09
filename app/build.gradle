@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 74
-        versionName '0.15.26-batchF5-dashboard-traffic-preview'
+        versionCode 75
+        versionName '0.15.28-dns-coverage-readonly-preview'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
