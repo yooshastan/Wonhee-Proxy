@@ -3599,19 +3599,28 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("A selected live interface identity differs.");
                     }
                 }
-                stage = "PREFLIGHT_OWNED_POLICIES";
-                // Validate BOTH policy families before the first deletion:
-                // a foreign reserved route must not trigger DNS shutdown.
+                // Read-only diagnostics with a distinct stage for every
+                // independently failing preflight. Never touch root state until
+                // BOTH policy families have completed their verification.
+                stage = "PREFLIGHT_SPLIT_LEDGER_DECODE";
+                List<RootSplitRouteRules.Rule> planned =
+                        RootSplitRouteRules.decode(savedRules());
+                stage = "PREFLIGHT_IP_RULE_INVENTORY";
+                List<String> ipv4Rules = readRules(4);
+                List<String> ipv6Rules = readRules(6);
+                stage = "PREFLIGHT_SPLIT_RULE_MATCH";
                 RootSplitRouteRules.verifyRollbackCandidates(
-                        RootSplitRouteRules.decode(savedRules()),
-                        readRules(4), readRules(6));
+                        planned, ipv4Rules, ipv6Rules);
+                stage = "PREFLIGHT_DNS_LEDGER_DECODE";
                 String dns = dnsRecord();
                 if (dns != null && !dns.isEmpty()) {
                     DnsRecord.decode(dns);
+                    stage = "PREFLIGHT_DNS_RULE_MATCH";
                     for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
                         dnsRulePresent(rule);
                     }
                 } else {
+                    stage = "PREFLIGHT_DNS_NO_LEDGER";
                     dnsFirewallPreflight();
                 }
                 stage = "REMOVE_OWNED_DNS";
