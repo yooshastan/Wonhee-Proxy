@@ -23,7 +23,13 @@ jobs:
         with:
           go-version: '1.23'
       - name: Verify and compile strict root-bound encrypted DNS helper
-        run: bash scripts/build-root-doh-helper.sh
+        run: |
+          bash -n scripts/build-root-doh-helper.sh
+          bash scripts/build-root-doh-helper.sh
+          if [[ -n "$(git status --porcelain -- roothelper/dohprobe/go.mod roothelper/dohprobe/go.sum)" ]]; then
+            echo "DNS helper build changed tracked or untracked module metadata." >&2
+            exit 1
+          fi
       - name: Verify permanent release-signing setup script syntax
         run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh
       - name: Run standalone proxy core tests
