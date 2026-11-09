@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.25 Batch H.2c DNS Listener Lifecycle · Guard Paused
+name: Wonhee Proxy 0.15.26 Batch F.5 UI & Root Traffic Preview · Guard Paused
 
 on:
   push:
@@ -207,7 +207,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01525-batch-h2c-dns-listener-lifecycle-debug-apk
+          name: wonhee-01526-batch-f5-preview-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
