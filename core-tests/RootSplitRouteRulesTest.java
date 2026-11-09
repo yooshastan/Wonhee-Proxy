@@ -160,6 +160,34 @@ public final class RootSplitRouteRulesTest {
         check(decoded.size() == rules.size(), "Persistent rules should survive restart");
         check(decoded.get(1).add().equals(rules.get(1).add()),
                 "Persisted rule must retain exact install command");
+        // Android SharedPreferences XML serialization may introduce trailing
+        // indentation after an encoded newline-terminated route ledger. Only
+        // whitespace-only lines are ignorable; all real records remain strict.
+        String xmlPaddedLedger = RootSplitRouteRules.encode(rules) + "    ";
+        List<RootSplitRouteRules.Rule> restoredPadded =
+                RootSplitRouteRules.decode(xmlPaddedLedger);
+        check(restoredPadded.size() == 3,
+                "XML trailing indentation must not make three owned routes unreadable");
+        check(RootSplitRouteRules.verifyRollbackCandidates(
+                restoredPadded, threeLive, Collections.emptyList()) == 3,
+                "Padding recovery must not weaken exact live kernel verification");
+        List<RootSplitRouteRules.Rule> paddedBetween =
+                RootSplitRouteRules.decode(RootSplitRouteRules.encode(rules)
+                        .replace("\\n", "\\n  \\n"));
+        check(paddedBetween.size() == 3,
+                "Whitespace-only lines between valid routes must not create ownership");
+        try {
+            RootSplitRouteRules.decode(RootSplitRouteRules.encode(rules)
+                    .replace("10.6.0.0/24", " 10.6.0.0/24"));
+            throw new AssertionError("Whitespace inside an owned route must still refuse");
+        } catch (IllegalArgumentException expected) { /* strict refuse */ }
+        try {
+            RootSplitRouteRules.decode(RootSplitRouteRules.encode(rules)
+                    + " 4|12503|10.99.0.0/24|" + home.device
+                    + "|10.99.0.1|0x0/0x20000");
+            throw new AssertionError("Nonblank unknown route after XML padding must refuse");
+        } catch (IllegalArgumentException expected) { /* strict refuse */ }
+
         try {
             RootSplitRouteRules.decode("4|12500|10.0.0.0/24|wlan0|10.0.0.1\n");
             throw new AssertionError("Unowned table must not load as a Wonhee rule");
