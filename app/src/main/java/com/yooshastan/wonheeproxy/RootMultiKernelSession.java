@@ -3370,6 +3370,9 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException("Untracked priority-12500+ rules remain.");
                 }
                 dnsFirewallPreflight();
+                // Fail BEFORE connecting either tunnel if a prior DNS helper
+                // survived the last stop or an app reinstall.
+                RootDnsRelayRunner.requireLoopbackPortFree(shell);
                 RootFailClosedFirewallRuntime.preflight(shell);
                 Set<String> active = backend.getRunningTunnelNames();
                 for (String name : active) {
