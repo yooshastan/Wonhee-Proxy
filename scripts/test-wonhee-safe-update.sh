@@ -14,7 +14,7 @@ if [[ "$1" == "-s" ]]; then shift 2; fi
 case "$1" in
   get-state) echo device ;;
   shell)
-    case "$2" in
+    case "${*:2}" in
       "pm path com.yooshastan.wonheeproxy") echo 'package:/data/app/base.apk' ;;
       "su -c 'id -u'") echo "${WN_MOCK_ROOT:-0}" ;;
       "su -c 'ip -o link show'")
