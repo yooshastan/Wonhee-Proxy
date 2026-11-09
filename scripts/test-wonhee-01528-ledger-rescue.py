@@ -25,11 +25,14 @@ class RescueLedgerTests(unittest.TestCase):
             "4|12502|10.77.0.0/24|wnma292ddb4b6da|10.77.0.1|0x0/0x20000",
         ]
 
-    def write(self, lines=None, padding="\n    "):
+    def write(self, lines=None, padding="\n    ", lf_entity=None):
         lines = self.lines if lines is None else lines
+        payload = "\n".join(lines) + padding
+        if lf_entity is not None:
+            payload = payload.replace("\n", lf_entity)
         text = ('<?xml version="1.0" encoding="utf-8"?>\n<map>\n'
                 '<string name="pending_or_installed_rules_v1">'
-                + "\n".join(lines) + padding + '</string>\n</map>')
+                + payload + '</string>\n</map>')
         self.file.write_bytes(text.encode("utf-8"))
         return self.file.read_bytes()
 
@@ -42,6 +45,30 @@ class RescueLedgerTests(unittest.TestCase):
             b"\n    </string>", b"\n</string>"))
         self.assertEqual(self.file.read_bytes(), before,
                          "Read-only parser must not write live data")
+
+    def test_android_xml_numeric_newline_escaped_representation(self):
+        # Android XmlSerializer commonly serializes LF as &#10;. The decoded
+        # SharedPreferences value still contains real newlines, whereas the
+        # original rescue tool mistakenly compared the literal XML bytes.
+        before = self.write(lf_entity="&#10;")
+        actual, after = rescue.inspect_ledger()
+        self.assertEqual(actual, before)
+        self.assertEqual(len(before) - len(after), 4)
+        self.assertEqual(after, before.replace(
+            b"&#10;    </string>", b"&#10;</string>"))
+        self.assertEqual(self.file.read_bytes(), before,
+                         "Preflight must never modify preferences")
+
+    def test_hex_numeric_newline_representation(self):
+        before = self.write(lf_entity="&#xA;")
+        actual, after = rescue.inspect_ledger()
+        self.assertEqual(actual, before)
+        self.assertEqual(len(before) - len(after), 4)
+
+    def test_entity_with_no_padding_refuses(self):
+        self.write(padding="\n", lf_entity="&#10;")
+        with self.assertRaises(rescue.Refuse):
+            rescue.inspect_ledger()
 
     def test_no_whitespace_padding_refuses(self):
         self.write(padding="\n")
