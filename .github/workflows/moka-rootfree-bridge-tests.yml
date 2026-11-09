@@ -1,0 +1,30 @@
+name: Wonhee Moka root-free bridge transport tests
+
+on:
+  push:
+    branches: [feature/moka-interop-rootfree-01527]
+  pull_request:
+    branches: [feature/batch-f5-control-policy-ui-design]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rootfree-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.6'
+          cache: false
+      - name: Run bridge policy and transport unit tests
+        working-directory: roothelper/mokabridge
+        run: go test -race -count=1 ./...
+      - name: Cross-compile unshipped ARM64 helper
+        working-directory: roothelper/mokabridge
+        run: |
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -o "$RUNNER_TEMP/wonhee-moka-bridge-arm64" .
+          test -s "$RUNNER_TEMP/wonhee-moka-bridge-arm64"
