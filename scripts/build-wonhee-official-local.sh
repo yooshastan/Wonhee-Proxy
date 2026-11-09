@@ -32,7 +32,7 @@ if [[ -z "$sdk" || ! -x "$sdk/build-tools/35.0.0/apksigner" ||
 fi
 
 branch="$(git branch --show-current)"
-if [[ "$branch" != feature/persistent-official-signing-01524 ]]; then
+if [[ "$branch" != feature/batch-h2c-dns-listener-lifecycle-01525 ]]; then
   echo "REFUSED: expected reviewed signing branch; currently: $branch" >&2
   exit 1
 fi
