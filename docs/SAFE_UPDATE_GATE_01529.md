@@ -48,3 +48,25 @@ Keep Android Private DNS OFF on this tested phone because other settings have br
 - No guarantee that a user cannot manually call `adb install -r` outside this supported workflow.
 
 Related: PR #63 (0.15.28 DNS coverage), PR #64 (permanent signed candidate), incident #41 (paused Batch F firewall).
+
+## Confirmed 0.15.28 Safe Stop failure: XML whitespace in routing ledger
+
+On the original installed 0.15.28 Pixel 8a:
+- Android CE app data was visible via root's `/data_mirror/data_ce/null/0/com.yooshastan.wonheeproxy/shared_prefs`, not Termux's isolated `/data/user/0` tmpfs namespace.
+- Python's XML parser extracted **three** valid nonempty rule records plus a trailing **newline + four spaces** in `pending_or_installed_rules_v1` (five trailing whitespace characters).
+- Exact three saved rules matched running kernel priorities 12500, 12501, 12502 and valid `0x0/0x20000` marks and probes. The DNS ownership value was empty and no DNS relay/firewall rules were found.
+- v0.15.28 `RootSplitRouteRules.decode()` ignored `line.isEmpty()`, not whitespace-only lines. The four spaces formed a spurious fourth record and triggered `IllegalArgumentException`, explaining the generic Safe Stop, route audit and lifecycle audit failures.
+- v0.15.29 parser fix: ignore only `line.trim().isEmpty()`, continuing to reject all changes to any populated routing record; protected exact kernel matching remains required. Regression tests cover this *actual* XML shape.
+
+### One-time rescue for already-installed 0.15.28 (exceptional, opt-in)
+
+`scripts/wonhee-01528-ledger-rescue.py` is a specific opt-in root helper, **not** a generic app preferences editor. Run as root on the device with Termux Python only after reading the source and securing USB ADB recovery.
+
+- Default invocation (no arguments) is **strictly read-only**. It verifies installed versionCode 75, exactly two known `wnm*` interfaces UP, precisely the three saved and live routes at expected priorities, destinations, marks, devices and numeric probes; an empty saved DNS owner, no owned/foreign Wonhee OUTPUT rules or DNS-port listener; and exactly four trailing XML indentation bytes after the valid records. Any unknown state causes refusal.
+- `--apply` requires an **interactive REPAIR confirmation**; it **force-stops the official Wonhee application process**. This is not full-stack Safe Stop and may affect networking/notification behavior. It immediately rechecks all live kernel/prefs preconditions *after stopping* and refuses to write if anything changed.
+- It creates an owner-only root backup of the original XML in `/data/local/tmp/wonhee-ledger-recovery/` before writing; changes precisely four trailing whitespace bytes from **one** saved routing string while preserving the original file inode, ownership and SELinux label; verifies post-write bytes. It does not modify keys, profiles, DNS rules, split-routing rules, or tunnel interfaces.
+- After the rescue, **manually reopen the official Wonhee app**, select both tunnel profiles and invoke the *existing* Batch H.1 Safe Stop. Only if it reports verified complete should the next signed upgrade proceed using the independently guarded installer.
+- **Never run --apply** if the read-only validation refuses or if this is a different phone/package/version, DNS/guard is live, or rules vary. Do not run it merely to fix a cosmetic UI warning. Keep the backup until full successful device tests and validate no app profile data loss.
+- Repo CI tests mock XML cases and refuse nonmatching or malformed ledgers, but **cannot prove a live device recovery**. Android package managers and all-traffic kill switch remain out of scope.
+
+The helper does not itself perform a Safe Stop or APK installation. Because application force-stop is disruptive and not zero-leak, the user must deliberately opt in at the device terminal; no automated use is authorized.
