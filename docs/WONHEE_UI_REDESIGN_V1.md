@@ -137,6 +137,22 @@ YOUR PROTECTION STACK
 
 Show honest status and no false green badges. When no profiles are configured, replace status cards with a short onboarding "Add a VPN profile" flow.
 
-## For this F.5 batch
+## F.5 implementation status (0.15.26 candidate)
 
-Only design documentation and a pure offline network-control *candidate* classifier are added. The app UI is **not implemented in this batch**; approval/review of the information hierarchy should precede a non-destructive staged implementation. The Batch F activation gate remains hard paused.
+- **First read-only dashboard preview implemented** in `WonheeDashboardPreviewActivity`. Four tabs (Home, Profiles, Protection, Activity), responsive saved-profile list up to eight, user-defined names/role labels, and a status summary from verified local root tunnel counters. A top-level entry in `VpnActivity` and an additional entry in `RootMultiKernelActivity` open it. The dashboard has **no root mutation actions**; its Advanced Controls button opens the existing proven manager.
+- **Root-mode traffic notification implemented** in separate `RootMultiTrafficNotificationService`. It is user-enabled under Advanced Connection Controls; Android 13+ notification permission is requested as needed. It shows aggregate RX/TX rates calculated from locally verified, identity-matching kernel tunnel byte counters and the number of **blocked DNS replies** reported by the exact owned/verified DNS relay when tracker filtering is enabled. Counter resets/unknown state and inaccessible DNS stats display unavailable, **never zero**.
+- **Counters are not lifetime ad removal metrics**: the DNS relay's blocked-query counter starts over when the native relay restarts; source snapshots may be periodic. Some apps bypass Wonhee DNS entirely and aren't counted. The multi-tunnel network byte rates are **verified tunnel traffic**, not the whole phone's data usage.
+- The notification is a **user-started Android app foreground service**, using the declared `specialUse` type for optional persistent kernel tunnel statistics; OS policy/permissions can prevent it appearing, without affecting VPN connectivity. It does **not** create the official Android system VPN indicator. The original single-`VpnService` notification remains separate and unchanged.
+- A verified Safe Stop shuts down the optional root notification. An incomplete rollback deliberately leaves it running rather than falsely claiming a clean disconnect. The service self-stops when it confirms no saved-profile root tunnel remains.
+- The existing `RootGuardSafetyGate` stays **hard-paused**. No F.5 iptables rules are installed, no DNS policies are changed by rendering or notifying, and the rootlab and official APKs remain independently signed/installed. Do not run both network stacks simultaneously.
+- **Remaining design work**: consumer Connect/Safe Disconnect on the dashboard, per-profile live status cards rather than only a verified aggregate, compact bottom navigation, dynamic themes / Candy Pink Day, TalkBack/small-screen QA, independent rollback watchdog, and Android 16 notification permission/foreground-service verification on the Pixel.
+
+For Pixel acceptance of the 0.15.26 candidate:
+1. Safely stop any active rootlab/official session; confirm port 53535 free and owned firewall/routes absent.
+2. Install the 0.15.26 **official APK signed with the same permanent keystore** as the previously installed official build; never uninstall to change signing identity.
+3. From `Wonhee Proxy` open `Preview new multi-connection dashboard · read only`: check that saved profile names display without keys and the kill switch correctly reads unavailable.
+4. Enter Advanced Connection Controls and tap `Enable root tunnel speed + blocked-request notification`; grant notification permission, and use the normal previously verified root stack start. Confirm the notification includes ↓/↑ speed and blocked DNS replies. If filtering is OFF, it must say that; if native DNS stats cannot be trusted, it must say unavailable.
+5. Use Safe Stop and confirm the notification disappears, both tunnels disconnect and no owned DNS/firewall/route state or local listener remains. Do not enable Batch F.
+6. Test a second session after app restart; no stale blocked count or false system VPN claim is permitted.
+
+These are local verification steps, not a claim that an APK has been tested on a real device.
