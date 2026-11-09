@@ -132,10 +132,16 @@ if [[ ! -f "$store" || -L "$store" ]]; then
 fi
 
 branch="$(git branch --show-current)"
-if [[ "$branch" != feature/batch-f5-control-policy-ui-design ]]; then
-  echo "REFUSED: expected reviewed signing branch; currently: $branch" >&2
-  exit 1
-fi
+# Explicit release-candidate allowlist: never silently sign an arbitrary branch.
+# The 0.15.28 UI/DNS branch remains a draft until on-device validation.
+case "$branch" in
+  feature/batch-f5-control-policy-ui-design|feature/dns-coverage-continuity-01528|fix/wonhee-01528-signed-upgrade-path)
+    ;;
+  *)
+    echo "REFUSED: branch is not an explicitly reviewed Wonhee signing candidate: $branch" >&2
+    exit 1
+    ;;
+esac
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "REFUSED: worktree has uncommitted tracked changes." >&2
   echo "Commit or stash changes before building a signed release candidate." >&2
