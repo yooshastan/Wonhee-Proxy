@@ -728,10 +728,11 @@ public final class RootMultiKernelActivity extends Activity {
 
         LinearLayout failClosed = card(advancedGroup);
         label(failClosed, "PRODUCT BATCH F · FAIL-CLOSED FIREWALL PROTOTYPE", 18, PINK);
-        label(failClosed, "BATCH F ACTIVATION PAUSED after a connectivity interruption. "
-                + "The 0.15.13 diagnostic build cannot activate its OUTPUT guard or "
-                + "send the optional packet challenge. Read-only audits and exact "
-                + "owned guard removal remain available. See issue #41.", 13, PINK);
+        label(failClosed, "BATCH F ACTIVATION PAUSED for safety after a connectivity "
+                + "interruption. This build cannot activate its all-traffic OUTPUT "
+                + "guard or send the underlay challenge. DNS-port enforcement is a "
+                + "different feature. Read-only audits and exact-owned guard removal "
+                + "remain available. See issue #41.", 13, PINK);
         label(failClosed, "HIGH-RISK EXPERIMENTAL ROOT OUTPUT FIREWALL. Default OFF. "
                 + "Both IPv4/IPv6 deny traffic outside selected kernel tunnels, except "
                 + "loopback and exact marked WireGuard UDP endpoints. This may disable "
@@ -746,7 +747,9 @@ public final class RootMultiKernelActivity extends Activity {
                 + "DNS leak or guarantee seamless handoffs.", 13, MUTED);
         failClosedStatus = label(failClosed,
                 "KILL SWITCH LEDGER: " + session.guardLedgerStatus(), 14, PINK);
-        failClosedEnable = button(failClosed, "Review + enable experimental kill switch · opt in");
+        failClosedEnable = button(failClosed, RootGuardSafetyGate.activationPaused()
+                ? "All-traffic kill switch unavailable — safety pause"
+                : "Review + enable experimental kill switch · opt in");
         failClosedEnable.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Batch F: activate root fail-closed guard?")
                 .setMessage("Only for a controlled test with USB ADB already connected. "
@@ -778,7 +781,9 @@ public final class RootMultiKernelActivity extends Activity {
                 run("Preview Batch F control-plane flow outcomes", false,
                         session::reviewGuardControlPlaneImpact));
         failClosedUnderlayChallenge = button(failClosed,
-                "Test IPv4 + IPv6 physical-underlay rejection · opt in");
+                RootGuardSafetyGate.activationPaused()
+                ? "Underlay challenge unavailable — safety pause"
+                : "Test IPv4 + IPv6 physical-underlay rejection · opt in");
         failClosedUnderlayChallenge.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Send two bounded underlay test packets?")
                 .setMessage("HIGH-RISK ROOT EXPERIMENT. Only when Batch F is ACTIVE, "
