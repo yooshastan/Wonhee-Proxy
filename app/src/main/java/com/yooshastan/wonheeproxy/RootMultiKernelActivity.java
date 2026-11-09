@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
@@ -34,6 +35,9 @@ public final class RootMultiKernelActivity extends Activity {
     private static final int WHITE = 0xfff8f1f9;
     private static final int MUTED = 0xffc4b7c9;
     private static final int REQUEST_HOSTS_IMPORT = 8124;
+    private static final int REQUEST_ROOT_NOTIFICATION = 8451;
+    private static final String ROOT_NOTIFICATION_PREFS = "wonhee_root_traffic_notification";
+    private Button rootTrafficNotificationButton;
 
     private SecureTunnelProfileStore store;
     private RootMultiKernelSession session;
@@ -244,6 +248,17 @@ public final class RootMultiKernelActivity extends Activity {
 
         inspect = button(controls, "Read live kernel status");
         inspect.setOnClickListener(v -> run("Read multi-tunnel state", true, session::inspect));
+        rootTrafficNotificationButton = button(controls,
+                "Enable root tunnel speed + blocked-request notification");
+        rootTrafficNotificationButton.setOnClickListener(v -> toggleRootTrafficNotification());
+        label(controls, "Optional silent notification: combined download/upload from "
+                + "identity-verified kernel WireGuard tunnels, plus DNS blocked replies "
+                + "since the current relay started. Not Android's system VPN badge, "
+                + "not a whole-device leak test, and not a kill switch.", 12, MUTED);
+        Button dashboardPreview = button(controls,
+                "Open new Wonhee dashboard preview · read only");
+        dashboardPreview.setOnClickListener(v -> startActivity(
+                new Intent(this, WonheeDashboardPreviewActivity.class)));
 
         LinearLayout guided = card(page);
         label(guided, "SECURITY ASSISTANT · GUIDED CHECK", 18, PINK);
@@ -1132,6 +1147,12 @@ public final class RootMultiKernelActivity extends Activity {
                             ? "F.3d anonymous header and OUTPUT counter comparison "
                                     + (ok ? "completed" : "check required")
                             : result);
+            if (ok && action.startsWith("Connect multi-tunnel")
+                    && wantsRootTrafficNotification() && mayDisplayRootNotifications()) {
+                RootMultiTrafficNotificationService.startIfPossible(this);
+            } else if (ok && action.startsWith("Disconnect multi-tunnel")) {
+                RootMultiTrafficNotificationService.stop(this);
+            }
             updateButtons();
         });
         updateButtons();
@@ -1230,6 +1251,68 @@ public final class RootMultiKernelActivity extends Activity {
                 if (!isFinishing() && !isDestroyed()) output.setText(display);
             });
         }, "wonhee-blocklist-" + operation).start();
+    }
+
+    private boolean wantsRootTrafficNotification() {
+        return getSharedPreferences(ROOT_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+                .getBoolean("enabled", false);
+    }
+
+    private boolean mayDisplayRootNotifications() {
+        return Build.VERSION.SDK_INT < 33
+                || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                    == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void toggleRootTrafficNotification() {
+        if (wantsRootTrafficNotification()) {
+            getSharedPreferences(ROOT_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean("enabled", false).apply();
+            RootMultiTrafficNotificationService.stop(this);
+            output.setText("Optional root traffic notification disabled. "
+                    + "VPN, DNS and routing are unchanged.");
+            updateRootTrafficNotificationUi();
+            return;
+        }
+        if (!mayDisplayRootNotifications()) {
+            requestPermissions(new String[]{
+                android.Manifest.permission.POST_NOTIFICATIONS
+            }, REQUEST_ROOT_NOTIFICATION);
+            return;
+        }
+        enableRootTrafficNotification();
+    }
+
+    private void enableRootTrafficNotification() {
+        getSharedPreferences(ROOT_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("enabled", true).apply();
+        RootMultiTrafficNotificationService.startIfPossible(this);
+        output.setText("Root notification requested. Shows verified tunnel speeds "
+                + "and live DNS blocked replies only while kernel tunnels are active. "
+                + "Android may restrict foreground notifications; check app permissions "
+                + "if it does not appear. No network changes.");
+        updateRootTrafficNotificationUi();
+    }
+
+    private void updateRootTrafficNotificationUi() {
+        if (rootTrafficNotificationButton == null) return;
+        rootTrafficNotificationButton.setText(wantsRootTrafficNotification()
+                ? "Disable root tunnel speed notification"
+                : "Enable root tunnel speed + blocked-request notification");
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode,
+            String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_ROOT_NOTIFICATION) return;
+        if (grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            enableRootTrafficNotification();
+        } else {
+            output.setText("Notification permission denied. Your root VPN "
+                    + "and DNS configuration remain unchanged.");
+            updateRootTrafficNotificationUi();
+        }
     }
 
     private void finishManagedLifecycle(boolean ok, String message) {
@@ -1340,6 +1423,10 @@ public final class RootMultiKernelActivity extends Activity {
                                             rollbackFailedStart(chosen,
                                                     "FINAL_DNS_AUDIT", auditReport);
                                         } else {
+                                            if (wantsRootTrafficNotification()
+                                                    && mayDisplayRootNotifications()) {
+                                                RootMultiTrafficNotificationService.startIfPossible(this);
+                                            }
                                             finishManagedLifecycle(true,
                                                     "BATCH H.1 FULL STACK STARTED\n"
                                                     + "WireGuard tunnels: verified UP\n"
@@ -1381,7 +1468,10 @@ public final class RootMultiKernelActivity extends Activity {
                     updateButtons();
                     output.setText("BATCH H.1 — safe stop in progress...");
                     session.stopManagedStack(chosen,
-                            (ok, result) -> finishManagedLifecycle(ok, result));
+                            (ok, result) -> {
+                                if (ok) RootMultiTrafficNotificationService.stop(this);
+                                finishManagedLifecycle(ok, result);
+                            });
                 }).show();
     }
 
@@ -1406,6 +1496,7 @@ public final class RootMultiKernelActivity extends Activity {
     }
 
     private void updateButtons() {
+        updateRootTrafficNotificationUi();
         boolean idle = !session.isBusy() && !guidedRunning && !lifecycleBusy;
         boolean ready = idle && !selected().isEmpty();
         boolean firewallUnlocked = "OFF".equals(session.guardLedgerStatus());
