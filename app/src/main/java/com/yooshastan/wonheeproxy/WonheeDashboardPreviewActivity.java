@@ -139,9 +139,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         button(content, "Advanced connection controls / Safe stop",
                 () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
-        text(content, "The current Batch F all-traffic kill switch is unavailable. "
-                + "This preview neither starts a VPN nor changes firewall or DNS settings.",
-                12, MUTED);
+        text(content, "All-traffic kill switch activation is paused for safety. DNS-port "
+                + "filtering is separate. This preview does not verify live firewall "
+                + "rules or change tunnels, routes, DNS, or firewall settings.", 12, MUTED);
     }
 
     private void home() {
@@ -183,7 +183,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(protection, "PROTECTION AT A GLANCE", 15, PINK);
         protectionRow(protection, "Encrypted DNS", dnsState());
         protectionRow(protection, "Ads & Trackers", blockState());
-        protectionRow(protection, "Firewall", "Unavailable — in development");
+        protectionRow(protection, "DNS-port firewall", dnsFirewallLedgerState());
+        protectionRow(protection, "All-traffic kill switch", killSwitchState());
 
         LinearLayout actions = card(content);
         button(actions, "Open existing Connect / Safe Disconnect controls",
@@ -220,7 +221,12 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         protectionRow(group, "2  Routing", "Details and audits in Advanced Tools");
         protectionRow(group, "3  Encrypted DNS", dnsState());
         protectionRow(group, "4  Ad & Tracker Blocking", blockState());
-        protectionRow(group, "5  Firewall", "Unavailable — paused after connectivity loss");
+        protectionRow(group, "5  DNS-port firewall", dnsFirewallLedgerState());
+        protectionRow(group, "6  All-traffic kill switch", killSwitchState());
+        text(group, "The DNS firewall protects selected DNS ports only. The all-traffic "
+                + "kill switch is a separate, safety-paused experiment after a "
+                + "connectivity interruption. Ledger status is not proof of live rules; "
+                + "use Advanced Tools to audit IPv4 and IPv6 chains.", 12, MUTED);
         text(group, "Blocked count measures DNS replies blocked by Wonhee's verified "
                 + "active relay since that relay started. It is not a count of page ads, "
                 + "all trackers, or device-wide traffic.", 12, MUTED);
@@ -246,6 +252,23 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 + "in the advanced connection controls.", 12, MUTED);
         button(group, "Read current tunnel and firewall diagnostics",
                 () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
+    }
+
+    private String dnsFirewallLedgerState() {
+        // Ledger presence alone cannot attest to the live IPv4/IPv6 rule set.
+        return "OFF".equals(session.dnsLedgerStatus())
+                ? "No DNS policy recorded — run live audit to verify"
+                : "DNS policy recorded — live rule audit required";
+    }
+
+    private String killSwitchState() {
+        // Never call a guard disabled merely because its ledger is empty.
+        if (!"OFF".equals(session.guardLedgerStatus())) {
+            return "Guard ownership recorded — live audit and recovery check required";
+        }
+        return RootGuardSafetyGate.activationPaused()
+                ? "Unavailable — activation paused for safety; audit live chains"
+                : "Not enabled in ledger — audit live chains before relying on it";
     }
 
     private String dnsState() {
