@@ -68,8 +68,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
         TextView name = text(page, "✦ WONHEE PROXY", 24, PINK);
         name.setContentDescription("Wonhee Proxy");
-        text(page, "Candy Pink  •  Multi-connection dashboard preview", 12, MUTED);
-        text(page, "Status is read-only. Use existing controls for connection changes.",
+        text(page, "Candy Pink  •  Connection dashboard", 12, MUTED);
+        text(page, "Live status is read-only; network changes remain in Safe Controls.",
                 12, LAVENDER);
         navigation = new LinearLayout(this);
         navigation.setOrientation(LinearLayout.HORIZONTAL);
@@ -135,7 +135,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private void render() {
         if (content == null) return;
         navigation.removeAllViews();
-        String[] tabs = {"Home", "Profiles", "Protection", "Activity"};
+        String[] tabs = {"Status", "Tunnels", "DNS", "Activity"};
         for (int i = 0; i < tabs.length; i++) {
             final int next = i;
             Button button = new Button(this);
@@ -158,7 +158,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             case 2: protectionTab(); break;
             default: activityTab();
         }
-        button(content, "Advanced connection controls / Safe stop",
+        button(content, "Safe connection controls / recovery",
                 () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
         text(content, "All-traffic kill switch activation is paused for safety. DNS-port "
                 + "filtering is separate. This preview does not verify live firewall "
@@ -181,14 +181,18 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         LinearLayout group = card(content);
         text(group, "LIVE SIGNALS", 15, PINK);
         text(group, throughputLine(), 20, WHITE);
-        text(group, "Combined verified WireGuard tunnel speeds. Not device-wide traffic.",
-                12, MUTED);
+        text(group, "Combined verified WireGuard tunnel speeds · updates while visible. "
+                + "Not device-wide traffic and not per-profile throughput.", 12, MUTED);
         RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
         boolean verified = snapshot != null && snapshot.dnsVerified
                 && snapshot.trackerEnabled && snapshot.blocked != null;
-        text(group, verified ? snapshot.blocked + " DNS requests blocked"
+        text(group, verified ? snapshot.blocked + " blocked DNS replies"
                 : "Blocked DNS replies: " + blockedCount(), 18,
                 verified ? LAVENDER : MUTED);
+        text(group, "DNS: " + dnsState() + "  ·  Filtering: "
+                + (snapshot == null || !snapshot.dnsVerified ? "unverified"
+                        : snapshot.trackerEnabled ? "enabled" : "off"),
+                13, verified ? WHITE : MUTED);
         text(group, "Blocked total belongs to the current verified DNS relay lifetime.",
                 12, MUTED);
         showNotificationControl(group);
@@ -276,6 +280,12 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             status = "Attention: some tunnel identities unverified";
         }
         text(hero, status, 20, WHITE);
+        if (snapshot != null && snapshot.rootsAvailable) {
+            text(hero, "Identity-verified " + snapshot.verifiedTunnels + "/"
+                    + snapshot.presentTunnels + " detected tunnel(s) · "
+                    + (snapshot.countersAvailable ? "live counters available"
+                            : "live counters not verified"), 13, LAVENDER);
+        }
         text(hero, "Tunnel connection is not proof of full-device leak protection.", 12, MUTED);
 
         showLiveSignals();
@@ -304,11 +314,50 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         protectionRow(protection, "DNS-port firewall", dnsFirewallLedgerState());
         protectionRow(protection, "All-traffic kill switch", killSwitchState());
 
+        showRecoveryGuidance();
+
         LinearLayout actions = card(content);
         button(actions, "Open existing Connect / Safe Disconnect controls",
                 () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
         text(actions, "For this first preview, the proven advanced manager handles "
                 + "all network changes and recovery.", 12, MUTED);
+    }
+
+    /** Guidance never tries to repair ownership or change the network itself. */
+    private void showRecoveryGuidance() {
+        LinearLayout group = card(content);
+        text(group, "WHAT TO CHECK NEXT", 15, PINK);
+        RootMultiKernelSession.RootTrafficSnapshot s = lastSnapshot;
+        String guidance;
+        if (s == null || !s.rootsAvailable) {
+            guidance = "Root status cannot be verified. Check USB ADB and run "
+                    + "Read live kernel status in Safe Controls. Do not assume "
+                    + "the tunnels or DNS rules are stopped.";
+        } else if (s.presentTunnels > 0 && s.verifiedTunnels != s.presentTunnels) {
+            guidance = "Some running tunnel identities are unverified. Avoid "
+                    + "manual interface deletion or forced disconnect. Capture "
+                    + "the read-only lifecycle and tunnel audit before Safe Stop.";
+        } else if (s.presentTunnels == 0) {
+            guidance = "No saved-profile tunnels detected. If a prior session "
+                    + "was interrupted, run H.2a read-only lifecycle audit before "
+                    + "starting a complete stack. This is not proof of clean stop.";
+        } else if (!s.countersAvailable) {
+            guidance = "Tunnel counters are not fully verified. Run F.2 passive "
+                    + "health snapshot; inspect identities before attempting recovery.";
+        } else if (!s.dnsVerified) {
+            guidance = "Tunnels appear verified, but the DNS relay is not verified. "
+                    + "Audit owned DNS rules and relay before restarting anything. "
+                    + "Do not disable DNS protection solely for a diagnostic.";
+        } else {
+            guidance = "Tunnels and local DNS relay are verified at this snapshot. "
+                    + "If browsing fails, use Connected but no Internet (read only) "
+                    + "before the coordinated H.1 Safe Stop when practical.";
+        }
+        text(group, guidance, 13, WHITE);
+        text(group, "Keep Android Private DNS OFF. All-traffic guard remains paused. "
+                + "Never force a firewall flush or tunnel deletion.", 12, MUTED);
+        button(group, "Open Safe Controls and Diagnostics",
+                () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
     }
 
     private void profileTab() {
@@ -348,6 +397,19 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, "Blocked count measures DNS replies blocked by Wonhee's verified "
                 + "active relay since that relay started. It is not a count of page ads, "
                 + "all trackers, or device-wide traffic.", 12, MUTED);
+        RootMultiKernelSession.RootTrafficSnapshot dns = lastSnapshot;
+        LinearLayout totals = card(content);
+        text(totals, "DNS & AD-BLOCK ACTIVITY", 16, PINK);
+        if (dns != null && dns.dnsVerified && dns.dnsCounters != null) {
+            text(totals, "Received: " + dns.dnsCounters.received
+                    + "  ·  Forwarded: " + dns.dnsCounters.forwarded, 14, WHITE);
+            text(totals, "Blocked: " + blockedCount()
+                    + "  ·  Failed: " + dns.dnsCounters.failed, 14, LAVENDER);
+        } else {
+            text(totals, "DNS relay counters unavailable or unverified.", 14, MUTED);
+        }
+        text(totals, "Only requests reaching this relay are counted. Browser or "
+                + "app-owned encrypted DNS may bypass local filtering.", 12, MUTED);
         showDnsCoverage();
     }
 
@@ -366,7 +428,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             text(group, "Tunnel byte counters unavailable or identities unverified.",
                     13, MUTED);
         }
-        text(group, "DNS blocked replies: " + blockedCount(), 14, WHITE);
+        text(group, "DNS blocked replies: " + blockedCount()
+                + " (current verified relay only)", 14, WHITE);
         text(group, "DNS relay continuity: " + dnsBaselineComparison(), 12, MUTED);
         text(group, "Live tunnel rates: " + throughputLine(), 13, WHITE);
         showNotificationControl(group);
