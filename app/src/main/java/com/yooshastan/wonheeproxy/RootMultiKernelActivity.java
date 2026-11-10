@@ -265,7 +265,7 @@ public final class RootMultiKernelActivity extends Activity {
                 + "since the current relay started. Not Android's system VPN badge, "
                 + "not a whole-device leak test, and not a kill switch.", 12, MUTED);
         Button dashboardPreview = button(controls,
-                "Open new Wonhee dashboard preview · read only");
+                "Open Candy Pink status dashboard · preview");
         dashboardPreview.setOnClickListener(v -> startActivity(
                 new Intent(this, WonheeDashboardPreviewActivity.class)));
 
