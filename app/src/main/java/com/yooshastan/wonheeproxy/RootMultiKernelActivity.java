@@ -60,6 +60,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button preview;
     private Button inspect;
     private Button internetIncidentAudit;
+    private Button perAppAudit;
     private Button audit;
     private Button apply;
     private Button remove;
@@ -189,6 +190,16 @@ public final class RootMultiKernelActivity extends Activity {
                 + "counter movement, routes, DNS and relay without sending packets "
                 + "or changing connectivity. If you need service restored, use "
                 + "Safe Stop rather than waiting for diagnostics.", 12, MUTED);
+
+        perAppAudit = button(controls,
+                "Inspect Messages / Play services / Android routes · read only");
+        perAppAudit.setOnClickListener(v -> run("Per-app route predictions",
+                false, session::auditKnownAppRouting));
+        label(controls, "Compares the actual installed app UIDs with kernel route "
+                + "predictions for normal and protected-from-VPN socket marks. "
+                + "It DOES NOT observe live sockets or enforce VPN-only traffic. "
+                + "Select every active tunnel; do not disable RCS, microG, "
+                + "Google services or Wi-Fi Calling for this test.", 12, MUTED);
 
         label(controls, "EMERGENCY DNS RECOVERY · NO VPN RESTART REQUIRED", 17, PINK);
         label(controls, "If DNS redirects or rejects requests and the normal owner "
@@ -1165,6 +1176,9 @@ public final class RootMultiKernelActivity extends Activity {
                     ? "Product D relay lifecycle " + (ok ? "verified" : "refused")
                     : action.startsWith("Product D DoH")
                     ? "Product D DoH probe " + (ok ? "verified" : "refused")
+                    : action.startsWith("Per-app route predictions")
+                    ? "Read-only per-app routing predictions "
+                            + (ok ? "completed" : "check required")
                     : action.startsWith("Connectivity incident snapshot")
                     ? "Read-only Internet outage snapshot "
                             + (ok ? "verified" : "check required")
@@ -1597,6 +1611,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (preview != null) preview.setEnabled(ready);
         if (inspect != null) inspect.setEnabled(idle);
         if (internetIncidentAudit != null) internetIncidentAudit.setEnabled(ready);
+        if (perAppAudit != null) perAppAudit.setEnabled(ready);
         if (audit != null) audit.setEnabled(ready);
         if (apply != null) apply.setEnabled(ready && firewallUnlocked);
         if (recover != null) recover.setEnabled(ready && firewallUnlocked);
