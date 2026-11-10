@@ -408,8 +408,22 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         } else {
             text(totals, "DNS relay counters unavailable or unverified.", 14, MUTED);
         }
+        if (dns != null && dns.dnsVerified && dns.dnsCounters != null
+                && dns.trackerEnabled && dns.dnsCounters.received > 0) {
+            double percent = 100.0 * dns.dnsCounters.blocked
+                    / dns.dnsCounters.received;
+            text(totals, String.format(java.util.Locale.ROOT,
+                    "Blocked %.1f%% of requests observed by this relay", percent),
+                    13, LAVENDER);
+        }
         text(totals, "Only requests reaching this relay are counted. Browser or "
                 + "app-owned encrypted DNS may bypass local filtering.", 12, MUTED);
+        LinearLayout continuity = card(content);
+        text(continuity, "DNS BASELINE · READ-ONLY COMPARISON", 15, PINK);
+        text(continuity, dnsBaselineComparison(), 13, WHITE);
+        text(continuity, "The saved baseline compares a verified relay process "
+                + "and aggregate counters. It is not continuous monitoring "
+                + "or proof of leak prevention.", 12, MUTED);
         showDnsCoverage();
     }
 
@@ -431,6 +445,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, "DNS blocked replies: " + blockedCount()
                 + " (current verified relay only)", 14, WHITE);
         text(group, "DNS relay continuity: " + dnsBaselineComparison(), 12, MUTED);
+        text(group, "Baseline is an opt-in local comparison, not a guarantee "
+                + "of uninterrupted DNS or network protection.", 12, MUTED);
         text(group, "Live tunnel rates: " + throughputLine(), 13, WHITE);
         showNotificationControl(group);
         button(group, "Read current tunnel and firewall diagnostics",
@@ -505,7 +521,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 12, LAVENDER);
         button(group, "Review DNS & leak verification checklist · read only",
                 this::showLeakChecklist);
-        text(group, dnsBaselineComparison(), 12, WHITE);
+        text(group, "The comparison is displayed above. Save a baseline only "
+                + "when the relay and tunnel identities are verified.", 12, MUTED);
         button(group, "Save verified DNS baseline for overnight comparison",
                 this::captureDnsBaseline);
         button(group, "Clear saved DNS baseline", () -> {
