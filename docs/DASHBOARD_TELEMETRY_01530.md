@@ -9,7 +9,7 @@
 - The existing DNS blocked-reply counter is visible on the Home dashboard when the active relay PID/statistics are verified. These are **local DNS replies**, not page ads or all trackers. Counters reset with relay lifetime.
 - The same opt-in persistent notification can be enabled or disabled from Home or Activity, without searching advanced menus. Android 13+ notification permission is requested on explicit enable only. Notification is not Android's system VPN badge; foreground service restrictions may prevent visibility.
 - Protection tab now makes local relay status distinct from proving encrypted upstream DNS or device-wide leak freedom, and provides a manual read-only checklist. **Android Private DNS stays OFF on this phone**, as Automatic/custom previously broke Wi-Fi.
-- The launcher and proven Advanced Connect/Safe Stop controls remain unchanged. The new UI is a **preview**, not the default; no network mutations from preview.
+- The same launcher Activity and proven Advanced Connect/Safe Stop controls remain available. The dashboard shortcut moves to the top of the launcher so it no longer requires scrolling through profile configuration. The new dashboard is a **preview**, not the default; it only changes the opt-in notification preference, never the VPN network state.
 
 ## Acceptance plan on Pixel 8a / Axion Android 16
 
