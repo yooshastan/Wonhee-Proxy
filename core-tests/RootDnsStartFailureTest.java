@@ -21,6 +21,29 @@ public final class RootDnsStartFailureTest {
                 "DNS activation failed [LOCAL_DNS_HEALTH]; exact owned rules rolled back.")
                 .contains("LOCAL_DNS_HEALTH"), "Must preserve post-ledger health phase");
         check(RootDnsStartFailure.summary(
+                "DNS activation REFUSED before firewall changes "
+                    + "[LOCAL_DNS_TIMEOUT]: https://private.example/key")
+                .contains("within nine seconds"),
+                "Local encrypted upstream timeout must remain distinguishable");
+        check(!RootDnsStartFailure.summary(
+                "[LOCAL_DNS_TIMEOUT] https://private.example/key").contains("private.example"),
+                "No private upstream URL may appear in timeout guidance");
+        check(RootDnsStartFailure.summary(
+                "DNS activation REFUSED before firewall changes [LOCAL_DNS_HEALTH]")
+                .contains("verified A answer"),
+                "Invalid upstream DNS response must not be mistaken for tracker failure");
+        check(RootDnsStartFailure.summary(
+                "DNS activation REFUSED before firewall changes [LOCAL_TRACKER_HEALTH]")
+                .contains("upstream A-answer check passed"),
+                "Tracker NXDOMAIN mismatch must be distinctly labeled");
+        check(RootDnsStartFailure.summary(
+                "[LOCAL_TRACKER_TIMEOUT]").contains("tracker-block health query"),
+                "Tracker local timeout must be distinguished from upstream timeout");
+        check(!RootDnsStartFailure.summary(
+                "[LOCAL_TRACKER_HEALTH] host=some.private.name")
+                .contains("some.private.name"),
+                "Tracker private hostnames cannot be printed");
+        check(RootDnsStartFailure.summary(
                 "DNS ROLLBACK NOT VERIFIED [FIREWALL_INSTALL].").contains("FIREWALL_INSTALL"),
                 "Must preserve post-ledger firewall install stage");
         check(RootDnsStartFailure.summary(

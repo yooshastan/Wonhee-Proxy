@@ -13,7 +13,8 @@ final class RootDnsStartFailure {
             "\\[(POLICY_PREFLIGHT|DNS_POLICY_PARSE|PROFILE_VALIDATION|TUNNEL_IDENTITY"
             + "|UPSTREAM_ROUTE|FIREWALL_COLLISION_PREFLIGHT|RELAY_PORT_PREFLIGHT"
             + "|RELAY_PREPARE|RELAY_LAUNCH|PROCESS_IDENTITY|LOCAL_LISTENER"
-            + "|LOCAL_DNS_HEALTH|OWNERSHIP_LEDGER_COMMIT|FIREWALL_INSTALL"
+            + "|LOCAL_DNS_HEALTH|LOCAL_DNS_TIMEOUT|LOCAL_TRACKER_HEALTH"
+            + "|LOCAL_TRACKER_TIMEOUT|OWNERSHIP_LEDGER_COMMIT|FIREWALL_INSTALL"
             + "|FIREWALL_VERIFY)\\]");
     private RootDnsStartFailure() { }
 
@@ -48,8 +49,28 @@ final class RootDnsStartFailure {
                         + "verify its process. Check root tools and relay lifecycle.";
                 break;
             case "LOCAL_DNS_HEALTH":
-                recommendation = "The relay started but its own DNS/tracker test did "
-                        + "not pass. Verify upstream connectivity and DNS configuration.";
+                recommendation = "The local relay did not produce a verified A answer "
+                        + "for its upstream health probe. Check the selected "
+                        + "WireGuard DNS path and encrypted resolver without "
+                        + "disabling the DNS safety gate.";
+                break;
+            case "LOCAL_DNS_TIMEOUT":
+                recommendation = "The relay's upstream DNS health query received "
+                        + "no reply within nine seconds. This does not distinguish "
+                        + "a slow encrypted upstream from a delayed local relay. "
+                        + "No direct/plaintext fallback was attempted.";
+                break;
+            case "LOCAL_TRACKER_HEALTH":
+                recommendation = "The upstream A-answer check passed, but the "
+                        + "separate tracker-block health query did not return "
+                        + "the expected local NXDOMAIN. Review loaded tracker "
+                        + "rules; do not disable blocking to force a startup.";
+                break;
+            case "LOCAL_TRACKER_TIMEOUT":
+                recommendation = "The upstream A-answer check passed, but the "
+                        + "tracker-block health query received no reply within "
+                        + "nine seconds. Inspect the local relay and tracker "
+                        + "policy before another start.";
                 break;
             case "FIREWALL_COLLISION_PREFLIGHT":
             case "FIREWALL_INSTALL":
