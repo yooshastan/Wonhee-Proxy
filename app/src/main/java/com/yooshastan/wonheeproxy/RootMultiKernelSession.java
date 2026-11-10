@@ -2712,8 +2712,10 @@ final class RootMultiKernelSession {
                         .append("). Kernel ss/inet_diag capability may be unavailable; "
                         + "no live socket mark is assumed.\n");
             }
-            report.append("No sockets opened, firewall/DNS/routes changed, "
-                    + "or phone app settings modified. Batch F all-traffic "
+            report.append("No application network connections initiated, "
+                    + "firewall/DNS/routes changed, or phone app settings modified. "
+                    + "The diagnostic tool may open a local kernel netlink socket. "
+                    + "Batch F all-traffic "
                     + "kill switch remains PAUSED. Keep Android Private DNS "
                     + "at its working OFF setting.");
             finish(callback, verified, report.toString());
