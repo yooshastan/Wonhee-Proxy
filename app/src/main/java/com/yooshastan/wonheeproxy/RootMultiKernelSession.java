@@ -1239,10 +1239,32 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException("Local relay listener not ready.");
                 }
                 stage = "LOCAL_DNS_HEALTH";
-                int answers = RootDnsRelayRunner.healthQuery();
-                if (answers < 1) throw new IllegalStateException("DNS relay returned no verified answers.");
-                if (tracker.enabled && !RootDnsRelayRunner.blockedHealthQuery()) {
-                    throw new IllegalStateException("Tracker filter did not return local NXDOMAIN.");
+                final int answers;
+                try {
+                    // Existing strict health query: one verified encrypted
+                    // upstream A response, not a generic UDP listener check.
+                    answers = RootDnsRelayRunner.healthQuery();
+                } catch (SocketTimeoutException timedOut) {
+                    stage = "LOCAL_DNS_TIMEOUT";
+                    throw timedOut;
+                }
+                if (answers < 1) {
+                    throw new IllegalStateException("DNS relay returned no verified answers.");
+                }
+                if (tracker.enabled) {
+                    stage = "LOCAL_TRACKER_HEALTH";
+                    try {
+                        // Local block verification is independent of the
+                        // upstream DNS response and must not be hidden under
+                        // its failure label. Neither check is bypassed.
+                        if (!RootDnsRelayRunner.blockedHealthQuery()) {
+                            throw new IllegalStateException(
+                                    "Tracker filter did not return local NXDOMAIN.");
+                        }
+                    } catch (SocketTimeoutException timedOut) {
+                        stage = "LOCAL_TRACKER_TIMEOUT";
+                        throw timedOut;
+                    }
                 }
                 stage = "OWNERSHIP_LEDGER_COMMIT";
                 // Intent written BEFORE any firewall mutation, with exact PID,
