@@ -140,6 +140,25 @@ final class RootMultiKernelSession {
      */
     interface TrafficCallback { void completed(RootTrafficSnapshot snapshot); }
 
+    /** Per-profile identity-verified, read-only status; no endpoints or keys. */
+    static final class TunnelStatus {
+        final String name;
+        final boolean present;
+        final boolean verified;
+        final Long received;
+        final Long sent;
+        final String handshake;
+        TunnelStatus(String name, boolean present, boolean verified,
+                Long received, Long sent, String handshake) {
+            this.name = name;
+            this.present = present;
+            this.verified = verified;
+            this.received = received;
+            this.sent = sent;
+            this.handshake = handshake;
+        }
+    }
+
     static final class RootTrafficSnapshot {
         final int verifiedTunnels;
         final int presentTunnels;
@@ -151,11 +170,13 @@ final class RootMultiKernelSession {
         final Long blocked;
         final boolean rootsAvailable;
         final RootDnsCounters dnsCounters;
+        final List<TunnelStatus> tunnels;
 
         RootTrafficSnapshot(int verifiedTunnels, int presentTunnels,
                 boolean countersAvailable, long received, long sent,
                 boolean dnsVerified, boolean trackerEnabled, Long blocked,
-                boolean rootsAvailable, RootDnsCounters dnsCounters) {
+                boolean rootsAvailable, RootDnsCounters dnsCounters,
+                List<TunnelStatus> tunnels) {
             this.verifiedTunnels = verifiedTunnels;
             this.presentTunnels = presentTunnels;
             this.countersAvailable = countersAvailable;
@@ -166,6 +187,8 @@ final class RootMultiKernelSession {
             this.blocked = blocked;
             this.rootsAvailable = rootsAvailable;
             this.dnsCounters = dnsCounters;
+            this.tunnels = java.util.Collections.unmodifiableList(
+                    new ArrayList<>(tunnels));
         }
     }
 
@@ -186,14 +209,21 @@ final class RootMultiKernelSession {
                 int verified = 0;
                 boolean complete = true;
                 long rx = 0, tx = 0;
+                List<TunnelStatus> tunnelDetails = new ArrayList<>();
                 for (SecureTunnelProfileStore.Profile profile : profiles) {
                     String device = RootMultiTunnelPlan.interfaceName(profile.name);
-                    if (!running.contains(device)) continue;
+                    if (!running.contains(device)) {
+                        tunnelDetails.add(new TunnelStatus(profile.name,
+                                false, false, null, null, "unavailable"));
+                        continue;
+                    }
                     present++;
                     Active active = load(profile);
                     if (!matches(new NamedTunnel(device), active)
                             || backend.getState(new NamedTunnel(device)) != Tunnel.State.UP) {
                         complete = false;
+                        tunnelDetails.add(new TunnelStatus(profile.name,
+                                true, false, null, null, "unverified"));
                         continue;
                     }
                     verified++;
@@ -202,10 +232,15 @@ final class RootMultiKernelSession {
                             || Long.MAX_VALUE - rx < counters.received
                             || Long.MAX_VALUE - tx < counters.sent) {
                         complete = false;
+                        tunnelDetails.add(new TunnelStatus(profile.name,
+                                true, true, null, null, handshakeAge(device)));
                         continue;
                     }
                     rx += counters.received;
                     tx += counters.sent;
+                    tunnelDetails.add(new TunnelStatus(profile.name,
+                            true, true, counters.received, counters.sent,
+                            handshakeAge(device)));
                 }
                 // Reject an incomplete aggregate rather than display a plausible
                 // but silently undercounted rate.
@@ -231,10 +266,11 @@ final class RootMultiKernelSession {
                 }
                 snapshot = new RootTrafficSnapshot(verified, present,
                         countersAvailable, rx, tx, dnsVerified, trackerEnabled,
-                        blocked, true, dnsCounters);
+                        blocked, true, dnsCounters, tunnelDetails);
             } catch (Exception | LinkageError unavailable) {
                 snapshot = new RootTrafficSnapshot(0, 0, false, 0, 0,
-                        false, false, null, false, null);
+                        false, false, null, false, null,
+                        java.util.Collections.emptyList());
             }
             final RootTrafficSnapshot result = snapshot;
             main.post(() -> callback.completed(result));

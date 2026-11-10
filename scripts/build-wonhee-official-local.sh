@@ -135,7 +135,7 @@ branch="$(git branch --show-current)"
 # Explicit release-candidate allowlist: never silently sign an arbitrary branch.
 # The 0.15.28 UI/DNS branch remains a draft until on-device validation.
 case "$branch" in
-  feature/batch-f5-control-policy-ui-design|feature/dns-coverage-continuity-01528|fix/wonhee-01528-signed-upgrade-path|feature/update-preflight-01529|feature/dashboard-telemetry-01530|feature/incident-snapshot-01531|fix/dns-start-stage-report-01532|feature/per-app-route-audit-01533|feature/passive-socket-marks-01534|feature/targeted-socket-burst-01535|fix/dns-local-health-substages-01536|feature/live-peer-route-audit-01537|feature/direct-route-advisories-01538|feature/direct-route-diagnostics-ui-01539|feature/direct-route-classification-01540|feature/route-evidence-stability-01541|feature/dashboard-status-guidance-01542|feature/dns-continuity-dashboard-01543)
+  feature/batch-f5-control-policy-ui-design|feature/dns-coverage-continuity-01528|fix/wonhee-01528-signed-upgrade-path|feature/update-preflight-01529|feature/dashboard-telemetry-01530|feature/incident-snapshot-01531|fix/dns-start-stage-report-01532|feature/per-app-route-audit-01533|feature/passive-socket-marks-01534|feature/targeted-socket-burst-01535|fix/dns-local-health-substages-01536|feature/live-peer-route-audit-01537|feature/direct-route-advisories-01538|feature/direct-route-diagnostics-ui-01539|feature/direct-route-classification-01540|feature/route-evidence-stability-01541|feature/dashboard-status-guidance-01542|feature/dns-continuity-dashboard-01543|feature/dashboard-reliability-01544)
     ;;
   *)
     echo "REFUSED: branch is not an explicitly reviewed Wonhee signing candidate: $branch" >&2

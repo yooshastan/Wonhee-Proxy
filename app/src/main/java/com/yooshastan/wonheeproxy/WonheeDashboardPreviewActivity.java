@@ -49,6 +49,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private RootMultiKernelSession.RootTrafficSnapshot lastSnapshot;
     private final RootDashboardTelemetry traffic = new RootDashboardTelemetry();
     private TunnelTrafficRates.Result liveRates;
+    private boolean dnsDetailsExpanded;
+    private int relaySeenPid = -1;
+    private long relaySeenBlocked = -1;
+    private String relayCounterEvent = "Awaiting verified relay counters";
     private LinearLayout content;
     private LinearLayout navigation;
     private boolean visible;
@@ -122,6 +126,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         session.readRootTrafficSnapshot(snapshot -> {
             if (!visible || isFinishing() || isDestroyed()) return;
             lastSnapshot = snapshot;
+            observeRelayCounterContinuity(snapshot);
             liveRates = snapshot == null ? traffic.observe(0, false, 0, 0, 0, 0)
                     : traffic.observe(SystemClock.elapsedRealtime(),
                             snapshot.countersAvailable,
@@ -130,6 +135,28 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             render();
             handler.postDelayed(refresh, REFRESH_MS);
         });
+    }
+
+    /** Display-only interpretation. Never restores or changes DNS state. */
+    private void observeRelayCounterContinuity(
+            RootMultiKernelSession.RootTrafficSnapshot snapshot) {
+        if (snapshot == null || !snapshot.dnsVerified
+                || snapshot.dnsCounters == null) {
+            relayCounterEvent = "Relay counters unavailable; continuity unknown";
+            return;
+        }
+        RootDnsCounters now = snapshot.dnsCounters;
+        if (relaySeenPid < 2) {
+            relayCounterEvent = "Current relay observed; no earlier local sample";
+        } else if (relaySeenPid != now.pid) {
+            relayCounterEvent = "Relay PID changed — new session; lifetime counts reset";
+        } else if (relaySeenBlocked > now.blocked) {
+            relayCounterEvent = "Blocked counter decreased — verify relay identity";
+        } else {
+            relayCounterEvent = "Same verified relay; current lifetime counters";
+        }
+        relaySeenPid = now.pid;
+        relaySeenBlocked = now.blocked;
     }
 
     private void render() {
@@ -326,7 +353,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     /** Guidance never tries to repair ownership or change the network itself. */
     private void showRecoveryGuidance() {
         LinearLayout group = card(content);
-        text(group, "WHAT TO CHECK NEXT", 15, PINK);
+        text(group, "CONNECTION RECOVERY GUIDANCE", 15, PINK);
         RootMultiKernelSession.RootTrafficSnapshot s = lastSnapshot;
         String guidance;
         if (s == null || !s.rootsAvailable) {
@@ -369,8 +396,30 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             text(group, "Encrypted profile store could not be read.", 13, MUTED);
         } else if (profiles.isEmpty()) {
             text(group, "No saved profiles.", 13, MUTED);
+        } else if (lastSnapshot == null || !lastSnapshot.rootsAvailable) {
+            for (SecureTunnelProfileStore.Profile profile : profiles) {
+                text(group, profile.name + " · live health unavailable", 14, MUTED);
+            }
         } else {
-            for (SecureTunnelProfileStore.Profile profile : profiles) showProfile(group, profile);
+            for (RootMultiKernelSession.TunnelStatus tunnel : lastSnapshot.tunnels) {
+                LinearLayout item = card(group);
+                text(item, tunnel.name, 16, PINK);
+                text(item, !tunnel.present ? "Stopped / not detected"
+                        : !tunnel.verified ? "Identity not verified — investigate"
+                        : "Kernel identity verified · interface UP", 13,
+                        tunnel.verified ? WHITE : MUTED);
+                if (tunnel.verified) {
+                    text(item, "Last handshake: " + tunnel.handshake
+                            + " · idle is not a failure", 12, MUTED);
+                    text(item, tunnel.received == null || tunnel.sent == null
+                            ? "RX/TX unavailable"
+                            : "RX " + TunnelTrafficRates.formatTotal(tunnel.received)
+                              + " · TX " + TunnelTrafficRates.formatTotal(tunnel.sent),
+                            13, WHITE);
+                }
+            }
+            text(group, "These are periodic snapshots, not per-tunnel live "
+                    + "speeds or end-to-end connection tests.", 12, MUTED);
         }
         button(group, "Import / edit saved VPN profiles",
                 () -> startActivity(new Intent(this, VpnActivity.class)));
@@ -380,23 +429,26 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void protectionTab() {
         LinearLayout group = card(content);
-        text(group, "YOUR PROTECTION FORMULA", 16, PINK);
-        protectionRow(group, "1  Connections",
-                lastSnapshot == null ? "Checking…" : lastSnapshot.rootsAvailable
-                    ? lastSnapshot.verifiedTunnels + " verified selected-profile tunnels"
-                    : "Unavailable");
-        protectionRow(group, "2  Routing", "Details and audits in Advanced Tools");
-        protectionRow(group, "3  Local DNS relay", dnsState());
-        protectionRow(group, "4  Ad & Tracker Blocking", blockState());
-        protectionRow(group, "5  DNS-port firewall", dnsFirewallLedgerState());
-        protectionRow(group, "6  All-traffic kill switch", killSwitchState());
-        text(group, "The DNS firewall protects selected DNS ports only. The all-traffic "
-                + "kill switch is a separate, safety-paused experiment after a "
-                + "connectivity interruption. Ledger status is not proof of live rules; "
-                + "use Advanced Tools to audit IPv4 and IPv6 chains.", 12, MUTED);
-        text(group, "Blocked count measures DNS replies blocked by Wonhee's verified "
-                + "active relay since that relay started. It is not a count of page ads, "
-                + "all trackers, or device-wide traffic.", 12, MUTED);
+        text(group, "DNS PROTECTION", 16, PINK);
+        protectionRow(group, "Local DNS relay", dnsState());
+        protectionRow(group, "Ad & tracker filtering", blockState());
+        protectionRow(group, "DNS-port firewall", dnsFirewallLedgerState());
+        button(group, dnsDetailsExpanded ? "Hide technical protection details"
+                : "Show technical protection details", () -> {
+            dnsDetailsExpanded = !dnsDetailsExpanded;
+            render();
+        });
+        if (dnsDetailsExpanded) {
+            protectionRow(group, "Connections",
+                    lastSnapshot == null ? "Checking…"
+                    : lastSnapshot.verifiedTunnels + " verified tunnels");
+            protectionRow(group, "Routing", "Details in Safe Controls");
+            protectionRow(group, "All-traffic kill switch", killSwitchState());
+            text(group, "DNS-port enforcement is not an all-traffic kill switch. "
+                    + "Live firewall verification requires a separate audit; "
+                    + "the route ledger alone is not proof. DNS blocks count "
+                    + "only requests reaching the local relay.", 12, MUTED);
+        }
         RootMultiKernelSession.RootTrafficSnapshot dns = lastSnapshot;
         LinearLayout totals = card(content);
         text(totals, "DNS & AD-BLOCK ACTIVITY", 16, PINK);
@@ -416,6 +468,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     "Blocked %.1f%% of requests observed by this relay", percent),
                     13, LAVENDER);
         }
+        text(totals, relayCounterEvent, 12, LAVENDER);
         text(totals, "Only requests reaching this relay are counted. Browser or "
                 + "app-owned encrypted DNS may bypass local filtering.", 12, MUTED);
         LinearLayout continuity = card(content);
