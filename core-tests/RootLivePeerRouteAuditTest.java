@@ -86,6 +86,18 @@ public final class RootLivePeerRouteAuditTest {
                 "Actual protected socket mark and observed public IPv6 peer");
         check(!aggregate.forUid(1000).get(0).protectedMark(),
                 "Observed public UDP/4500 system mark is not protected");
+        int udp443Count = 0;
+        for (RootLivePeerRouteAudit.Candidate candidate : aggregate.forUid(10170)) {
+            if (candidate.udp443) {
+                udp443Count++;
+                check("UDP".equals(candidate.transport),
+                        "Only UDP/443 can carry the port-specific hint");
+            }
+        }
+        check(udp443Count == 1,
+                "Detect candidate UDP/443 without calling TLS/QUIC confirmed");
+        check(!aggregate.forUid(1000).get(0).udp443,
+                "Android Wi-Fi Calling UDP/4500 must not be mistaken for QUIC");
 
         for (String protocol : new String[]{"TCP", "UDP"}) {
             RootLivePeerRouteAudit.Aggregate capped =
