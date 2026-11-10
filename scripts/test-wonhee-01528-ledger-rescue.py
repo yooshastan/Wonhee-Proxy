@@ -65,6 +65,12 @@ class RescueLedgerTests(unittest.TestCase):
         self.assertEqual(actual, before)
         self.assertEqual(len(before) - len(after), 4)
 
+    def test_alternate_hex_numeric_lf_escaped_representation(self):
+        before = self.write(lf_entity="&#x0A;")
+        actual, after = rescue.inspect_ledger()
+        self.assertEqual(actual, before)
+        self.assertEqual(len(before) - len(after), 4)
+
     def test_entity_with_no_padding_refuses(self):
         self.write(padding="\n", lf_entity="&#10;")
         with self.assertRaises(rescue.Refuse):
