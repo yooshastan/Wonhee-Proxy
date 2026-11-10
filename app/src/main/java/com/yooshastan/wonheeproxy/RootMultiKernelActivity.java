@@ -227,7 +227,7 @@ public final class RootMultiKernelActivity extends Activity {
         livePeerAudit.setOnClickListener(v -> run(
                 "Live peer route attribution", false, session::auditLivePeerRouting));
         label(controls, "This is the 0.15.38 direct-route advisory audit. "
-                + "Checks numeric public destinations of observed Messages, 
+                + "Checks numeric public destinations of observed Messages, "
                 + "Google services and Android sockets against their REAL UID and "
                 + "fwmark (up to 18 route lookups, bounded watch). Shows only "
                 + "aggregate route categories. Local KDE Connect/Navidrome "
@@ -920,7 +920,7 @@ public final class RootMultiKernelActivity extends Activity {
                         + "It requires separate Batch D/E DNS enforcement and "
                         + "unattended recovery to be OFF; never disable working "
                         + "protection just to run this optional test. "
-                        + "Batch F must remain OFF. Only after exact tunnel/route 
+                        + "Batch F must remain OFF. Only after exact tunnel/route "
                         + "ownership checks, Wonhee observes up to 32 outgoing "
                         + "packet HEADERS on the current physical Wi-Fi/cellular "
                         + "interface for at most five seconds. The capture is NOT "
