@@ -1279,12 +1279,14 @@ final class RootMultiKernelSession {
                         RootDnsRelayRunner.requireLoopbackPortReleased(shell);
                         RootDnsRelayRunner.removeTrackerPolicy(appContext);
                         saveDnsRecord("");
-                        message = "DNS activation failed; exact owned rules rolled back. "
+                        message = "DNS activation failed [" + stage + "]; "
+                                + "exact owned rules rolled back. "
                                 + "No system resolver enforcement remains active.";
                     } catch (Exception | LinkageError cleanup) {
-                        message = "DNS ROLLBACK NOT VERIFIED. Owned-rule ledger RETAINED. "
-                                + "Keep USB ADB available, do not disconnect tunnels, "
-                                + "and use Disable DNS protection before other changes.";
+                        message = "DNS ROLLBACK NOT VERIFIED [" + stage + "]. "
+                                + "Owned-rule ledger RETAINED. Keep USB ADB available, "
+                                + "do not disconnect tunnels, and use Disable DNS "
+                                + "protection before other changes.";
                     }
                 } else {
                     if (spawned > 0) try {
