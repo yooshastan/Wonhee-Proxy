@@ -2520,6 +2520,250 @@ final class RootMultiKernelSession {
         });
     }
 
+    /**
+     * Manual, one-shot response to "tunnels appear connected but Internet stopped".
+     * Absolutely no DNS packets, external socket probes, route/iptables writes,
+     * tunnel reconfiguration, background monitors or saved endpoint addresses.
+     * Two short read-only transfer samples are made on the existing worker.
+     */
+    void auditInternetIncident(List<SecureTunnelProfileStore.Profile> profiles,
+                               Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            String stage = "ROOT_SHELL";
+            boolean verifiedReport = false;
+            StringBuilder out = new StringBuilder(
+                    "CONNECTED BUT NO INTERNET — READ-ONLY INCIDENT SNAPSHOT\n");
+            out.append("Captured: ")
+                    .append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",
+                            java.util.Locale.US).format(new java.util.Date()))
+                    .append("\nNo network traffic generated; all evidence is passive.\n");
+            try {
+                if (profiles == null || profiles.isEmpty() || profiles.size() > 8) {
+                    throw new IllegalArgumentException("Select one to eight profiles.");
+                }
+                shell.start(); // Existing root shell; does not install tools.
+                stage = "SELECTED_PROFILES";
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                Set<String> expected = new LinkedHashSet<>();
+                for (Active active : selected) expected.add(active.device);
+                stage = "LIVE_TUNNEL_IDENTITIES";
+                Set<String> running = backend.getRunningTunnelNames();
+                int unknown = 0;
+                for (String device : running) {
+                    if ((device.startsWith("wnm") || "wnhome0".equals(device)
+                            || "wnair0".equals(device)) && !expected.contains(device)) {
+                        unknown++;
+                    }
+                }
+                out.append("Selected tunnels: ").append(selected.size())
+                        .append("; other running Wonhee tunnels: ").append(unknown)
+                        .append(unknown == 0 ? "\n" : " — select every active profile\n");
+                boolean checksOk = unknown == 0;
+                Map<String, RootTunnelTransfer> before = new LinkedHashMap<>();
+                Set<String> verified = new LinkedHashSet<>();
+                for (int i = 0; i < selected.size(); i++) {
+                    Active active = selected.get(i);
+                    NamedTunnel tunnel = new NamedTunnel(active.device);
+                    boolean own = running.contains(active.device)
+                            && matches(tunnel, active)
+                            && backend.getState(tunnel) == Tunnel.State.UP;
+                    out.append("Tunnel ").append(i + 1).append(": ");
+                    if (!own) {
+                        out.append("NOT IDENTITY-VERIFIED / DOWN\n");
+                        checksOk = false;
+                        continue;
+                    }
+                    verified.add(active.device);
+                    out.append("UP · identity VERIFIED");
+                    List<String> stamps = new ArrayList<>();
+                    long handshake = shell.run(stamps,
+                            "wg show " + active.device + " latest-handshakes") == 0
+                            ? RootPassiveNetworkHealth.handshakeTimestamp(stamps) : -1;
+                    out.append(" · last handshake ")
+                            .append(RootInternetIncidentEvidence.handshake(handshake,
+                                    System.currentTimeMillis() / 1000L));
+                    RootTunnelTransfer transfer = readTransfer(active.device);
+                    if (transfer == null) {
+                        checksOk = false;
+                        out.append(" · counters UNAVAILABLE\n");
+                    } else {
+                        before.put(active.device, transfer);
+                        out.append(" · RX ").append(transfer.received)
+                                .append(" B, TX ").append(transfer.sent).append(" B\n");
+                    }
+                    // Numeric endpoint used transiently for a READ-ONLY marked
+                    // route prediction; never display/store the numeric address,
+                    // public key, profile configuration or endpoint hostname.
+                    List<String> marks = new ArrayList<>();
+                    long mark = shell.run(marks,
+                            "wg show " + active.device + " fwmark") == 0
+                            ? RootFirewallMark.parse(marks) : 0;
+                    List<String> endpoints = new ArrayList<>();
+                    RootTcpProbeTarget endpoint = shell.run(endpoints,
+                            "wg show " + active.device + " endpoints") == 0
+                            ? RootWireGuardEndpoint.numericTarget(endpoints) : null;
+                    String underlay = endpoint == null || mark == 0 ? ""
+                            : routeDeviceMarked(endpoint.family, endpoint.address, mark);
+                    boolean underlayOk = !underlay.isEmpty()
+                            && !underlay.equals(active.device);
+                    out.append("  Peer transport underlay prediction: ")
+                            .append(underlayOk ? "separate from tunnel (root route only)"
+                                    : "UNVERIFIED / LOOPING — CHECK REQUIRED")
+                            .append("\n");
+                    checksOk &= underlayOk;
+                }
+
+                // The second observation only samples counters. An idle tunnel
+                // need not have any increase, so unchanged counters are reported
+                // as inconclusive rather than a connectivity failure.
+                stage = "PASSIVE_COUNTER_COMPARISON";
+                long beforeTime = System.nanoTime() / 1_000_000L;
+                Thread.sleep(1500L);
+                long afterTime = System.nanoTime() / 1_000_000L;
+                Set<String> afterLinks = backend.getRunningTunnelNames();
+                for (int i = 0; i < selected.size(); i++) {
+                    Active active = selected.get(i);
+                    RootTunnelTransfer first = before.get(active.device);
+                    RootTunnelTransfer second = afterLinks.contains(active.device)
+                            && verified.contains(active.device)
+                            && matches(new NamedTunnel(active.device), active)
+                            ? readTransfer(active.device) : null;
+                    String movement = RootInternetIncidentEvidence.trafficDelta(
+                            first == null ? -1 : first.received,
+                            first == null ? -1 : first.sent,
+                            second == null ? -1 : second.received,
+                            second == null ? -1 : second.sent,
+                            afterTime - beforeTime,
+                            second != null && first != null);
+                    out.append("Tunnel ").append(i + 1)
+                            .append(" counter movement: ").append(movement).append("\n");
+                    if (first == null || second == null) checksOk = false;
+                }
+
+                stage = "EXACT_SPLIT_ROUTING";
+                List<RootSplitRouteRules.Rule> planned =
+                        RootSplitRouteRules.plan(entries);
+                List<RootSplitRouteRules.Rule> stored =
+                        RootSplitRouteRules.decode(savedRules());
+                int live = countReservedRules();
+                boolean exact = !stored.isEmpty() && live == stored.size()
+                        && rulesMatchExactly(stored);
+                boolean planMatches = RootSplitRouteRules.auditOwnershipConsistent(
+                        planned, stored, live, exact);
+                String routeStatus = RootInternetIncidentEvidence.ownership(
+                        !stored.isEmpty(), planned.size(), stored.size(), live,
+                        exact, planMatches);
+                out.append("Owned split routing: ").append(routeStatus).append("\n");
+                checksOk &= planMatches;
+                int splitMatched = 0;
+                for (RootSplitRouteRules.Rule rule : planned) {
+                    if (rule.device.equals(routeDevice(rule.family, rule.probe))) {
+                        splitMatched++;
+                    }
+                }
+                out.append("Private route predictions: ").append(splitMatched)
+                        .append('/').append(planned.size())
+                        .append(" (root simulation only)\n");
+                checksOk &= splitMatched == planned.size();
+
+                stage = "PUBLIC_ROUTE_SELECTION";
+                int publicTotal = 0, publicMatched = 0;
+                for (Active active : selected) {
+                    for (String cidr : active.routes.peerRoutes) {
+                        if (!"0.0.0.0/0".equals(cidr) && !"::/0".equals(cidr)) {
+                            continue;
+                        }
+                        int family = "::/0".equals(cidr) ? 6 : 4;
+                        String probe = family == 4 ? "1.1.1.1"
+                                : "2606:4700:4700::1111";
+                        publicTotal++;
+                        if (active.device.equals(routeDevice(family, probe))) {
+                            publicMatched++;
+                        }
+                    }
+                }
+                out.append("Public IPv4/IPv6 route predictions: ").append(publicMatched)
+                        .append('/').append(publicTotal)
+                        .append(" (root; not an app socket test)\n");
+                checksOk &= publicTotal > 0 && publicMatched == publicTotal;
+                stage = "ANDROID_MARK_ROUTING";
+                StringBuilder markDetails = new StringBuilder();
+                boolean marksOk = appendMarkAwareRouteAudit(entries, planned, markDetails);
+                out.append("Android fwmark/UID route simulations: ")
+                        .append(marksOk ? "PASS" : "CHECK REQUIRED")
+                        .append(" (representative UID; no real sockets)\n");
+                checksOk &= marksOk;
+
+                stage = "OWNED_DNS_FIREWALL_AND_RELAY";
+                String record = dnsRecord();
+                if (record == null || record.isEmpty()) {
+                    int tags = countAllWonheeDnsTags();
+                    boolean listener = RootDnsRelayRunner.loopbackListenerPresent(shell);
+                    out.append("DNS: NO OWNED RELAY; leftover tags ").append(tags)
+                            .append(", port 53535 ")
+                            .append(listener ? "PRESENT" : "ABSENT").append("\n");
+                    checksOk = false;
+                } else {
+                    DnsRecord owned = DnsRecord.decode(record);
+                    dnsVerifyOwnedRules(true);
+                    boolean alive = RootDnsRelayRunner.sameProcess(appContext,
+                            shell, owned.pid);
+                    boolean listening = RootDnsRelayRunner.loopbackListenerPresent(shell);
+                    out.append("DNS: owned firewall MATCH; relay ")
+                            .append(alive ? "ALIVE" : "NOT VERIFIED")
+                            .append("; loopback ")
+                            .append(listening ? "LISTENING" : "NOT VERIFIED")
+                            .append("; tracker policy ")
+                            .append(owned.trackerFiltering ? "ON" : "OFF")
+                            .append("\n");
+                    checksOk &= alive && listening;
+                    if (alive) {
+                        try {
+                            RootDnsCounters counters = RootDnsRelayRunner.readStatistics(
+                                    appContext, shell, owned.pid);
+                            out.append("DNS relay totals (this relay only): received ")
+                                    .append(counters.received).append(", blocked ")
+                                    .append(counters.blocked).append(", forwarded ")
+                                    .append(counters.forwarded).append(", failed ")
+                                    .append(counters.failed).append("\n");
+                        } catch (Exception | LinkageError unavailable) {
+                            out.append("DNS relay counters: UNAVAILABLE\n");
+                            checksOk = false;
+                        }
+                    }
+                }
+
+                stage = "GUARD_OWNERSHIP";
+                boolean guardRecordEmpty = guardRecord() == null
+                        || guardRecord().isEmpty();
+                if (guardRecordEmpty) {
+                    RootFailClosedFirewallRuntime.preflight(shell);
+                }
+                out.append("All-traffic guard: ")
+                        .append(guardRecordEmpty ? "not recorded; activation PAUSED"
+                                : "RECORDED — live guard audit required")
+                        .append("\n");
+                checksOk &= guardRecordEmpty;
+                verifiedReport = checksOk;
+            } catch (Exception | LinkageError error) {
+                // Never include raw exception text: Android shell, DNS endpoint,
+                // encrypted profiles and WireGuard keys must remain private.
+                out.append("INSPECTION INCOMPLETE [").append(stage)
+                        .append("] (").append(error.getClass().getSimpleName())
+                        .append("). Earlier observations are not proof of safe routing.\n");
+            }
+            out.append("No routes, DNS, firewall rules, tunnels or settings changed.\n")
+                    .append("Even a fully verified report cannot prove Internet access, "
+                            + "all-app DNS coverage or leak-free fail-closed behavior.\n")
+                    .append("If ordinary Internet remains unusable, use existing "
+                            + "Batch H.1 Safe Stop; do not flush unknown rules.");
+            finish(callback, verifiedReport, out.toString());
+        });
+    }
+
     /** Per-profile WireGuard UDP endpoint egress and Android DNS-mode inventory. */
     void auditTransportPaths(List<SecureTunnelProfileStore.Profile> profiles, Callback callback) {
         if (!begin(callback)) return;
