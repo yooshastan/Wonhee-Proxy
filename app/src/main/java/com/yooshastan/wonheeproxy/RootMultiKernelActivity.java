@@ -63,6 +63,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button perAppAudit;
     private Button liveSocketAudit;
     private Button socketBurstAudit;
+    private Button livePeerAudit;
     private Button socketBurstCancel;
     private Button audit;
     private Button apply;
@@ -220,6 +221,16 @@ public final class RootMultiKernelActivity extends Activity {
                 "Watch live socket marks for up to 15 seconds · read only");
         socketBurstAudit.setOnClickListener(v -> run(
                 "Targeted socket mark burst", false, session::auditLiveSocketMarksBurst));
+        livePeerAudit = button(controls,
+                "Compare actual public socket peer routes · read only");
+        livePeerAudit.setOnClickListener(v -> run(
+                "Live peer route attribution", false, session::auditLivePeerRouting));
+        label(controls, "Checks numeric public destinations of observed Messages, "
+                + "Google services and Android sockets against their REAL UID and "
+                + "fwmark (up to 18 route lookups, bounded watch). Shows only "
+                + "aggregate route categories. Local KDE Connect/Navidrome "
+                + "destinations are excluded; no messages or remote IPs are shown. "
+                + "Predicted routes do not prove packet egress.", 12, MUTED);
         socketBurstCancel = button(controls, "Stop live socket watch");
         socketBurstCancel.setOnClickListener(v -> {
             if (session.isSocketBurstActive()) {
@@ -1213,6 +1224,9 @@ public final class RootMultiKernelActivity extends Activity {
                     : action.startsWith("Live socket marks read-only")
                     ? "Passive socket UID/fwmark inspection "
                             + (ok ? "completed" : "incomplete")
+                    : action.startsWith("Live peer route attribution")
+                    ? "Bounded public peer/UID/fwmark route inspection "
+                            + (ok ? "completed" : "incomplete/unverified")
                     : action.startsWith("Targeted socket mark burst")
                     ? "Manual bounded socket mark watch "
                             + (ok ? "completed" : "incomplete/cancelled")
@@ -1657,6 +1671,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (perAppAudit != null) perAppAudit.setEnabled(ready);
         if (liveSocketAudit != null) liveSocketAudit.setEnabled(ready);
         if (socketBurstAudit != null) socketBurstAudit.setEnabled(ready);
+        if (livePeerAudit != null) livePeerAudit.setEnabled(ready);
         if (socketBurstCancel != null) socketBurstCancel.setEnabled(
                 session.isSocketBurstActive());
         if (audit != null) audit.setEnabled(ready);
