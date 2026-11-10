@@ -48,6 +48,32 @@ final class RootDirectRouteAdvisory {
             }
         }
 
+        /** Compact, non-enforcing classification for the diagnostics summary. */
+        String classification() {
+            if (ordinaryPhysical > 0) {
+                return "UNEXPECTED ORDINARY PHYSICAL ROUTE PREDICTED";
+            }
+            if (protectedPhysical > 0) {
+                return "PROTECTED-SOCKET PHYSICAL ROUTE PREDICTED — EXEMPTION NEEDS REVIEW";
+            }
+            if (unknown > 0 || otherTunnel > 0) {
+                return "INCOMPLETE OR DIFFERENT-TUNNEL ROUTE";
+            }
+            if (candidates == 0) {
+                return "NOT OBSERVED — INSUFFICIENT EVIDENCE";
+            }
+            return "INTERNET VPN PREDICTED FOR OBSERVED PEERS ONLY";
+        }
+
+        String compactLine(String label) {
+            return label + ": " + classification()
+                    + " (internet=" + throughInternet
+                    + ", protected-physical=" + protectedPhysical
+                    + ", ordinary-physical=" + ordinaryPhysical
+                    + ", other-tunnel=" + otherTunnel
+                    + ", unknown=" + unknown + ").";
+        }
+
         String safeWarning(boolean androidSystem, String appLabel) {
             String prefix = appLabel + ": ";
             if (candidates == 0) {
