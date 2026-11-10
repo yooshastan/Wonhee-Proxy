@@ -2,10 +2,13 @@ package com.yooshastan.wonheeproxy;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -36,12 +39,16 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private static final long REFRESH_MS = 8_000L;
     private static final String DNS_CHECKPOINT_PREFS = "wonhee-dns-checkpoint-v1";
     private static final String DNS_CHECKPOINT_KEY = "aggregate-only";
+    private static final String ROOT_NOTIFICATION_PREFS = "wonhee_root_traffic_notification";
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 8452;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = this::refreshSnapshot;
     private final List<SecureTunnelProfileStore.Profile> profiles = new ArrayList<>();
     private RootMultiKernelSession session;
     private RootMultiKernelSession.RootTrafficSnapshot lastSnapshot;
+    private final RootDashboardTelemetry traffic = new RootDashboardTelemetry();
+    private TunnelTrafficRates.Result liveRates;
     private LinearLayout content;
     private LinearLayout navigation;
     private boolean visible;
@@ -62,7 +69,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         TextView name = text(page, "✦ WONHEE PROXY", 24, PINK);
         name.setContentDescription("Wonhee Proxy");
         text(page, "Candy Pink  •  Multi-connection dashboard preview", 12, MUTED);
-        text(page, "Read-only preview: use existing controls for all connection changes.",
+        text(page, "Status is read-only. Use existing controls for connection changes.",
                 12, LAVENDER);
         navigation = new LinearLayout(this);
         navigation.setOrientation(LinearLayout.HORIZONTAL);
@@ -79,12 +86,16 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         visible = true;
+        traffic.reset();
+        liveRates = null;
         loadSavedProfiles();
         refreshSnapshot();
     }
 
     @Override protected void onPause() {
         visible = false;
+        traffic.reset();
+        liveRates = null;
         handler.removeCallbacks(refresh);
         super.onPause();
     }
@@ -111,6 +122,11 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         session.readRootTrafficSnapshot(snapshot -> {
             if (!visible || isFinishing() || isDestroyed()) return;
             lastSnapshot = snapshot;
+            liveRates = snapshot == null ? traffic.observe(0, false, 0, 0, 0, 0)
+                    : traffic.observe(SystemClock.elapsedRealtime(),
+                            snapshot.countersAvailable,
+                            snapshot.verifiedTunnels, snapshot.presentTunnels,
+                            snapshot.received, snapshot.sent);
             render();
             handler.postDelayed(refresh, REFRESH_MS);
         });
@@ -149,6 +165,101 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 + "rules or change tunnels, routes, DNS, or firewall settings.", 12, MUTED);
     }
 
+    /** Observed root counters only; these figures are not system VPN statistics. */
+    private String throughputLine() {
+        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
+        if (snapshot == null || !snapshot.countersAvailable
+                || snapshot.verifiedTunnels != snapshot.presentTunnels) {
+            return "↓ unavailable   ↑ unavailable";
+        }
+        return liveRates == null ? "↓ measuring   ↑ measuring"
+                : "↓ " + TunnelTrafficRates.formatSpeed(liveRates.downloadMbps)
+                + "   ↑ " + TunnelTrafficRates.formatSpeed(liveRates.uploadMbps);
+    }
+
+    private void showLiveSignals() {
+        LinearLayout group = card(content);
+        text(group, "LIVE SIGNALS", 15, PINK);
+        text(group, throughputLine(), 20, WHITE);
+        text(group, "Combined verified WireGuard tunnel speeds. Not device-wide traffic.",
+                12, MUTED);
+        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
+        boolean verified = snapshot != null && snapshot.dnsVerified
+                && snapshot.trackerEnabled && snapshot.blocked != null;
+        text(group, verified ? snapshot.blocked + " DNS requests blocked"
+                : "Blocked DNS replies: " + blockedCount(), 18,
+                verified ? LAVENDER : MUTED);
+        text(group, "Blocked total belongs to the current verified DNS relay lifetime.",
+                12, MUTED);
+        showNotificationControl(group);
+    }
+
+    private boolean wantsNotification() {
+        return getSharedPreferences(ROOT_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+                .getBoolean("enabled", false);
+    }
+
+    private boolean hasNotificationPermission() {
+        return Build.VERSION.SDK_INT < 33 || checkSelfPermission(
+                android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void showNotificationControl(LinearLayout group) {
+        button(group, wantsNotification()
+                        ? "Disable persistent speed + blocked DNS notification"
+                        : "Enable persistent speed + blocked DNS notification",
+                this::toggleNotification);
+        text(group, wantsNotification()
+                        ? "Requested: Android may restrict foreground notifications."
+                        : "Optional. Only runs while verified kernel tunnels are active.",
+                12, MUTED);
+    }
+
+    private void toggleNotification() {
+        if (wantsNotification()) {
+            getSharedPreferences(ROOT_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean("enabled", false).apply();
+            RootMultiTrafficNotificationService.stop(this);
+            render();
+            return;
+        }
+        if (!hasNotificationPermission()) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                requestPermissions(new String[]{
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                }, NOTIFICATION_PERMISSION_REQUEST);
+            }
+            return;
+        }
+        enableNotification();
+    }
+
+    private void enableNotification() {
+        // Same opt-in preference as Advanced Controls. Do not touch the VPN stack.
+        getSharedPreferences(ROOT_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("enabled", true).apply();
+        RootMultiTrafficNotificationService.startIfPossible(this);
+        render();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode,
+            String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != NOTIFICATION_PERMISSION_REQUEST) return;
+        if (grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            enableNotification();
+        } else {
+            new AlertDialog.Builder(this)
+                    .setTitle("Notification permission unavailable")
+                    .setMessage("Wonhee will not display a persistent status notification "
+                            + "without your permission. VPN, routing and DNS remain "
+                            + "unchanged. You can enable notifications in Android settings.")
+                    .setPositiveButton("OK", null).show();
+        }
+    }
+
     private void home() {
         LinearLayout hero = card(content);
         text(hero, "CONNECTION OVERVIEW", 12, LAVENDER);
@@ -166,6 +277,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         text(hero, status, 20, WHITE);
         text(hero, "Tunnel connection is not proof of full-device leak protection.", 12, MUTED);
+
+        showLiveSignals();
 
         LinearLayout stack = card(content);
         text(stack, "YOUR CONNECTIONS", 15, PINK);
@@ -186,7 +299,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
         LinearLayout protection = card(content);
         text(protection, "PROTECTION AT A GLANCE", 15, PINK);
-        protectionRow(protection, "Encrypted DNS", dnsState());
+        protectionRow(protection, "DNS relay (not a leak test)", dnsState());
         protectionRow(protection, "Ads & Trackers", blockState());
         protectionRow(protection, "DNS-port firewall", dnsFirewallLedgerState());
         protectionRow(protection, "All-traffic kill switch", killSwitchState());
@@ -224,7 +337,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     ? lastSnapshot.verifiedTunnels + " verified selected-profile tunnels"
                     : "Unavailable");
         protectionRow(group, "2  Routing", "Details and audits in Advanced Tools");
-        protectionRow(group, "3  Encrypted DNS", dnsState());
+        protectionRow(group, "3  Local DNS relay", dnsState());
         protectionRow(group, "4  Ad & Tracker Blocking", blockState());
         protectionRow(group, "5  DNS-port firewall", dnsFirewallLedgerState());
         protectionRow(group, "6  All-traffic kill switch", killSwitchState());
@@ -255,8 +368,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         text(group, "DNS blocked replies: " + blockedCount(), 14, WHITE);
         text(group, "DNS relay continuity: " + dnsBaselineComparison(), 12, MUTED);
-        text(group, "Live ↓/↑ rates are available through the optional notification "
-                + "in the advanced connection controls.", 12, MUTED);
+        text(group, "Live tunnel rates: " + throughputLine(), 13, WHITE);
+        showNotificationControl(group);
         button(group, "Read current tunnel and firewall diagnostics",
                 () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
     }
