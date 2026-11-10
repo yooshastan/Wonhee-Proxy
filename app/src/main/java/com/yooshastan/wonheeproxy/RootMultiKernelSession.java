@@ -2524,6 +2524,203 @@ final class RootMultiKernelSession {
 
 
     /**
+     * Optional, three-sample live socket UID/fwmark metadata inventory.
+     * Requires iproute2 ss -e and kernel inet_diag support. No packet capture,
+     * socket creation, endpoint reporting, persistent logging or policy writes.
+     *
+     * A socket's actual peer/destination is intentionally discarded before
+     * building the report; route checks use fixed public probes only.
+     */
+    void auditLiveSocketMarks(List<SecureTunnelProfileStore.Profile> profiles,
+                              Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            String stage = "PROFILE_SELECTION";
+            boolean verified = false;
+            StringBuilder report = new StringBuilder(
+                    "LIVE SOCKET MARKS — READ-ONLY SS / UID SNAPSHOT\n");
+            report.append("Three manual passive spot checks only; no sockets or "
+                    + "network requests generated. Captures may miss subsecond "
+                    + "Messages/Play services sessions.\n");
+            try {
+                if (profiles == null || profiles.isEmpty() || profiles.size() > 8) {
+                    throw new IllegalArgumentException("Select all active profiles.");
+                }
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                stage = "ROOT_AND_WIREGUARD_IDENTITY";
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                Set<String> expected = new LinkedHashSet<>();
+                for (Active active : selected) expected.add(active.device);
+                for (String device : running) {
+                    if ((device.startsWith("wnm") || "wnhome0".equals(device)
+                            || "wnair0".equals(device)) && !expected.contains(device)) {
+                        throw new IllegalStateException("Unselected tunnel still active.");
+                    }
+                }
+                for (Active active : selected) {
+                    NamedTunnel tunnel = new NamedTunnel(active.device);
+                    if (!running.contains(active.device)
+                            || backend.getState(tunnel) != Tunnel.State.UP
+                            || !matches(tunnel, active)) {
+                        throw new IllegalStateException("Tunnel public identity mismatch.");
+                    }
+                }
+                stage = "EXACT_SPLIT_OWNERSHIP";
+                List<RootSplitRouteRules.Rule> planned =
+                        RootSplitRouteRules.plan(entries);
+                List<RootSplitRouteRules.Rule> saved =
+                        RootSplitRouteRules.decode(savedRules());
+                int live = countReservedRules();
+                boolean exact = !saved.isEmpty() && live == saved.size()
+                        && rulesMatchExactly(saved);
+                if (!RootSplitRouteRules.auditOwnershipConsistent(
+                        planned, saved, live, exact)) {
+                    throw new IllegalStateException("Owned split routes differ.");
+                }
+                report.append("Tunnels identity verified: ")
+                        .append(selected.size()).append("; owned split rules: ")
+                        .append(saved.size()).append("\n");
+
+                stage = "DYNAMIC_UID_RESOLUTION";
+                String[] labels = {"Android system", "Google Messages",
+                        "Google Play services / compatible microG"};
+                String[] names = {null, RootUidRouteAudit.MESSAGES_PACKAGE,
+                        RootUidRouteAudit.GMS_PACKAGE};
+                int[] uids = {-1, -1, -1};
+                Set<Integer> requested = new LinkedHashSet<>();
+                for (int i = 0; i < uids.length; i++) {
+                    if (i == 0) {
+                        uids[i] = RootUidRouteAudit.ANDROID_SYSTEM_UID;
+                    } else {
+                        try {
+                            uids[i] = appContext.getPackageManager().getPackageUid(names[i], 0);
+                        } catch (android.content.pm.PackageManager.NameNotFoundException
+                                | SecurityException notVisible) {
+                            // If package is hidden or missing, do not guess from
+                            // old packet capture screenshots or other Android users.
+                        }
+                    }
+                    if (RootUidRouteAudit.supportedUid(uids[i])) requested.add(uids[i]);
+                }
+                if (requested.isEmpty()) {
+                    throw new IllegalStateException("Target UIDs not available.");
+                }
+
+                stage = "IPROUTE2_SS_CAPABILITY";
+                if (shell.run(null, "command -v ss >/dev/null 2>&1") != 0) {
+                    throw new UnsupportedOperationException("No ss executable.");
+                }
+
+                stage = "PASSIVE_INET_DIAG_SAMPLING";
+                RootLiveSocketMarkEvidence.Snapshot aggregate =
+                        new RootLiveSocketMarkEvidence.Snapshot();
+                for (int i = 0; i < 3; i++) {
+                    List<String> tcp = new ArrayList<>();
+                    List<String> udp = new ArrayList<>();
+                    // -H suppresses header, -n avoids hostname/DNS lookup,
+                    // -e requests kernel socket UID and optional fwmark.
+                    // Never present raw stdout/stderr: it contains endpoints.
+                    if (shell.run(tcp, "ss -H -t -n -e") != 0
+                            || shell.run(udp, "ss -H -u -n -e") != 0) {
+                        throw new UnsupportedOperationException(
+                                "Kernel or ss cannot provide socket metadata.");
+                    }
+                    RootLiveSocketMarkEvidence.Snapshot sample =
+                            RootLiveSocketMarkEvidence.parse(tcp, udp, requested);
+                    aggregate.mergeMax(sample);
+                    // These lists are transient only; no endpoint is ever
+                    // copied into the resulting report or session journal.
+                    tcp.clear();
+                    udp.clear();
+                    if (i < 2) Thread.sleep(1100L);
+                }
+
+                report.append("Socket records in busiest sample: ")
+                        .append(aggregate.parsedSockets)
+                        .append("; without readable UID: ")
+                        .append(aggregate.unidentified).append("\n");
+                int markedTargets = 0;
+                for (int i = 0; i < uids.length; i++) {
+                    int uid = uids[i];
+                    if (!RootUidRouteAudit.supportedUid(uid)) {
+                        report.append(labels[i])
+                                .append(": UID unavailable. No fallback to historic UID.\n");
+                        continue;
+                    }
+                    RootLiveSocketMarkEvidence.Counts data = aggregate.forUid(uid);
+                    report.append("\n").append(
+                            RootLiveSocketMarkEvidence.safeSummary(labels[i], uid, data))
+                            .append("\n");
+                    markedTargets += data.markVisible;
+                    if (data.markVisible == 0) {
+                        report.append("  NO READABLE FWMARK for this UID in sampled "
+                                + "sockets; cannot classify protected status.\n");
+                    }
+                    for (long mark : RootLiveSocketMarkEvidence.boundedMarks(data)) {
+                        report.append("  Observed socket fwmark 0x")
+                                .append(Long.toHexString(mark))
+                                .append((mark & RootLiveSocketMarkEvidence.PROTECTED_BIT) != 0
+                                        ? " (protected bit set)" : " (protected bit NOT set)")
+                                .append("; hypothetical public destinations:\n");
+                        for (int family : new int[]{4, 6}) {
+                            String probe = family == 4 ? "1.1.1.1"
+                                    : "2606:4700:4700::1111";
+                            String internet = RootProtectionPolicy.expectedDevice(
+                                    entries, probe);
+                            if (internet.isEmpty()) {
+                                report.append("    IPv").append(family)
+                                        .append(": no selected default\n");
+                                continue;
+                            }
+                            String device = routeDeviceMarkedForUid(
+                                    family, probe, uid, mark);
+                            report.append("    IPv").append(family).append(": ")
+                                    .append(RootUidRouteAudit.routePrediction(
+                                            internet, device,
+                                            (mark & RootLiveSocketMarkEvidence.PROTECTED_BIT) != 0))
+                                    .append("\n");
+                        }
+                    }
+                    if (data.distinctMarks.size()
+                            > RootLiveSocketMarkEvidence.MAX_MARKS_PER_UID) {
+                        report.append("  More marks existed but were omitted "
+                                + "to bound the report; not exhaustive.\n");
+                    }
+                }
+                report.append("\nRoute predictions use FIXED test destinations "
+                        + "and observed marks, NOT any socket's real destination. "
+                        + "Markers cannot prove that a historical QUIC/5228 "
+                        + "packet had this mark, or that packets went via VPN.\n");
+                if (!aggregate.complete) {
+                    report.append("PARTIAL: parser input incomplete/ambiguous; "
+                            + "NO all-app marking claim.\n");
+                }
+                if (markedTargets == 0) {
+                    report.append("NO TARGET SOCKET MARKS OBSERVED. This may mean "
+                            + "unsupported inet_diag, empty/short-lived sockets, "
+                            + "or absent mark metadata; do not infer mark zero.\n");
+                }
+                verified = aggregate.complete && markedTargets > 0;
+            } catch (Exception | LinkageError failure) {
+                // Sanitize any exception: ss and root-shell output may include
+                // private IPv4/IPv6, RCS endpoints and peer data.
+                report.append("INSPECTION INCOMPLETE [").append(stage)
+                        .append("] (").append(failure.getClass().getSimpleName())
+                        .append("). Kernel ss/inet_diag capability may be unavailable; "
+                        + "no live socket mark is assumed.\n");
+            }
+            report.append("No sockets opened, firewall/DNS/routes changed, "
+                    + "or phone app settings modified. Batch F all-traffic "
+                    + "kill switch remains PAUSED. Keep Android Private DNS "
+                    + "at its working OFF setting.");
+            finish(callback, verified, report.toString());
+        });
+    }
+
+    /**
      * One-shot, read-only UID/mark routing predictions for the actual installed
      * Android system, Messages and GMS package UIDs. Does not inspect actual
      * sockets, infer their fwmarks, send traffic or alter kernel state.
