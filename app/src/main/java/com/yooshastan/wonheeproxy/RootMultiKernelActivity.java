@@ -221,11 +221,13 @@ public final class RootMultiKernelActivity extends Activity {
                 "Watch live socket marks for up to 15 seconds · read only");
         socketBurstAudit.setOnClickListener(v -> run(
                 "Targeted socket mark burst", false, session::auditLiveSocketMarksBurst));
+        label(controls, "DIRECT-ROUTE ADVISORIES · READ ONLY", 17, PINK);
         livePeerAudit = button(controls,
-                "Compare actual public socket peer routes · read only");
+                "0.15.38 · Check direct-route advisories · read only");
         livePeerAudit.setOnClickListener(v -> run(
                 "Live peer route attribution", false, session::auditLivePeerRouting));
-        label(controls, "Checks numeric public destinations of observed Messages, "
+        label(controls, "This is the 0.15.38 direct-route advisory audit. "
+                + "Checks numeric public destinations of observed Messages, "
                 + "Google services and Android sockets against their REAL UID and "
                 + "fwmark (up to 18 route lookups, bounded watch). Shows only "
                 + "aggregate route categories. Local KDE Connect/Navidrome "
@@ -911,10 +913,14 @@ public final class RootMultiKernelActivity extends Activity {
         passiveHealth.setOnClickListener(v -> run("F.2 manual passive health snapshot",
                 false, session::snapshotPassiveHealth));
         passiveUnderlay = button(privacy,
-                "Batch F.3d · Compare existing OUTPUT counters · read only");
+                "Batch F.3d · Observe headers + OUTPUT counters · DNS must be OFF");
         passiveUnderlay.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Compare existing OUTPUT counters read only?")
-                .setMessage("Batch F must remain OFF. Only after exact tunnel/route "
+                .setMessage("This is NOT the 0.15.38 direct-route advisory audit. "
+                        + "It requires separate Batch D/E DNS enforcement and "
+                        + "unattended recovery to be OFF; never disable working "
+                        + "protection just to run this optional test. "
+                        + "Batch F must remain OFF. Only after exact tunnel/route "
                         + "ownership checks, Wonhee observes up to 32 outgoing "
                         + "packet HEADERS on the current physical Wi-Fi/cellular "
                         + "interface for at most five seconds. The capture is NOT "
