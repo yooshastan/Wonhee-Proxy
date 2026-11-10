@@ -136,7 +136,13 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · 0.9.6.0 security capability preview", 15, MUTED);
+        label(root, "WireGuard VPN · single + multiple connections", 15, MUTED);
+        Button rootDashboard = button(root,
+                "✦ Open Candy Pink multi-connection dashboard");
+        rootDashboard.setOnClickListener(v -> startActivity(
+                new Intent(this, WonheeDashboardPreviewActivity.class)));
+        label(root, "New dashboard is read-only for connections; existing Connect "
+                + "and Safe Stop remain in Advanced Controls.", 12, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -259,9 +265,6 @@ public final class VpnActivity extends Activity {
         importButton.setOnClickListener(v -> chooseConfig());
         Button rootDualLab = button(configCard, "Open root control center · 2 tunnels");
         rootDualLab.setOnClickListener(v -> startActivity(new Intent(this, RootDualKernelActivity.class)));
-        Button rootDashboard = button(configCard, "Preview new multi-connection dashboard · read only");
-        rootDashboard.setOnClickListener(v -> startActivity(
-                new Intent(this, WonheeDashboardPreviewActivity.class)));
         tunnelList = new LinearLayout(this);
         tunnelList.setOrientation(LinearLayout.VERTICAL);
         configCard.addView(tunnelList);

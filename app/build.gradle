@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 76
-        versionName '0.15.29-update-safe-stop-preflight'
+        versionCode 77
+        versionName '0.15.30-dashboard-telemetry-preview'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
