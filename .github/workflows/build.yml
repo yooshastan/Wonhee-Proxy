@@ -52,6 +52,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/VpnDnsPresets.java \
             app/src/main/java/com/yooshastan/wonheeproxy/VpnHealthSummary.java \
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelTrafficRates.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootDashboardTelemetry.java \
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelTrafficHistory.java \
             app/src/main/java/com/yooshastan/wonheeproxy/VpnRouteInspection.java \
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelEventHistory.java \
@@ -106,6 +107,7 @@ jobs:
             core-tests/VpnDnsPresetsTest.java \
             core-tests/VpnHealthSummaryTest.java \
             core-tests/TunnelTrafficRatesTest.java \
+            core-tests/RootDashboardTelemetryTest.java \
             core-tests/TunnelTrafficHistoryTest.java \
             core-tests/VpnRouteInspectionTest.java \
             core-tests/TunnelEventHistoryTest.java \
@@ -163,6 +165,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnDnsPresetsTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnHealthSummaryTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelTrafficRatesTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDashboardTelemetryTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelTrafficHistoryTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.VpnRouteInspectionTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.TunnelEventHistoryTest
