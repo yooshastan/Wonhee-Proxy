@@ -2522,6 +2522,186 @@ final class RootMultiKernelSession {
         });
     }
 
+
+    /**
+     * One-shot, read-only UID/mark routing predictions for the actual installed
+     * Android system, Messages and GMS package UIDs. Does not inspect actual
+     * sockets, infer their fwmarks, send traffic or alter kernel state.
+     */
+    void auditKnownAppRouting(List<SecureTunnelProfileStore.Profile> profiles,
+                              Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            String stage = "PROFILE_SELECTION";
+            boolean verified = false;
+            StringBuilder report = new StringBuilder(
+                    "APP ROUTING — READ-ONLY UID + FWMARK SIMULATIONS\n");
+            report.append("These are kernel route predictions, NOT proof of real app "
+                    + "egress or the fwmark carried by an application socket.\n");
+            try {
+                if (profiles == null || profiles.isEmpty() || profiles.size() > 8) {
+                    throw new IllegalArgumentException("Select all active profiles.");
+                }
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                stage = "KERNEL_IDENTITIES";
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                Set<String> expected = new LinkedHashSet<>();
+                for (Active active : selected) expected.add(active.device);
+                for (String device : running) {
+                    if ((device.startsWith("wnm") || "wnhome0".equals(device)
+                            || "wnair0".equals(device)) && !expected.contains(device)) {
+                        throw new IllegalStateException("Select every running Wonhee tunnel.");
+                    }
+                }
+                for (Active active : selected) {
+                    NamedTunnel link = new NamedTunnel(active.device);
+                    if (!running.contains(active.device)
+                            || backend.getState(link) != Tunnel.State.UP
+                            || !matches(link, active)) {
+                        throw new IllegalStateException("Selected tunnel identity not verified.");
+                    }
+                }
+
+                stage = "ROUTING_OWNERSHIP";
+                List<RootSplitRouteRules.Rule> planned =
+                        RootSplitRouteRules.plan(entries);
+                List<RootSplitRouteRules.Rule> saved =
+                        RootSplitRouteRules.decode(savedRules());
+                int reserved = countReservedRules();
+                boolean exact = !saved.isEmpty() && reserved == saved.size()
+                        && rulesMatchExactly(saved);
+                if (!RootSplitRouteRules.auditOwnershipConsistent(
+                        planned, saved, reserved, exact)) {
+                    throw new IllegalStateException("Split-rule ownership mismatch.");
+                }
+                report.append("Selected identity-verified tunnels: ")
+                        .append(selected.size()).append("; exact split rules: ")
+                        .append(saved.size()).append("\n");
+
+                stage = "ANDROID_MARK_SAMPLING";
+                List<String> androidRules = new ArrayList<>();
+                androidRules.addAll(readRules(4));
+                androidRules.addAll(readRules(6));
+                List<Long> observedMarks =
+                        RootSplitRouteRules.unprotectedMarkProbes(androidRules);
+                List<Long> sampled = RootUidRouteAudit.sampledUnprotectedMarks(observedMarks);
+                report.append("Normal unprotected mark samples: ")
+                        .append(sampled.size())
+                        .append(" (of ").append(observedMarks.size())
+                        .append(" nonzero fwmarks found). Protected mark sample: 0x20000.\n");
+                report.append("Historical PCAP attributed direct Google Messages QUIC, "
+                        + "Google push TCP/5228 and carrier Wi-Fi Calling to the "
+                        + "underlay. This audit checks route eligibility ONLY, "
+                        + "not those historical flows.\n");
+
+                stage = "PACKAGE_UID_RESOLUTION";
+                String[] names = {"Android system", "Google Messages",
+                        "Google Play services / compatible microG"};
+                String[] packages = {null, RootUidRouteAudit.MESSAGES_PACKAGE,
+                        RootUidRouteAudit.GMS_PACKAGE};
+                int checked = 0, unexpected = 0, missing = 0;
+                for (int i = 0; i < names.length; i++) {
+                    final int uid;
+                    if (i == 0) {
+                        uid = RootUidRouteAudit.ANDROID_SYSTEM_UID;
+                    } else {
+                        int resolved = -1;
+                        try {
+                            resolved = appContext.getPackageManager()
+                                    .getPackageUid(packages[i], 0);
+                        } catch (android.content.pm.PackageManager.NameNotFoundException
+                                | SecurityException unavailable) {
+                            // Android package visibility can hide an installed
+                            // package; never substitute screenshot's old UID.
+                        }
+                        uid = resolved;
+                    }
+                    report.append("\n").append(RootUidRouteAudit.header(names[i], uid))
+                            .append("\n");
+                    if (!RootUidRouteAudit.supportedUid(uid)) {
+                        missing++;
+                        report.append("  Package not visible/installed in this user, "
+                                + "or UID outside supported root-rule range. "
+                                + "No route attribution is attempted.\n");
+                        continue;
+                    }
+                    checked++;
+                    stage = "UID_ROUTE_SIMULATION";
+                    for (long mark : sampled) {
+                        report.append("  Unprotected mark 0x")
+                                .append(Long.toHexString(mark)).append(":\n");
+                        for (int family : new int[]{4, 6}) {
+                            String probe = family == 4 ? "1.1.1.1"
+                                    : "2606:4700:4700::1111";
+                            String want = RootProtectionPolicy.expectedDevice(entries, probe);
+                            if (want.isEmpty()) {
+                                report.append("    Public IPv").append(family)
+                                        .append(": no selected Internet default\n");
+                                continue;
+                            }
+                            String actual = routeDeviceMarkedForUid(family, probe, uid, mark);
+                            report.append("    Public IPv").append(family)
+                                    .append(": ")
+                                    .append(RootUidRouteAudit.routePrediction(want, actual, false))
+                                    .append("\n");
+                            if (!RootUidRouteAudit.matchesExpected(want, actual)) unexpected++;
+                        }
+                    }
+                    report.append("  protectedFromVpn mark 0x20000:\n");
+                    for (int family : new int[]{4, 6}) {
+                        String probe = family == 4 ? "1.1.1.1"
+                                : "2606:4700:4700::1111";
+                        String want = RootProtectionPolicy.expectedDevice(entries, probe);
+                        if (want.isEmpty()) continue;
+                        String actual = routeDeviceMarkedForUid(family, probe,
+                                uid, RootUidRouteAudit.PROTECTED_MARK);
+                        report.append("    Public IPv").append(family).append(": ")
+                                .append(RootUidRouteAudit.routePrediction(want, actual, true))
+                                .append("\n");
+                    }
+                    int splitMatched = 0;
+                    for (RootSplitRouteRules.Rule rule : planned) {
+                        String actual = routeDeviceMarkedForUid(rule.family,
+                                rule.probe, uid, 0L);
+                        if (RootUidRouteAudit.matchesExpected(rule.device, actual)) {
+                            splitMatched++;
+                        }
+                    }
+                    report.append("  Home split destinations, unprotected mark 0: ")
+                            .append(splitMatched).append('/').append(planned.size())
+                            .append(" predicted through Home\n");
+                    if (splitMatched != planned.size()) unexpected++;
+                }
+                report.append("\nVerified installed UIDs: ").append(checked)
+                        .append("/3; missing/unavailable: ").append(missing)
+                        .append("; unexpected unprotected predictions: ")
+                        .append(unexpected).append("\n");
+                if (missing > 0) report.append("Missing UID(s) were NOT guessed; "
+                        + "PCAP UID values can change after app updates or across users.\n");
+                report.append("This cannot show which fwmark was on Messages, "
+                        + "Play services or Wi-Fi Calling sockets. Real traffic "
+                        + "may bypass via protected sockets or other Android "
+                        + "network selection. Only a verified socket/physical "
+                        + "capture can establish actual egress.\n");
+                verified = checked > 0 && unexpected == 0 && missing == 0;
+            } catch (Exception | LinkageError failure) {
+                // Never render arbitrary raw shell, device package manager,
+                // peer endpoint or encrypted profile exception content.
+                report.append("INSPECTION INCOMPLETE [").append(stage)
+                        .append("] (").append(failure.getClass().getSimpleName())
+                        .append("). No app route can be claimed verified.\n");
+            }
+            report.append("No firewall, DNS, Android app settings, tunnels, "
+                    + "routing rules or application traffic changed.\n")
+                    .append("Batch F kill switch remains PAUSED. Android Private DNS "
+                            + "remains at the existing user setting.");
+            finish(callback, verified, report.toString());
+        });
+    }
+
     /**
      * Manual, one-shot response to "tunnels appear connected but Internet stopped".
      * Absolutely no DNS packets, external socket probes, route/iptables writes,

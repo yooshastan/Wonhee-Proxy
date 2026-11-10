@@ -12,6 +12,10 @@
         <package android:name="com.yooshastan.ultmessenger.foss" />
         <package android:name="com.yooshastan.ultmessenger" />
         <package android:name="com.yooshastan.ultmessenger.beta" />
+        <!-- Explicit visibility only for the installed packages selected by the
+             user-initiated read-only UID routing audit; not broad enumeration. -->
+        <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.google.android.gms" />
     </queries>
     <application
         android:name=".WonheeApplication"
