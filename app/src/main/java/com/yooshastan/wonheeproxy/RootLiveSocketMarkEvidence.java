@@ -24,6 +24,14 @@ final class RootLiveSocketMarkEvidence {
     static final int MAX_OUTPUT_LINES = 4096;
     static final int MAX_LINE_CHARS = 4096;
     static final int MAX_MARKS_PER_UID = 4;
+    static final int MAX_BURST_SAMPLES = 48;
+    static final long MAX_BURST_MILLIS = 15_000L;
+
+    /** Hard, monotonic deadline and count for voluntary high-cadence sampling. */
+    static boolean burstAllowed(int completed, long elapsed, boolean cancelled) {
+        return !cancelled && completed >= 0 && completed < MAX_BURST_SAMPLES
+                && elapsed >= 0 && elapsed < MAX_BURST_MILLIS;
+    }
 
     private static final Pattern UID = Pattern.compile(
             "(?:^|\\s)uid:([0-9]{1,8})(?=\\s|$)");

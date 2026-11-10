@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.34 Passive Socket UID/Fwmark Audit · Guard Paused
+name: Wonhee Proxy 0.15.35 Manual Bounded Socket Watch · Guard Paused
 
 on:
   push:

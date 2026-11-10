@@ -62,6 +62,8 @@ public final class RootMultiKernelActivity extends Activity {
     private Button internetIncidentAudit;
     private Button perAppAudit;
     private Button liveSocketAudit;
+    private Button socketBurstAudit;
+    private Button socketBurstCancel;
     private Button audit;
     private Button apply;
     private Button remove;
@@ -212,6 +214,25 @@ public final class RootMultiKernelActivity extends Activity {
                 + "A short-lived QUIC connection may be missed, and a sampled "
                 + "mark alone does not prove its actual physical route. "
                 + "Requires Android/kernel ss support; refusal changes nothing.",
+                12, MUTED);
+
+        socketBurstAudit = button(controls,
+                "Watch live socket marks for up to 15 seconds · read only");
+        socketBurstAudit.setOnClickListener(v -> run(
+                "Targeted socket mark burst", false, session::auditLiveSocketMarksBurst));
+        socketBurstCancel = button(controls, "Stop live socket watch");
+        socketBurstCancel.setOnClickListener(v -> {
+            if (session.isSocketBurstActive()) {
+                session.cancelSocketBurst();
+                socketBurstCancel.setEnabled(false);
+                output.setText("Stop requested. Returning partial aggregate "
+                        + "after current read-only socket query completes.");
+            }
+        });
+        label(controls, "Start this short watch, then open Messages or Play Store "
+                + "normally. It ends automatically or when Stop is tapped. "
+                + "No packet capture, endpoints, contents, or firewall actions. "
+                + "A missing transient socket is not proof of safe routing.",
                 12, MUTED);
 
         label(controls, "EMERGENCY DNS RECOVERY · NO VPN RESTART REQUIRED", 17, PINK);
@@ -1192,6 +1213,12 @@ public final class RootMultiKernelActivity extends Activity {
                     : action.startsWith("Live socket marks read-only")
                     ? "Passive socket UID/fwmark inspection "
                             + (ok ? "completed" : "incomplete")
+                    : action.startsWith("Targeted socket mark burst")
+                    ? "Manual bounded socket mark watch "
+                            + (ok ? "completed" : "incomplete/cancelled")
+                    : action.startsWith("Live socket marks read-only")
+                    ? "Manual three-sample socket mark audit "
+                            + (ok ? "completed" : "incomplete")
                     : action.startsWith("Per-app route predictions")
                     ? "Read-only per-app routing predictions "
                             + (ok ? "completed" : "check required")
@@ -1629,6 +1656,9 @@ public final class RootMultiKernelActivity extends Activity {
         if (internetIncidentAudit != null) internetIncidentAudit.setEnabled(ready);
         if (perAppAudit != null) perAppAudit.setEnabled(ready);
         if (liveSocketAudit != null) liveSocketAudit.setEnabled(ready);
+        if (socketBurstAudit != null) socketBurstAudit.setEnabled(ready);
+        if (socketBurstCancel != null) socketBurstCancel.setEnabled(
+                session.isSocketBurstActive());
         if (audit != null) audit.setEnabled(ready);
         if (apply != null) apply.setEnabled(ready && firewallUnlocked);
         if (recover != null) recover.setEnabled(ready && firewallUnlocked);

@@ -91,6 +91,22 @@ public final class RootLiveSocketMarkEvidenceTest {
                         empty.forUid(10170)).contains("NO SOCKETS OBSERVED"),
                 "Missing ephemeral socket must be called unobserved");
 
+        // Bounded, cancellation-aware observation: stop after a defined
+        // monotonic window, never start an unbounded background sampler.
+        check(RootLiveSocketMarkEvidence.burstAllowed(0, 0L, false),
+                "First voluntary burst sample should be allowed");
+        check(RootLiveSocketMarkEvidence.burstAllowed(10, 2000L, false),
+                "A healthy sample is allowed inside bounded window");
+        check(!RootLiveSocketMarkEvidence.burstAllowed(
+                RootLiveSocketMarkEvidence.MAX_BURST_SAMPLES, 2000L, false),
+                "Sample maximum must stop even when fast");
+        check(!RootLiveSocketMarkEvidence.burstAllowed(10,
+                RootLiveSocketMarkEvidence.MAX_BURST_MILLIS, false),
+                "Wall clock maximum must stop the sampler");
+        check(!RootLiveSocketMarkEvidence.burstAllowed(5, 500L, true),
+                "User Stop must prevent the next query");
+        check(!RootLiveSocketMarkEvidence.burstAllowed(1, -1L, false),
+                "Clock reset refuses unexpected elapsed times");
         System.out.println("RootLiveSocketMarkEvidenceTest passed");
     }
 }

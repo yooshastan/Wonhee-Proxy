@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 81
-        versionName '0.15.34-live-socket-marks-readonly'
+        versionCode 82
+        versionName '0.15.35-targeted-socket-watch'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
