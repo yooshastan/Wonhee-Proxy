@@ -59,6 +59,7 @@ public final class RootMultiKernelActivity extends Activity {
     private boolean lifecycleBusy;
     private Button preview;
     private Button inspect;
+    private Button internetIncidentAudit;
     private Button audit;
     private Button apply;
     private Button remove;
@@ -178,6 +179,17 @@ public final class RootMultiKernelActivity extends Activity {
                 + "This control does not launch the Android installer or prevent "
                 + "an external ADB/Play Store update. Use the Fedora guarded "
                 + "installer for the final independent live-state check.", 12, MUTED);
+        internetIncidentAudit = button(controls,
+                "Connected but no Internet · read-only snapshot");
+        internetIncidentAudit.setOnClickListener(v -> run(
+                "Connectivity incident snapshot", false, session::auditInternetIncident));
+        label(controls, "If both tunnels appear UP but browsing stops, select EVERY "
+                + "active profile and capture a passive report before Safe Stop, "
+                + "only if practical. It checks identity, handshake age, transfer "
+                + "counter movement, routes, DNS and relay without sending packets "
+                + "or changing connectivity. If you need service restored, use "
+                + "Safe Stop rather than waiting for diagnostics.", 12, MUTED);
+
         label(controls, "EMERGENCY DNS RECOVERY · NO VPN RESTART REQUIRED", 17, PINK);
         label(controls, "If DNS redirects or rejects requests and the normal owner "
                 + "record is missing, first run the read-only orphan audit, then "
@@ -1153,6 +1165,9 @@ public final class RootMultiKernelActivity extends Activity {
                     ? "Product D relay lifecycle " + (ok ? "verified" : "refused")
                     : action.startsWith("Product D DoH")
                     ? "Product D DoH probe " + (ok ? "verified" : "refused")
+                    : action.startsWith("Connectivity incident snapshot")
+                    ? "Read-only Internet outage snapshot "
+                            + (ok ? "verified" : "check required")
                     : action.startsWith("F.2 manual passive health")
                             ? "F.2 manual snapshot " + (ok ? "completed" : "check required")
                     : (action.startsWith("F.3b passive underlay")
@@ -1574,6 +1589,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (lifecycleRepair != null) lifecycleRepair.setEnabled(idle);
         if (preview != null) preview.setEnabled(ready);
         if (inspect != null) inspect.setEnabled(idle);
+        if (internetIncidentAudit != null) internetIncidentAudit.setEnabled(ready);
         if (audit != null) audit.setEnabled(ready);
         if (apply != null) apply.setEnabled(ready && firewallUnlocked);
         if (recover != null) recover.setEnabled(ready && firewallUnlocked);
