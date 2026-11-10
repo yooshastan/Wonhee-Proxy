@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 92
-        versionName '0.15.45-navigation-cleanup'
+        versionCode 93
+        versionName '0.15.46-multitunnel-tabs'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

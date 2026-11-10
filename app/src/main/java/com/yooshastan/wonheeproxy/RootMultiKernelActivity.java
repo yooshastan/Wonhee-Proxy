@@ -38,6 +38,10 @@ public final class RootMultiKernelActivity extends Activity {
     private static final int REQUEST_ROOT_NOTIFICATION = 8451;
     private static final String ROOT_NOTIFICATION_PREFS = "wonhee_root_traffic_notification";
     private Button rootTrafficNotificationButton;
+    private final List<LinearLayout> labPages = new ArrayList<>();
+    private final List<Button> labTabButtons = new ArrayList<>();
+    private ScrollView labScroll;
+    private int activeLabTab = 0;
 
     private SecureTunnelProfileStore store;
     private RootMultiKernelSession session;
@@ -127,6 +131,7 @@ public final class RootMultiKernelActivity extends Activity {
         journal.record("APP", "Experimental multi-tunnel manager opened");
 
         ScrollView scroll = new ScrollView(this);
+        labScroll = scroll;
         scroll.setBackgroundColor(BACKGROUND);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
@@ -145,15 +150,38 @@ public final class RootMultiKernelActivity extends Activity {
         scroll.requestApplyInsets();
 
         label(page, "MULTI-TUNNEL LAB", 25, PINK);
-        label(page, "Product Batch F · opt-in experimental root fail-closed guard", 14, WHITE);
-        label(page, "EXPERIMENTAL: this multi-profile lab is separate from the older "
-                + "wnhome0/wnair0 pair. Stop that legacy pair first. Root changes "
-                + "may interrupt Internet access. Keep Termux root or USB recovery ready. "
-                + "DNS interception, tracker filtering and Batch F's root OUTPUT guard "
-                + "each require separate explicit opt-in. The kill switch is OFF by default; "
-                + "it has no reboot-time guarantee. Routing changes require separate consent.", 13, PINK);
+        label(page, "Status · Tunnels · DNS · Activity", 14, WHITE);
+        label(page, "Changes remain explicit and guarded; Batch F kill switch "
+                + "activation is paused. Keep USB ADB recovery available.", 12, MUTED);
 
-        LinearLayout configs = card(page);
+        LinearLayout nav = new LinearLayout(this);
+        nav.setOrientation(LinearLayout.HORIZONTAL);
+        page.addView(nav);
+        String[] labNames = {"Status", "Tunnels", "DNS", "Activity"};
+        for (int i = 0; i < labNames.length; i++) {
+            final int index = i;
+            Button tabButton = new Button(this);
+            tabButton.setText(labNames[i]);
+            tabButton.setAllCaps(false);
+            tabButton.setTextSize(12);
+            tabButton.setMinHeight(dp(48));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(56), 1f);
+            nav.addView(tabButton, lp);
+            labTabButtons.add(tabButton);
+            tabButton.setOnClickListener(v -> showLabTab(index));
+        }
+        for (int i = 0; i < labNames.length; i++) {
+            LinearLayout section = new LinearLayout(this);
+            section.setOrientation(LinearLayout.VERTICAL);
+            page.addView(section);
+            labPages.add(section);
+        }
+        LinearLayout statusPage = labPages.get(0);
+        LinearLayout tunnelsPage = labPages.get(1);
+        LinearLayout dnsPage = labPages.get(2);
+        LinearLayout activityPage = labPages.get(3);
+
+        LinearLayout configs = card(tunnelsPage);
         label(configs, "SELECT ACTIVE PROFILES", 18, PINK);
         label(configs, "Select any combination of saved profiles. A default Internet "
                 + "route can coexist with distinct split destinations, but overlapping "
@@ -167,7 +195,7 @@ public final class RootMultiKernelActivity extends Activity {
         preview = button(configs, "Preview selected routes · read only");
         preview.setOnClickListener(v -> run("Preview routes", false, session::preview));
 
-        LinearLayout controls = card(page);
+        LinearLayout controls = card(statusPage);
         label(controls, "CONNECTION CONTROLS", 18, PINK);
         label(controls, "PRIMARY VPN CONTROLS · BATCH H", 17, PINK);
         label(controls, "Start in order: verified tunnels → split routing → encrypted DNS "
@@ -343,7 +371,7 @@ public final class RootMultiKernelActivity extends Activity {
                 new Intent(this, WonheeDashboardPreviewActivity.class)));
 
         // Route diagnostics are discoverable without opening advanced controls.
-        LinearLayout evidence = card(page);
+        LinearLayout evidence = card(activityPage);
         label(evidence, "DIAGNOSTICS · ROUTE EVIDENCE", 18, PINK);
         label(evidence, "Protected-from-VPN predictions may reflect intentional Android "
                 + "exemptions. No kernel route prediction proves real packet egress.",
@@ -370,7 +398,7 @@ public final class RootMultiKernelActivity extends Activity {
         handoffDns.setOnClickListener(v -> run(
                 "Audit DNS enforcement", true, session::auditRootDns));
 
-        LinearLayout guided = card(page);
+        LinearLayout guided = card(statusPage);
         label(guided, "SECURITY ASSISTANT · GUIDED CHECK", 18, PINK);
         label(guided, "Choose your tunnel profiles, then run five automatic READ-ONLY "
                 + "checks: tunnel identity, split routes, DNS destinations, endpoint/Android "
@@ -398,9 +426,9 @@ public final class RootMultiKernelActivity extends Activity {
         advancedGroup = new LinearLayout(this);
         advancedGroup.setOrientation(LinearLayout.VERTICAL);
         advancedGroup.setVisibility(View.GONE);
-        page.addView(advancedGroup);
+        statusPage.addView(advancedGroup);
 
-        LinearLayout manualControls = card(advancedGroup);
+        LinearLayout manualControls = card(tunnelsPage);
         label(manualControls, "ADVANCED · TUNNEL-ONLY CONTROLS", 18, PINK);
         label(manualControls, "These controls modify ONLY selected WireGuard interfaces, "
                 + "not DNS, routing or tracker protection. For regular use, prefer "
@@ -412,7 +440,7 @@ public final class RootMultiKernelActivity extends Activity {
         disconnect = button(manualControls, "Advanced · disconnect tunnels only (DNS must be OFF)");
         disconnect.setOnClickListener(v -> confirm(false));
 
-        LinearLayout recoveryCard = card(advancedGroup);
+        LinearLayout recoveryCard = card(tunnelsPage);
         label(recoveryCard, "PRODUCT BATCH C · CONNECTION RECOVERY", 18, PINK);
         label(recoveryCard, "Disabled by default. Enroll ONLY an exact selection of "
                 + "already connected, identity-verified kernel tunnels. At network handoff "
@@ -451,7 +479,7 @@ public final class RootMultiKernelActivity extends Activity {
                 + "routing ownership prevents safely stopping the interfaces. "
                 + "No routes, firewall or DNS settings are installed by recovery.", 13, PINK);
 
-        LinearLayout routing = card(advancedGroup);
+        LinearLayout routing = card(tunnelsPage);
         label(routing, "EXPERIMENTAL ROUTING OVERRIDES", 18, PINK);
         label(routing, "Batch B.1 fixes Android network-mark precedence: HOME destination "
                 + "rules match locally generated traffic that is not protectedFromVpn, "
@@ -499,7 +527,7 @@ public final class RootMultiKernelActivity extends Activity {
                         run("Remove owned routing rules", true, session::removeRouting))
                 .show());
 
-        LinearLayout encryptedDns = card(advancedGroup);
+        LinearLayout encryptedDns = card(dnsPage);
         label(encryptedDns, "PRODUCT BATCH D · ENCRYPTED DNS TRANSPORT", 18, PINK);
         label(encryptedDns, "Select one checked, verified tunnel and DNS protocol. "
                 + "Built-in provider examples fill in a hostname and NUMERIC bootstrap IP; "
@@ -626,7 +654,7 @@ public final class RootMultiKernelActivity extends Activity {
                 + "test to check the kernel interface explicitly. Root execution is "
                 + "one-shot, with no route, DNS or firewall mutation.", 13, PINK);
 
-        LinearLayout trackers = card(advancedGroup);
+        LinearLayout trackers = card(dnsPage);
         label(trackers, "PRODUCT BATCH E · LOCAL TRACKER BLOCKING", 18, PINK);
         label(trackers, "Optional, offline DNS filtering uses a small, transparent "
                 + "starter list (" + RootTrackerPolicy.builtIns().size() + " known tracking/ad domains). "
@@ -774,7 +802,7 @@ public final class RootMultiKernelActivity extends Activity {
         label(trackers, "Configuration is applied ONLY when you press Enable encrypted "
                 + "system DNS below. The original selected encrypted upstream remains unchanged.", 13, MUTED);
 
-        LinearLayout enforcement = card(advancedGroup);
+        LinearLayout enforcement = card(dnsPage);
         label(enforcement, "PRODUCT BATCH D · SYSTEM RESOLVER ENFORCEMENT", 18, PINK);
         label(enforcement, "EXPERIMENTAL ROOT FIREWALL CHANGE. After the selected "
                 + "root-bound encrypted relay passes a local DNS health check, Wonhee "
@@ -923,7 +951,7 @@ public final class RootMultiKernelActivity extends Activity {
                         run("Disable Batch F guard", true, session::disableGuard))
                 .show());
 
-        LinearLayout privacy = card(advancedGroup);
+        LinearLayout privacy = card(activityPage);
         label(privacy, "NETWORK PROTECTION · READ ONLY", 18, PINK);
         label(privacy, "Privacy Guard is a readiness report, NOT an active kill switch. "
                 + "It inspects all selected kernel tunnel identities, UDP transport "
@@ -1034,12 +1062,27 @@ public final class RootMultiKernelActivity extends Activity {
                 + "or hidden network rules are installed by these checks. "
                 + "Keep USB ADB recovery ready for future enforcement testing.", 13, PINK);
 
-        LinearLayout diagnostics = card(page);
+        LinearLayout diagnostics = card(activityPage);
         label(diagnostics, "LATEST RESULT", 18, PINK);
         output = label(diagnostics, "Select profiles, preview and connect, then audit "
                 + "routing. Any correction is a separate opt-in action. Remove owned "
                 + "rules before disconnecting or changing tunnels.", 14, WHITE);
         updateButtons();
+        showLabTab(activeLabTab);
+    }
+
+    private void showLabTab(int index) {
+        if (index < 0 || index >= labPages.size()) return;
+        activeLabTab = index;
+        for (int i = 0; i < labPages.size(); i++) {
+            labPages.get(i).setVisibility(i == index ? View.VISIBLE : View.GONE);
+            Button button = labTabButtons.get(i);
+            boolean selected = i == index;
+            button.setTextColor(selected ? BACKGROUND : WHITE);
+            button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    selected ? PINK : 0xff553659));
+        }
+        if (labScroll != null) labScroll.post(() -> labScroll.scrollTo(0, 0));
     }
 
     @Override protected void onResume() {
@@ -1244,6 +1287,7 @@ public final class RootMultiKernelActivity extends Activity {
         operation.invoke(list, (ok, result) -> {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
+            showLabTab(3);
             if (action.startsWith("Live peer route attribution")) {
                 // Share only the compact, bounded aggregate. Never raw socket metadata.
                 int detail = result.indexOf("LIVE PUBLIC PEER ROUTES");
