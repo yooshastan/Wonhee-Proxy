@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 78
-        versionName '0.15.31-passive-incident-snapshot'
+        versionCode 79
+        versionName '0.15.32-dns-start-stage-diagnostics'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
