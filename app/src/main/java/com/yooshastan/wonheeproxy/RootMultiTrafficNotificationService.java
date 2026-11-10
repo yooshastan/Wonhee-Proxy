@@ -30,7 +30,7 @@ public final class RootMultiTrafficNotificationService extends Service {
     private boolean active;
     private boolean requestPending;
     private int emptyPolls;
-    private TunnelTrafficRates.Sample previous;
+    private final RootDashboardTelemetry traffic = new RootDashboardTelemetry();
 
     static void startIfPossible(Context context) {
         try {
@@ -115,20 +115,18 @@ public final class RootMultiTrafficNotificationService extends Service {
                     && snapshot.presentTunnels == snapshot.verifiedTunnels
                     ? "Root tunnels · " + snapshot.verifiedTunnels + " verified"
                     : "Root tunnels · verification required";
-            String speed = "↓ unavailable   ↑ unavailable";
-            String detail = "Tunnel rates not verified";
-            if (snapshot.countersAvailable) {
-                TunnelTrafficRates.Sample current = new TunnelTrafficRates.Sample(
-                        SystemClock.elapsedRealtime(), snapshot.received, snapshot.sent);
-                TunnelTrafficRates.Result rate = TunnelTrafficRates.calculate(previous, current);
-                previous = current;
-                speed = rate == null ? "↓ measuring   ↑ measuring"
-                        : "↓ " + TunnelTrafficRates.formatSpeed(rate.downloadMbps)
-                        + "   ↑ " + TunnelTrafficRates.formatSpeed(rate.uploadMbps);
-                detail = "Verified tunnel traffic, not total device traffic";
-            } else {
-                previous = null;
-            }
+            TunnelTrafficRates.Result rate = traffic.observe(
+                    SystemClock.elapsedRealtime(), snapshot.countersAvailable,
+                    snapshot.verifiedTunnels, snapshot.presentTunnels,
+                    snapshot.received, snapshot.sent);
+            String speed = snapshot.countersAvailable
+                    ? rate == null ? "↓ measuring   ↑ measuring"
+                            : "↓ " + TunnelTrafficRates.formatSpeed(rate.downloadMbps)
+                            + "   ↑ " + TunnelTrafficRates.formatSpeed(rate.uploadMbps)
+                    : "↓ unavailable   ↑ unavailable";
+            String detail = snapshot.countersAvailable
+                    ? "Verified tunnel traffic, not total device traffic"
+                    : "Tunnel rates not verified";
             String blocked;
             if (!snapshot.dnsVerified) {
                 blocked = "DNS blocking unverified";
@@ -172,7 +170,7 @@ public final class RootMultiTrafficNotificationService extends Service {
     @Override public void onDestroy() {
         active = false;
         requestPending = false;
-        previous = null;
+        traffic.reset();
         handler.removeCallbacksAndMessages(null);
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
