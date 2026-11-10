@@ -61,6 +61,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button inspect;
     private Button internetIncidentAudit;
     private Button perAppAudit;
+    private Button liveSocketAudit;
     private Button audit;
     private Button apply;
     private Button remove;
@@ -200,6 +201,18 @@ public final class RootMultiKernelActivity extends Activity {
                 + "It DOES NOT observe live sockets or enforce VPN-only traffic. "
                 + "Select every active tunnel; do not disable RCS, microG, "
                 + "Google services or Wi-Fi Calling for this test.", 12, MUTED);
+
+        liveSocketAudit = button(controls,
+                "Inspect live socket marks (Messages / Play / Android) · read only");
+        liveSocketAudit.setOnClickListener(v -> run("Live socket marks read-only",
+                false, session::auditLiveSocketMarks));
+        label(controls, "Three short passive samples using existing root ss/inet_diag. "
+                + "Reports only app UIDs, aggregate socket counts and readable fwmarks; "
+                + "no peer addresses, messages, or DNS queries are displayed. "
+                + "A short-lived QUIC connection may be missed, and a sampled "
+                + "mark alone does not prove its actual physical route. "
+                + "Requires Android/kernel ss support; refusal changes nothing.",
+                12, MUTED);
 
         label(controls, "EMERGENCY DNS RECOVERY · NO VPN RESTART REQUIRED", 17, PINK);
         label(controls, "If DNS redirects or rejects requests and the normal owner "
@@ -1176,6 +1189,9 @@ public final class RootMultiKernelActivity extends Activity {
                     ? "Product D relay lifecycle " + (ok ? "verified" : "refused")
                     : action.startsWith("Product D DoH")
                     ? "Product D DoH probe " + (ok ? "verified" : "refused")
+                    : action.startsWith("Live socket marks read-only")
+                    ? "Passive socket UID/fwmark inspection "
+                            + (ok ? "completed" : "incomplete")
                     : action.startsWith("Per-app route predictions")
                     ? "Read-only per-app routing predictions "
                             + (ok ? "completed" : "check required")
@@ -1612,6 +1628,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (inspect != null) inspect.setEnabled(idle);
         if (internetIncidentAudit != null) internetIncidentAudit.setEnabled(ready);
         if (perAppAudit != null) perAppAudit.setEnabled(ready);
+        if (liveSocketAudit != null) liveSocketAudit.setEnabled(ready);
         if (audit != null) audit.setEnabled(ready);
         if (apply != null) apply.setEnabled(ready && firewallUnlocked);
         if (recover != null) recover.setEnabled(ready && firewallUnlocked);
