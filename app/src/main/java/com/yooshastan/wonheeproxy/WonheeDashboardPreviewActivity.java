@@ -185,11 +185,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             case 2: protectionTab(); break;
             default: activityTab();
         }
-        button(content, "Safe connection controls / recovery",
-                () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
-        text(content, "All-traffic kill switch activation is paused for safety. DNS-port "
-                + "filtering is separate. This preview does not verify live firewall "
-                + "rules or change tunnels, routes, DNS, or firewall settings.", 12, MUTED);
+        // Navigation to Safe Controls belongs to the Status recovery card only.
+        // All other tabs remain read-only; no duplicate footer link.
     }
 
     /** Observed root counters only; these figures are not system VPN statistics. */
@@ -343,11 +340,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
         showRecoveryGuidance();
 
-        LinearLayout actions = card(content);
-        button(actions, "Open existing Connect / Safe Disconnect controls",
-                () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
-        text(actions, "For this first preview, the proven advanced manager handles "
-                + "all network changes and recovery.", 12, MUTED);
+        // One safe destination appears in Connection Recovery Guidance above.
     }
 
     /** Guidance never tries to repair ownership or change the network itself. */
@@ -383,7 +376,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, guidance, 13, WHITE);
         text(group, "Keep Android Private DNS OFF. All-traffic guard remains paused. "
                 + "Never force a firewall flush or tunnel deletion.", 12, MUTED);
-        button(group, "Open Safe Controls and Diagnostics",
+        button(group, "Safe Controls & Diagnostics",
                 () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
     }
 
