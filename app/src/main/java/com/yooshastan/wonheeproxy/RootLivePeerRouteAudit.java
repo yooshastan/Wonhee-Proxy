@@ -46,19 +46,23 @@ final class RootLivePeerRouteAudit {
         final String publicPeerAddress;
         final long mark;
         final String transport;
+        // Only a boolean port class is stored, not the actual peer port.
+        // UDP/443 is compatible with QUIC, but is not QUIC proof.
+        final boolean udp443;
 
         Candidate(int uid, int family, String publicPeerAddress,
-                  long mark, String transport) {
+                  long mark, String transport, boolean udp443) {
             this.uid = uid;
             this.family = family;
             this.publicPeerAddress = publicPeerAddress;
             this.mark = mark;
             this.transport = transport;
+            this.udp443 = udp443;
         }
 
         String key() {
             return uid + "|" + family + "|" + publicPeerAddress + "|"
-                    + mark + "|" + transport;
+                    + mark + "|" + transport + "|" + udp443;
         }
 
         boolean protectedMark() {
@@ -175,8 +179,10 @@ final class RootLivePeerRouteAudit {
                 return;
             }
             int family = peerLiteral.indexOf(':') >= 0 ? 6 : 4;
+            boolean udp443 = "UDP".equals(transport)
+                    && fields[4].endsWith(":443");
             Candidate candidate = new Candidate(
-                    uid, family, peerLiteral, mark, transport);
+                    uid, family, peerLiteral, mark, transport, udp443);
             LinkedHashMap<String, Candidate> perUid = byUid.get(uid);
             if (perUid.containsKey(candidate.key())) return;
             if (perUid.size() >= MAX_CANDIDATES_PER_UID

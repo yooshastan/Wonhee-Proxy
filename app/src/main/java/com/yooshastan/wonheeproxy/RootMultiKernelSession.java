@@ -2694,6 +2694,8 @@ final class RootMultiKernelSession {
                             peers.forUid(uid);
                     int[] protectedOutcomes = new int[4];
                     int[] normalOutcomes = new int[4];
+                    RootDirectRouteAdvisory.Totals advisory =
+                            new RootDirectRouteAdvisory.Totals();
                     // Outcome order: selected Internet VPN, physical Wi-Fi,
                     // selected Home VPN, unknown/unrouted/other.
                     for (RootLivePeerRouteAudit.Candidate socket : candidates) {
@@ -2705,19 +2707,13 @@ final class RootMultiKernelSession {
                                 socket.uid, socket.mark);
                         String preferred = RootProtectionPolicy.expectedDevice(
                                 entries, socket.publicPeerAddress);
-                        int category;
-                        if (!preferred.isEmpty() && preferred.equals(device)) {
-                            category = 0;
-                        } else if ("wlan0".equals(device)) {
-                            category = 1;
-                        } else if (!device.isEmpty() && selectedNames.contains(device)) {
-                            category = 2;
-                        } else {
-                            category = 3;
-                        }
+                        int category = RootDirectRouteAdvisory.category(
+                                device, preferred,
+                                !device.isEmpty() && selectedNames.contains(device));
                         if (socket.protectedMark()) protectedOutcomes[category]++;
                         else normalOutcomes[category]++;
-                        if (category != 3) successes++;
+                        advisory.add(category, socket.protectedMark(), socket.udp443);
+                        if (category != RootDirectRouteAdvisory.UNKNOWN) successes++;
                     }
                     report.append("\n").append(labels[i]).append(" (UID ")
                             .append(uid).append("): ")
@@ -2734,6 +2730,9 @@ final class RootMultiKernelSession {
                             .append(", other selected tunnel ")
                             .append(protectedOutcomes[2]).append(", unknown ")
                             .append(protectedOutcomes[3]).append(".\n");
+                    report.append("  READ-ONLY DIRECT ROUTE ADVISORY: ")
+                            .append(advisory.safeWarning(i == 0, labels[i]))
+                            .append("\n");
                 }
                 report.append("\nLookups against ACTUAL observed public peers: ")
                         .append(lookedUp).append("/")
