@@ -1252,7 +1252,7 @@ public final class RootMultiKernelActivity extends Activity {
                 if (compact.length() > 2400) compact = compact.substring(0, 2400);
                 lastRouteEvidence = compact;
                 if (routeEvidenceSummary != null) {
-                    routeEvidenceSummary.setText((ok ? "" : "CHECK REQUIRED\\n") + compact);
+                    routeEvidenceSummary.setText((ok ? "" : "CHECK REQUIRED\n") + compact);
                 }
                 if (exportRouteEvidence != null) {
                     exportRouteEvidence.setEnabled(ok && detail >= 0);
@@ -1320,7 +1320,7 @@ public final class RootMultiKernelActivity extends Activity {
         send.setType("text/plain");
         send.putExtra(Intent.EXTRA_SUBJECT, "Wonhee read-only route summary");
         send.putExtra(Intent.EXTRA_TEXT, lastRouteEvidence
-                + "\\nPredictions only; not evidence of packet egress.");
+                + "\nPredictions only; not evidence of packet egress.");
         startActivity(Intent.createChooser(send, "Share route summary"));
     }
 
