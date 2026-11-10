@@ -78,6 +78,8 @@ final class RootMultiKernelSession {
     private final Map<String, RootPassiveNetworkHealth.Snapshot> previousHealth =
             new LinkedHashMap<>();
     private volatile boolean busy;
+    private volatile boolean socketBurstActive;
+    private volatile boolean socketBurstCancelled;
     private boolean missingVersionNode;
 
     private static final class NamedTunnel implements Tunnel {
@@ -2533,15 +2535,42 @@ final class RootMultiKernelSession {
      */
     void auditLiveSocketMarks(List<SecureTunnelProfileStore.Profile> profiles,
                               Callback callback) {
+        auditLiveSocketMarksMode(profiles, callback, false);
+    }
+
+    /** User-initiated, bounded (~15s maximum requested) high-frequency audit. */
+    void auditLiveSocketMarksBurst(List<SecureTunnelProfileStore.Profile> profiles,
+                                  Callback callback) {
+        auditLiveSocketMarksMode(profiles, callback, true);
+    }
+
+    boolean isSocketBurstActive() { return socketBurstActive; }
+
+    /** Cancel before the next passive root-shell query; no network changes. */
+    void cancelSocketBurst() { socketBurstCancelled = true; }
+
+    private void auditLiveSocketMarksMode(
+            List<SecureTunnelProfileStore.Profile> profiles,
+            Callback callback, boolean burst) {
         if (!begin(callback)) return;
+        if (burst) {
+            socketBurstCancelled = false;
+            socketBurstActive = true;
+        }
         worker.execute(() -> {
             String stage = "PROFILE_SELECTION";
             boolean verified = false;
-            StringBuilder report = new StringBuilder(
-                    "LIVE SOCKET MARKS — READ-ONLY SS / UID SNAPSHOT\n");
-            report.append("Three manual passive spot checks only; no sockets or "
-                    + "network requests generated. Captures may miss subsecond "
-                    + "Messages/Play services sessions.\n");
+            StringBuilder report = new StringBuilder(burst
+                    ? "LIVE SOCKET MARKS — TARGETED READ-ONLY BURST\n"
+                    : "LIVE SOCKET MARKS — READ-ONLY SS / UID SNAPSHOT\n");
+            report.append(burst
+                    ? "User-started short observation, ~15 seconds and at most 48 "
+                        + "samples. Stop control cancels before the next ss query. "
+                        + "No Internet probes. Brief Messages sessions may still "
+                        + "be missed.\n"
+                    : "Three manual passive spot checks only; no sockets or "
+                        + "network requests generated. Captures may miss subsecond "
+                        + "Messages/Play services sessions.\n");
             try {
                 if (profiles == null || profiles.isEmpty() || profiles.size() > 8) {
                     throw new IllegalArgumentException("Select all active profiles.");
@@ -2617,7 +2646,13 @@ final class RootMultiKernelSession {
                 stage = "PASSIVE_INET_DIAG_SAMPLING";
                 RootLiveSocketMarkEvidence.Snapshot aggregate =
                         new RootLiveSocketMarkEvidence.Snapshot();
-                for (int i = 0; i < 3; i++) {
+                long started = android.os.SystemClock.elapsedRealtime();
+                int samples = 0;
+                while (burst ? RootLiveSocketMarkEvidence.burstAllowed(
+                            samples,
+                            android.os.SystemClock.elapsedRealtime() - started,
+                            socketBurstCancelled)
+                        : samples < 3) {
                     List<String> tcp = new ArrayList<>();
                     List<String> udp = new ArrayList<>();
                     // -H suppresses header, -n avoids hostname/DNS lookup,
@@ -2635,7 +2670,25 @@ final class RootMultiKernelSession {
                     // copied into the resulting report or session journal.
                     tcp.clear();
                     udp.clear();
-                    if (i < 2) Thread.sleep(1100L);
+                    samples++;
+                    if (burst) {
+                        if (RootLiveSocketMarkEvidence.burstAllowed(
+                                samples,
+                                android.os.SystemClock.elapsedRealtime() - started,
+                                socketBurstCancelled)) {
+                            Thread.sleep(150L);
+                        }
+                    } else if (samples < 3) {
+                        Thread.sleep(1100L);
+                    }
+                }
+                report.append("Passive samples completed: ").append(samples)
+                        .append("; duration ")
+                        .append(android.os.SystemClock.elapsedRealtime() - started)
+                        .append(" ms. This is a sampling duration, not a packet capture.\n");
+                if (burst && socketBurstCancelled) {
+                    report.append("USER STOP REQUESTED: sampled evidence is partial; "
+                            + "no new connections generated.\n");
                 }
 
                 report.append("Socket records in busiest sample: ")
@@ -2703,7 +2756,8 @@ final class RootMultiKernelSession {
                             + "unsupported inet_diag, empty/short-lived sockets, "
                             + "or absent mark metadata; do not infer mark zero.\n");
                 }
-                verified = aggregate.complete && markedTargets > 0;
+                verified = aggregate.complete && markedTargets > 0
+                        && !(burst && socketBurstCancelled);
             } catch (Exception | LinkageError failure) {
                 // Sanitize any exception: ss and root-shell output may include
                 // private IPv4/IPv6, RCS endpoints and peer data.
@@ -2718,6 +2772,10 @@ final class RootMultiKernelSession {
                     + "Batch F all-traffic "
                     + "kill switch remains PAUSED. Keep Android Private DNS "
                     + "at its working OFF setting.");
+            if (burst) {
+                socketBurstActive = false;
+                socketBurstCancelled = false;
+            }
             finish(callback, verified, report.toString());
         });
     }
