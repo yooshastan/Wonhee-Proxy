@@ -1359,9 +1359,16 @@ public final class RootMultiKernelActivity extends Activity {
             String stage, String reason) {
         output.setText("Batch H.1 start failed at " + stage
                 + ". Attempting exact owned-rule cleanup and verified tunnel stop...");
+        // The DNS worker returns a verified, non-secret failure phase. The
+        // original full-stack rollback threw that evidence away, leaving only
+        // "START FAILED AT DNS" and making safe diagnosis impossible.
+        final String safeDetail = "DNS".equals(stage)
+                ? RootDnsStartFailure.summary(reason)
+                : "Review the stage-specific read-only audit before another start.";
         session.stopManagedStack(chosen, (ok, result) ->
                 finishManagedLifecycle(false,
                         "START FAILED AT " + stage + "\n"
+                        + safeDetail + "\n"
                         + (ok ? "Automatic safety rollback succeeded.\n"
                               : "Automatic rollback PAUSED; owned rules may remain.\n")
                         + result + "\n"
