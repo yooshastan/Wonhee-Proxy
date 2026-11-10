@@ -2548,6 +2548,230 @@ final class RootMultiKernelSession {
 
 
     /**
+     * Opt-in, tightly bounded read-only UID + live socket mark + NUMERIC PUBLIC
+     * PEER route-selection prediction. This intentionally does not use PCAP,
+     * capture payloads, record ports or display sensitive remote endpoints.
+     * It predicts the route that WOULD be chosen for a peer/mark; not proof
+     * that actual packets reached that interface.
+     */
+    void auditLivePeerRouting(List<SecureTunnelProfileStore.Profile> profiles,
+                              Callback callback) {
+        if (!begin(callback)) return;
+        socketBurstCancelled = false;
+        socketBurstActive = true;
+        worker.execute(() -> {
+            String stage = "PROFILE_SELECTION";
+            boolean verified = false;
+            StringBuilder report = new StringBuilder(
+                    "LIVE PUBLIC PEER ROUTES — READ-ONLY SHORT WATCH\n");
+            report.append("Uses actual public numeric remote addresses and socket "
+                    + "fwmarks transiently. Only aggregate route categories appear "
+                    + "here; NO addresses, ports, DNS queries or content are stored. "
+                    + "A kernel route prediction is NOT packet egress proof.\n");
+            try {
+                if (profiles == null || profiles.isEmpty() || profiles.size() > 8) {
+                    throw new IllegalArgumentException("Select all active profiles.");
+                }
+                List<Active> selected = loadAll(profiles);
+                validate(selected);
+                List<RootMultiTunnelPlan.Entry> entries = routeEntries(selected);
+                stage = "VERIFIED_TUNNEL_IDENTITIES";
+                rootReady();
+                Set<String> running = backend.getRunningTunnelNames();
+                Set<String> selectedNames = new LinkedHashSet<>();
+                for (Active active : selected) selectedNames.add(active.device);
+                for (String name : running) {
+                    if ((name.startsWith("wnm") || "wnhome0".equals(name)
+                            || "wnair0".equals(name)) && !selectedNames.contains(name)) {
+                        throw new IllegalStateException("Other Wonhee tunnel not selected.");
+                    }
+                }
+                for (Active active : selected) {
+                    NamedTunnel tunnel = new NamedTunnel(active.device);
+                    if (!running.contains(active.device)
+                            || backend.getState(tunnel) != Tunnel.State.UP
+                            || !matches(tunnel, active)) {
+                        throw new IllegalStateException("Cannot confirm selected tunnel.");
+                    }
+                }
+                stage = "OWNED_SPLIT_RULES";
+                List<RootSplitRouteRules.Rule> planned =
+                        RootSplitRouteRules.plan(entries);
+                List<RootSplitRouteRules.Rule> saved =
+                        RootSplitRouteRules.decode(savedRules());
+                int live = countReservedRules();
+                if (saved.isEmpty() || live != saved.size()
+                        || !rulesMatchExactly(saved)
+                        || !RootSplitRouteRules.auditOwnershipConsistent(
+                                planned, saved, live, true)) {
+                    throw new IllegalStateException("Owned routes not consistent.");
+                }
+                report.append("Verified tunnels: ").append(selected.size())
+                        .append("; exact owned split rules: ")
+                        .append(saved.size()).append(".\n");
+                stage = "DYNAMIC_APP_UIDS";
+                String[] labels = {"Android system", "Google Messages",
+                        "Google Play services / compatible microG"};
+                String[] names = {null, RootUidRouteAudit.MESSAGES_PACKAGE,
+                        RootUidRouteAudit.GMS_PACKAGE};
+                int[] uids = {-1, -1, -1};
+                Set<Integer> targetUids = new LinkedHashSet<>();
+                for (int i = 0; i < uids.length; i++) {
+                    if (i == 0) {
+                        uids[i] = RootUidRouteAudit.ANDROID_SYSTEM_UID;
+                    } else {
+                        try {
+                            uids[i] = appContext.getPackageManager().getPackageUid(names[i], 0);
+                        } catch (android.content.pm.PackageManager.NameNotFoundException
+                                | SecurityException unavailable) {
+                            // Fail closed: never infer UID from a past capture.
+                        }
+                    }
+                    if (RootUidRouteAudit.supportedUid(uids[i])) {
+                        targetUids.add(uids[i]);
+                    }
+                }
+                stage = "READ_ONLY_SOCKET_TOOL";
+                if (shell.run(null, "command -v ss >/dev/null 2>&1") != 0) {
+                    throw new UnsupportedOperationException("No ss tool.");
+                }
+                stage = "PASSIVE_PEER_SAMPLING";
+                RootLivePeerRouteAudit.Aggregate peers =
+                        new RootLivePeerRouteAudit.Aggregate(targetUids);
+                long started = android.os.SystemClock.elapsedRealtime();
+                int samples = 0;
+                while (RootLiveSocketMarkEvidence.burstAllowed(
+                        samples, android.os.SystemClock.elapsedRealtime() - started,
+                        socketBurstCancelled)) {
+                    List<String> tcp = new ArrayList<>();
+                    List<String> udp = new ArrayList<>();
+                    // Neither form initiates Internet traffic; numeric -n
+                    // avoids DNS lookup. Raw output MUST never be logged.
+                    if (shell.run(tcp, "ss -H -t -n -e") != 0
+                            || shell.run(udp, "ss -H -u -n -e") != 0) {
+                        throw new UnsupportedOperationException("ss inspection refused.");
+                    }
+                    peers.accept(tcp, udp);
+                    tcp.clear();
+                    udp.clear();
+                    samples++;
+                    if (RootLiveSocketMarkEvidence.burstAllowed(
+                            samples, android.os.SystemClock.elapsedRealtime() - started,
+                            socketBurstCancelled)) {
+                        Thread.sleep(150L);
+                    }
+                }
+                report.append("Read-only samples: ").append(samples)
+                        .append("; sampling duration: ")
+                        .append(android.os.SystemClock.elapsedRealtime() - started)
+                        .append(" ms (at most 48 samples / 15-second deadline).\n")
+                        .append("Matched UID socket observations: ")
+                        .append(peers.observedMatchingRecords)
+                        .append("; without one explicit mark: ")
+                        .append(peers.missingOrAmbiguousMark)
+                        .append("; local/unconnected peers omitted: ")
+                        .append(peers.localOrUnconnected)
+                        .append("; parser refusals: ")
+                        .append(peers.rejectedMalformed)
+                        .append("; candidate limit reached: ")
+                        .append(peers.candidateLimitReached)
+                        .append(". Counts are observations, not unique flows.\n");
+                if (socketBurstCancelled) {
+                    report.append("User STOP requested: this is a PARTIAL report. "
+                            + "No socket or network connection was modified.\n");
+                }
+                stage = "ACTUAL_PUBLIC_PEER_ROUTE_PREDICTIONS";
+                int lookedUp = 0;
+                int successes = 0;
+                for (int i = 0; i < uids.length; i++) {
+                    int uid = uids[i];
+                    if (!RootUidRouteAudit.supportedUid(uid)) {
+                        report.append(labels[i])
+                                .append(": UID not visible; no attribution inferred.\n");
+                        continue;
+                    }
+                    List<RootLivePeerRouteAudit.Candidate> candidates =
+                            peers.forUid(uid);
+                    int[] protectedOutcomes = new int[4];
+                    int[] normalOutcomes = new int[4];
+                    // Outcome order: selected Internet VPN, physical Wi-Fi,
+                    // selected Home VPN, unknown/unrouted/other.
+                    for (RootLivePeerRouteAudit.Candidate socket : candidates) {
+                        if (socketBurstCancelled
+                                || lookedUp >= RootLivePeerRouteAudit.MAX_ROUTE_QUERIES) break;
+                        lookedUp++;
+                        String device = routeDeviceMarkedForUid(
+                                socket.family, socket.publicPeerAddress,
+                                socket.uid, socket.mark);
+                        String preferred = RootProtectionPolicy.expectedDevice(
+                                entries, socket.publicPeerAddress);
+                        int category;
+                        if (!preferred.isEmpty() && preferred.equals(device)) {
+                            category = 0;
+                        } else if ("wlan0".equals(device)) {
+                            category = 1;
+                        } else if (!device.isEmpty() && selectedNames.contains(device)) {
+                            category = 2;
+                        } else {
+                            category = 3;
+                        }
+                        if (socket.protectedMark()) protectedOutcomes[category]++;
+                        else normalOutcomes[category]++;
+                        if (category != 3) successes++;
+                    }
+                    report.append("\n").append(labels[i]).append(" (UID ")
+                            .append(uid).append("): ")
+                            .append(candidates.size())
+                            .append(" bounded public peer/mark combinations observed.\n")
+                            .append("  Normal marks: Internet VPN ")
+                            .append(normalOutcomes[0]).append(", Wi-Fi ")
+                            .append(normalOutcomes[1]).append(", other selected tunnel ")
+                            .append(normalOutcomes[2]).append(", unknown ")
+                            .append(normalOutcomes[3]).append(".\n")
+                            .append("  Protected marks: Internet VPN ")
+                            .append(protectedOutcomes[0]).append(", Wi-Fi ")
+                            .append(protectedOutcomes[1])
+                            .append(", other selected tunnel ")
+                            .append(protectedOutcomes[2]).append(", unknown ")
+                            .append(protectedOutcomes[3]).append(".\n");
+                }
+                report.append("\nLookups against ACTUAL observed public peers: ")
+                        .append(lookedUp).append("/")
+                        .append(RootLivePeerRouteAudit.MAX_ROUTE_QUERIES)
+                        .append(" maximum. No address or port is printed.\n");
+                if (peers.candidateLimitReached > 0 || !peers.complete) {
+                    report.append("PARTIAL: socket count/format cap was reached; "
+                            + "unobserved app egress remains UNKNOWN.\n");
+                }
+                if (lookedUp == 0) {
+                    report.append("NO CLASSIFIABLE PUBLIC SOCKET PEERS. "
+                            + "A quiet device or short QUIC sessions may be missed. "
+                            + "This is NOT proof of VPN-only egress.\n");
+                }
+                report.append("ROUTE PREDICTIONS ONLY: even when a mark and remote "
+                        + "address came from the same live socket snapshot, "
+                        + "this cannot prove physical packet egress, socket network "
+                        + "binding, carrier/IMS exemptions, or complete app coverage.\n");
+                verified = !socketBurstCancelled && peers.complete
+                        && peers.candidateLimitReached == 0
+                        && lookedUp > 0 && successes > 0;
+            } catch (Exception | LinkageError failure) {
+                // Never include raw shell exceptions, socket/IP/port output or
+                // private endpoints in UI or persistent session journal.
+                report.append("INCOMPLETE [").append(stage).append("] (")
+                        .append(failure.getClass().getSimpleName())
+                        .append("). No endpoint data exposed.\n");
+            }
+            socketBurstActive = false;
+            socketBurstCancelled = false;
+            report.append("No Internet probes, firewall rules, DNS, routes, "
+                    + "tunnels or app settings changed. Batch F guard remains "
+                    + "PAUSED. Keep Android Private DNS at working OFF setting.");
+            finish(callback, verified, report.toString());
+        });
+    }
+
+    /**
      * Optional, three-sample live socket UID/fwmark metadata inventory.
      * Requires iproute2 ss -e and kernel inet_diag support. No packet capture,
      * socket creation, endpoint reporting, persistent logging or policy writes.
