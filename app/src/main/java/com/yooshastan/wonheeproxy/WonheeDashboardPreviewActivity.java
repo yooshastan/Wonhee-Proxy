@@ -437,9 +437,11 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, "Tracker filter: " + blockState(), 13, WHITE);
         text(group, "DNS-port rules: live enforcement must be checked in "
                 + "Advanced Controls. This overview does not audit kernel rules.", 12, MUTED);
-        text(group, "Browser encrypted DNS: UNVERIFIED. Brave Secure DNS or other "
-                + "apps' own DoH/DoQ can bypass Wonhee's filtered local DNS. "
-                + "A working relay does not prove full-device coverage.", 12, LAVENDER);
+        text(group, "Upstream encryption and device-wide DNS coverage: "
+                + "NOT INDEPENDENTLY VERIFIED. Browser DoH/DoQ may bypass local blocking.",
+                12, LAVENDER);
+        button(group, "Review DNS & leak verification checklist · read only",
+                this::showLeakChecklist);
         text(group, dnsBaselineComparison(), 12, WHITE);
         button(group, "Save verified DNS baseline for overnight comparison",
                 this::captureDnsBaseline);
@@ -464,6 +466,28 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, "Baseline comparison is local and aggregate-only; it cannot "
                 + "certify uninterrupted uptime, packet-leak freedom or kill-switch "
                 + "coverage. The all-traffic guard stays safety-paused.", 12, MUTED);
+    }
+
+    private void showLeakChecklist() {
+        new AlertDialog.Builder(this)
+                .setTitle("Wonhee verification checklist")
+                .setMessage("1. Run Advanced → Audit live DNS firewall + relay: "
+                        + "confirm OWNED, MATCH, ALIVE and LISTENING.\n\n"
+                        + "2. Query a permitted domain and a blocked test domain "
+                        + "through 127.0.0.1:53535, then test browser DNS separately.\n\n"
+                        + "3. Compare the expected AirVPN IPv4, IPv6 and WebRTC exit "
+                        + "on Wi-Fi and cellular. Repeat DNS leak tests with the "
+                        + "configured resolver; geographically diverse Cloudflare "
+                        + "addresses alone are not proof of a leak.\n\n"
+                        + "4. If browser Secure DNS is enabled, test it separately "
+                        + "because it may bypass Wonhee. Leave Android Private DNS "
+                        + "at your known working OFF setting.\n\n"
+                        + "5. Physical-interface capture is required for independent "
+                        + "underlay DNS/IPv6 evidence. No single website or routing "
+                        + "simulation proves device-wide leak freedom. The "
+                        + "all-traffic kill switch remains paused.")
+                .setPositiveButton("Close", null)
+                .show();
     }
 
     private String dnsFirewallLedgerState() {
