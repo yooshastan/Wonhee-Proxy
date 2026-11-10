@@ -46,6 +46,9 @@ public final class RootMultiKernelActivity extends Activity {
     private final Map<String, CheckBox> selection = new LinkedHashMap<>();
     private LinearLayout profileRows;
     private TextView output;
+    private TextView routeEvidenceSummary;
+    private Button exportRouteEvidence;
+    private String lastRouteEvidence;
     private Button connect;
     private Button disconnect;
     private Button managedStart;
@@ -338,6 +341,34 @@ public final class RootMultiKernelActivity extends Activity {
                 "Open Candy Pink status dashboard · preview");
         dashboardPreview.setOnClickListener(v -> startActivity(
                 new Intent(this, WonheeDashboardPreviewActivity.class)));
+
+        // Route diagnostics are discoverable without opening advanced controls.
+        LinearLayout evidence = card(page);
+        label(evidence, "DIAGNOSTICS · ROUTE EVIDENCE", 18, PINK);
+        label(evidence, "Protected-from-VPN predictions may reflect intentional Android "
+                + "exemptions. No kernel route prediction proves real packet egress.",
+                13, MUTED);
+        routeEvidenceSummary = label(evidence,
+                "No current audit. Select all active profiles and run the read-only check.",
+                14, WHITE);
+        Button directEvidence = button(evidence, "Check app direct-route evidence · read only");
+        directEvidence.setOnClickListener(v -> run(
+                "Live peer route attribution", false, session::auditLivePeerRouting));
+        exportRouteEvidence = button(evidence, "Share latest route summary · no endpoints");
+        exportRouteEvidence.setEnabled(false);
+        exportRouteEvidence.setOnClickListener(v -> shareRouteEvidence());
+        label(evidence, "HANDOFF & STABILITY · MANUAL CHECK", 16, PINK);
+        label(evidence, "Take a passive snapshot before and after a naturally occurring "
+                + "Wi-Fi/cellular handoff, then audit live DNS separately. No handoff, "
+                + "tunnel restart, firewall or DNS change is initiated. Keep Android "
+                + "Private DNS OFF.", 12, MUTED);
+        Button handoffSnapshot = button(evidence,
+                "Snapshot tunnel health before/after handoff · read only");
+        handoffSnapshot.setOnClickListener(v -> run(
+                "F.2 manual passive health snapshot", false, session::snapshotPassiveHealth));
+        Button handoffDns = button(evidence, "Audit DNS relay after handoff · read only");
+        handoffDns.setOnClickListener(v -> run(
+                "Audit DNS enforcement", true, session::auditRootDns));
 
         LinearLayout guided = card(page);
         label(guided, "SECURITY ASSISTANT · GUIDED CHECK", 18, PINK);
@@ -1213,6 +1244,20 @@ public final class RootMultiKernelActivity extends Activity {
         operation.invoke(list, (ok, result) -> {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
+            if (action.startsWith("Live peer route attribution")) {
+                // Share only the compact, bounded aggregate. Never raw socket metadata.
+                int detail = result.indexOf("LIVE PUBLIC PEER ROUTES");
+                String compact = detail >= 0 ? result.substring(0, detail).trim()
+                        : "Audit incomplete; no exportable route classification.";
+                if (compact.length() > 2400) compact = compact.substring(0, 2400);
+                lastRouteEvidence = compact;
+                if (routeEvidenceSummary != null) {
+                    routeEvidenceSummary.setText((ok ? "" : "CHECK REQUIRED\\n") + compact);
+                }
+                if (exportRouteEvidence != null) {
+                    exportRouteEvidence.setEnabled(ok && detail >= 0);
+                }
+            }
             // DNS destinations/probe outcomes must not persist into diagnostics.
             journal.record("RESULT", action.startsWith("Orphan DNS")
                     || action.startsWith("Emergency DNS")
@@ -1263,6 +1308,20 @@ public final class RootMultiKernelActivity extends Activity {
             updateButtons();
         });
         updateButtons();
+    }
+
+    private void shareRouteEvidence() {
+        if (lastRouteEvidence == null || lastRouteEvidence.isEmpty()
+                || exportRouteEvidence == null || !exportRouteEvidence.isEnabled()) {
+            return;
+        }
+        // User-initiated sharing only; does not create any persistent report.
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_SUBJECT, "Wonhee read-only route summary");
+        send.putExtra(Intent.EXTRA_TEXT, lastRouteEvidence
+                + "\\nPredictions only; not evidence of packet egress.");
+        startActivity(Intent.createChooser(send, "Share route summary"));
     }
 
     private boolean canEditBlocklist() {
