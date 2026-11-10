@@ -686,19 +686,25 @@ final class RootMultiKernelSession {
         worker.execute(() -> {
             boolean ok = false;
             String result;
+            String stage = "PROFILE_LOAD";
             try {
                 List<Active> selected = loadAll(profiles);
+                stage = "ROUTE_PLANNING";
                 List<RootSplitRouteRules.Rule> planned = RootSplitRouteRules.plan(routeEntries(selected));
+                stage = "ROOT_BACKEND";
                 rootReady();
                 StringBuilder report = new StringBuilder("READ-ONLY ROOT ROUTE AUDIT\n");
                 report.append(RootSplitRouteRules.preview(planned)).append('\n');
+                stage = "SPLIT_LEDGER_DECODE";
                 List<RootSplitRouteRules.Rule> stored = RootSplitRouteRules.decode(savedRules());
                 report.append("Wonhee rollback ledger: ").append(stored.isEmpty()
                         ? "EMPTY" : stored.size() + " proposed/installed rule(s)").append('\n');
+                stage = "LIVE_RESERVED_RULE_INVENTORY";
                 int reserved = countReservedRules();
                 report.append("Live reserved-priority rules: ").append(reserved).append('\n');
                 // Exact kernel rules and recorded ownership must match before
                 // a route MATCH can count as a successful ownership audit.
+                stage = "EXACT_ROUTING_OWNERSHIP";
                 boolean ownedExact = !stored.isEmpty() && reserved == stored.size()
                         && rulesMatchExactly(stored);
                 boolean ownershipOk = RootSplitRouteRules.auditOwnershipConsistent(
@@ -717,6 +723,7 @@ final class RootMultiKernelSession {
                             + "do not agree. Keep tunnels connected and investigate "
                             + "before changing rules; do not assume ownership.\n");
                 }
+                stage = "KERNEL_ROUTE_SIMULATION";
                 int matched = 0;
                 for (RootSplitRouteRules.Rule rule : planned) {
                     String actual = routeDevice(rule.family, rule.probe);
@@ -741,6 +748,7 @@ final class RootMultiKernelSession {
                         }
                     }
                 }
+                stage = "ANDROID_MARK_ROUTE_SIMULATION";
                 boolean markAwareOk = appendMarkAwareRouteAudit(routeEntries(selected), planned, report);
                 report.append("Split-route matches: ").append(matched).append('/')
                         .append(planned.size()).append(". These are UID-0 and representative "
@@ -748,9 +756,14 @@ final class RootMultiKernelSession {
                         + "packet capture or kill-switch tests.");
                 result = report.toString();
                 ok = ownershipOk && matched == planned.size() && markAwareOk;
-            } catch (Exception | LinkageError ignored) {
-                result = "Route audit could not complete. Verify root, saved profiles, "
-                        + "and any owned-rule ledger. No routes were changed.";
+            } catch (Exception | LinkageError failure) {
+                // The UI reports a stage and exception class only. Do not dump
+                // raw preferences or diagnostic shell output: it may contain
+                // private VPN endpoint or profile data.
+                result = "READ-ONLY ROUTE AUDIT FAILED [" + stage + "] ("
+                        + failure.getClass().getSimpleName() + "). "
+                        + "Check selected profiles, root tools and ownership ledgers. "
+                        + "No routes were changed.";
             }
             finish(callback, ok, result);
         });
@@ -3293,51 +3306,80 @@ final class RootMultiKernelSession {
      * DNS listener, foreign tags, or unknown reserved routing priorities.
      */
     private RootLifecycleRecoveryPlan inspectLifecycleRecoveryState() throws Exception {
-        shell.start();
-        rootReady();
-        List<RootSplitRouteRules.Rule> routes =
-                RootSplitRouteRules.decode(savedRules());
-        String dns = dnsRecord();
-        boolean dnsOwned = dns != null && !dns.isEmpty();
-        if (dnsOwned) DnsRecord.decode(dns);
-        boolean routeOwned = !routes.isEmpty();
+        // All phases below are read-only. Stage-specific errors are intentionally
+        // data-free: do not reveal resolver URLs, profiles, keys or full shell
+        // command output in UI or persistent diagnostics.
+        String stage = "ROOT_SHELL";
+        try {
+            shell.start();
+            stage = "ROOT_BACKEND";
+            rootReady();
+            stage = "SPLIT_LEDGER_DECODE";
+            List<RootSplitRouteRules.Rule> routes =
+                    RootSplitRouteRules.decode(savedRules());
+            stage = "DNS_LEDGER_DECODE";
+            String dns = dnsRecord();
+            boolean dnsOwned = dns != null && !dns.isEmpty();
+            if (dnsOwned) DnsRecord.decode(dns);
+            boolean routeOwned = !routes.isEmpty();
 
-        // The guard ledger is separately owned: never infer it is safe merely
-        // because live chains appear absent after reboot.
-        if (guardRecord() != null && !guardRecord().isEmpty()) {
+            stage = "GUARD_LEDGER";
+            // The guard ledger is separately owned; never infer it is safe merely
+            // because live chains appear absent after reboot.
+            if (guardRecord() != null && !guardRecord().isEmpty()) {
+                throw new IllegalStateException(
+                        "Batch F ownership record exists. Audit/disable that guard separately.");
+            }
+            stage = "GUARD_FIREWALL_PREFLIGHT";
+            RootFailClosedFirewallRuntime.preflight(shell);
+            stage = "IPV4_RULE_INVENTORY";
+            List<String> ipv4 = readRules(4);
+            stage = "IPV6_RULE_INVENTORY";
+            List<String> ipv6 = readRules(6);
+            stage = "SPLIT_RULE_OWNERSHIP";
+            int verifiedRoutes = RootSplitRouteRules.verifyRollbackCandidates(routes, ipv4, ipv6);
+            stage = "RESERVED_ROUTE_COUNT";
+            int countedRoutes = countReservedRules();
+            int verifiedTags = 0;
+            int countedTags = 0;
+            stage = "DNS_FIREWALL_OWNERSHIP";
+            for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
+                int tagged = countDnsTaggedRules(rule);
+                countedTags += tagged;
+                if (tagged > 0 && dnsRulePresent(rule)) verifiedTags++;
+            }
+            stage = "WIREGUARD_INTERFACE_INVENTORY";
+            Set<String> running = backend.getRunningTunnelNames();
+            boolean anyTunnel = running.contains("wnhome0") || running.contains("wnair0");
+            for (String name : running) {
+                if (name.startsWith("wnm")) anyTunnel = true;
+            }
+            stage = "DNS_SOCKET_INVENTORY";
+            if (shell.run(null, "test -r /proc/net/udp") != 0) {
+                throw new IllegalStateException("Kernel listener inventory unavailable.");
+            }
+            boolean listener = shell.run(null, "grep -qi '0100007F:D11F' /proc/net/udp") == 0;
+            if (dnsOwned) {
+                stage = "DNS_RELAY_PROCESS_IDENTITY";
+                DnsRecord owned = DnsRecord.decode(dns);
+                listener |= RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
+            }
+            stage = "CLASSIFY_STOPPED_STATE";
+            return RootLifecycleRecoveryPlan.assess(true, true, anyTunnel,
+                    listener, dnsOwned, routeOwned, verifiedTags, verifiedRoutes,
+                    countedTags, countedRoutes);
+        } catch (IllegalStateException known) {
             throw new IllegalStateException(
-                    "Batch F ownership record exists. Audit/disable that guard separately.");
+                    "Read-only lifecycle check [" + stage + "]: " + known.getMessage(), known);
+        } catch (Exception | LinkageError unclassified) {
+            // Existing builds hide IllegalArgumentException behind generic
+            // "Unable to independently verify" and cannot identify which
+            // ledger or kernel inventory triggered it.
+            throw new IllegalStateException(
+                    "Read-only lifecycle check [" + stage + "] failed ("
+                            + unclassified.getClass().getSimpleName()
+                            + "). No mutation performed.", unclassified);
         }
-        // Explicit guard quarantine: a foreign/owned Batch F chain or anchor
-        // is never silently converted into a clean lifecycle state.
-        RootFailClosedFirewallRuntime.preflight(shell);
-        List<String> ipv4 = readRules(4);
-        List<String> ipv6 = readRules(6);
-        int verifiedRoutes = RootSplitRouteRules.verifyRollbackCandidates(routes, ipv4, ipv6);
-        int countedRoutes = countReservedRules();
-        int verifiedTags = 0;
-        int countedTags = 0;
-        for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
-            int tagged = countDnsTaggedRules(rule);
-            countedTags += tagged;
-            if (tagged > 0 && dnsRulePresent(rule)) verifiedTags++;
-        }
-        Set<String> running = backend.getRunningTunnelNames();
-        boolean anyTunnel = running.contains("wnhome0") || running.contains("wnair0");
-        for (String name : running) {
-            if (name.startsWith("wnm")) anyTunnel = true;
-        }
-        if (shell.run(null, "test -r /proc/net/udp") != 0) {
-            throw new IllegalStateException("Kernel listener inventory unavailable.");
-        }
-        boolean listener = shell.run(null, "grep -qi '0100007F:D11F' /proc/net/udp") == 0;
-        if (dnsOwned) {
-            DnsRecord owned = DnsRecord.decode(dns);
-            listener |= RootDnsRelayRunner.sameProcess(appContext, shell, owned.pid);
-        }
-        return RootLifecycleRecoveryPlan.assess(true, true, anyTunnel,
-                listener, dnsOwned, routeOwned, verifiedTags, verifiedRoutes,
-                countedTags, countedRoutes);
     }
 
     void auditLifecycleRecovery(List<SecureTunnelProfileStore.Profile> ignored, Callback callback) {
@@ -3361,6 +3403,40 @@ final class RootMultiKernelSession {
                         + "\nNo changes were attempted. Keep USB ADB available.";
             }
             finish(callback, success, message);
+        });
+    }
+
+    /**
+     * Read-only update gate: ONLY a clean stopped live+ledger audit is ready.
+     * Android's external package installer cannot be intercepted by this app.
+     * The Fedora safe-installer independently re-audits the device just before
+     * invoking adb install. This callback is not an authorization token.
+     */
+    void verifyUpdateReadiness(List<SecureTunnelProfileStore.Profile> ignored,
+                               Callback callback) {
+        if (!begin(callback)) return;
+        worker.execute(() -> {
+            boolean ready = false;
+            String message;
+            try {
+                RootLifecycleRecoveryPlan plan = inspectLifecycleRecoveryState();
+                ready = plan.state == RootLifecycleRecoveryPlan.State.CLEAN_STOPPED;
+                message = ready
+                        ? "UPDATE PREFLIGHT — CLEAN STOPPED\n"
+                          + "No active Wonhee tunnel, owned DNS intercept or relay, "
+                          + "reserved split rule, or pending owner ledger observed.\n"
+                          + "Verify again in the trusted installation script immediately "
+                          + "before upgrading. Unprotected network access is now possible."
+                        : "UPDATE BLOCKED — " + plan.state + "\n" + plan.nextAction
+                          + "\nNo package update should be attempted.";
+            } catch (Exception | LinkageError failure) {
+                message = "UPDATE BLOCKED — CANNOT VERIFY LIVE STATE\n"
+                        + (failure instanceof IllegalStateException
+                            ? failure.getMessage()
+                            : "Kernel interfaces, ownership or root audit unavailable.")
+                        + "\nDo not force the update or clear firewall rules.";
+            }
+            finish(callback, ready, message);
         });
     }
 
@@ -3565,19 +3641,28 @@ final class RootMultiKernelSession {
                         throw new IllegalStateException("A selected live interface identity differs.");
                     }
                 }
-                stage = "PREFLIGHT_OWNED_POLICIES";
-                // Validate BOTH policy families before the first deletion:
-                // a foreign reserved route must not trigger DNS shutdown.
+                // Read-only diagnostics with a distinct stage for every
+                // independently failing preflight. Never touch root state until
+                // BOTH policy families have completed their verification.
+                stage = "PREFLIGHT_SPLIT_LEDGER_DECODE";
+                List<RootSplitRouteRules.Rule> planned =
+                        RootSplitRouteRules.decode(savedRules());
+                stage = "PREFLIGHT_IP_RULE_INVENTORY";
+                List<String> ipv4Rules = readRules(4);
+                List<String> ipv6Rules = readRules(6);
+                stage = "PREFLIGHT_SPLIT_RULE_MATCH";
                 RootSplitRouteRules.verifyRollbackCandidates(
-                        RootSplitRouteRules.decode(savedRules()),
-                        readRules(4), readRules(6));
+                        planned, ipv4Rules, ipv6Rules);
+                stage = "PREFLIGHT_DNS_LEDGER_DECODE";
                 String dns = dnsRecord();
                 if (dns != null && !dns.isEmpty()) {
                     DnsRecord.decode(dns);
+                    stage = "PREFLIGHT_DNS_RULE_MATCH";
                     for (RootDnsFirewallPlan.Rule rule : RootDnsFirewallPlan.rules()) {
                         dnsRulePresent(rule);
                     }
                 } else {
+                    stage = "PREFLIGHT_DNS_NO_LEDGER";
                     dnsFirewallPreflight();
                 }
                 stage = "REMOVE_OWNED_DNS";

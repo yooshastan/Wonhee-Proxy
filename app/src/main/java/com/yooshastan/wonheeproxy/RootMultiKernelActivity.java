@@ -50,6 +50,7 @@ public final class RootMultiKernelActivity extends Activity {
     private Button disconnect;
     private Button managedStart;
     private Button managedStop;
+    private Button prepareUpdate;
     private Button lifecycleAudit;
     private Button lifecycleRepair;
     private Button emergencyDnsOff;
@@ -169,6 +170,14 @@ public final class RootMultiKernelActivity extends Activity {
         managedStart.setOnClickListener(v -> startManagedStack());
         managedStop = button(controls, "Safe stop complete Wonhee stack · one confirmation");
         managedStop.setOnClickListener(v -> stopManagedStack());
+        prepareUpdate = button(controls,
+                "Prepare for app update · Safe Stop + independent verification");
+        prepareUpdate.setOnClickListener(v -> prepareForUpdate());
+        label(controls, "Updates require all Wonhee tunnels DOWN, DNS relay and "
+                + "interception cleared, and split-route ownership reconciled. "
+                + "This control does not launch the Android installer or prevent "
+                + "an external ADB/Play Store update. Use the Fedora guarded "
+                + "installer for the final independent live-state check.", 12, MUTED);
         label(controls, "EMERGENCY DNS RECOVERY · NO VPN RESTART REQUIRED", 17, PINK);
         label(controls, "If DNS redirects or rejects requests and the normal owner "
                 + "record is missing, first run the read-only orphan audit, then "
@@ -1451,6 +1460,49 @@ public final class RootMultiKernelActivity extends Activity {
                 }).show();
     }
 
+    private void prepareForUpdate() {
+        if (lifecycleBusy || guidedRunning || blocklistBusy || session.isBusy()) {
+            output.setText("A Wonhee operation is in progress. Update not ready.");
+            return;
+        }
+        List<SecureTunnelProfileStore.Profile> chosen = selected();
+        if (chosen.isEmpty()) {
+            output.setText("Select ALL active Wonhee tunnel profiles, then prepare for update.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Safe Stop before updating Wonhee?")
+                .setMessage("This will manually stop unattended recovery, verify selected "
+                        + "WireGuard identities, remove only exactly owned DNS interception "
+                        + "and split routes, and disconnect the selected kernel tunnels. "
+                        + "A second independent read-only lifecycle audit MUST report "
+                        + "CLEAN_STOPPED to mark the update as ready. If any stage fails, "
+                        + "the update remains BLOCKED; no unknown rules will be flushed. "
+                        + "Mobile data or Wi-Fi may work without VPN protection after "
+                        + "shutdown. Keep USB ADB available.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Safe Stop + verify", (dialog, which) -> {
+                    lifecycleBusy = true;
+                    updateButtons();
+                    output.setText("UPDATE PREPARATION — identity-verified safe stop...");
+                    session.stopManagedStack(chosen, (stopped, result) -> {
+                        if (!stopped) {
+                            finishManagedLifecycle(false,
+                                    "UPDATE BLOCKED — Safe Stop did not finish.\n" + result);
+                            return;
+                        }
+                        output.setText("UPDATE PREPARATION — independent stopped-state audit...");
+                        session.verifyUpdateReadiness(chosen, (ready, audit) -> {
+                            if (ready) RootMultiTrafficNotificationService.stop(this);
+                            finishManagedLifecycle(ready,
+                                    (ready ? "UPDATE PREPARED — use guarded Fedora installer.\n"
+                                            : "UPDATE BLOCKED — do NOT install.\n")
+                                    + result + "\n" + audit);
+                        });
+                    });
+                }).show();
+    }
+
     private void stopManagedStack() {
         if (lifecycleBusy || guidedRunning || blocklistBusy || session.isBusy()) {
             output.setText("Another Wonhee operation is active."); return;
@@ -1513,6 +1565,7 @@ public final class RootMultiKernelActivity extends Activity {
         if (managedStart != null) managedStart.setEnabled(ready && firewallUnlocked
                 && "OFF".equals(session.dnsLedgerStatus()));
         if (managedStop != null) managedStop.setEnabled(ready && firewallUnlocked);
+        if (prepareUpdate != null) prepareUpdate.setEnabled(ready && firewallUnlocked);
         if (emergencyDnsOff != null) emergencyDnsOff.setEnabled(idle
                 && !"OFF".equals(session.dnsLedgerStatus()));
         if (orphanDnsAudit != null) orphanDnsAudit.setEnabled(idle);

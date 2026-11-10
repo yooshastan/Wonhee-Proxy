@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.28 DNS Coverage & Firewall Preview · Guard Paused
+name: Wonhee Proxy 0.15.29 Safe Update Preflight · Guard Paused
 
 on:
   push:
@@ -31,7 +31,15 @@ jobs:
             exit 1
           fi
       - name: Verify permanent release-signing setup script syntax
-        run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh
+        run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh
+      - name: Prove safe installer refuses unsafe live/root states
+        run: |
+          bash -n scripts/test-wonhee-safe-update.sh
+          bash scripts/test-wonhee-safe-update.sh
+      - name: Test opt-in 0.15.28 ledger rescue refusal and exact padding
+        run: |
+          python3 -m py_compile scripts/wonhee-01528-ledger-rescue.py
+          python3 scripts/test-wonhee-01528-ledger-rescue.py
       - name: Run standalone proxy core tests
         run: |
           mkdir -p /tmp/wonhee-classes
@@ -210,7 +218,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01528-dns-coverage-firewall-readonly-rootlab-debug-apk
+          name: wonhee-01529-safe-update-preflight-rootlab-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

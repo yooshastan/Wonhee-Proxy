@@ -201,7 +201,12 @@ final class RootSplitRouteRules {
         java.util.Set<Integer> priority4 = new java.util.HashSet<>();
         java.util.Set<Integer> priority6 = new java.util.HashSet<>();
         for (String line : lines) {
-            if (line.isEmpty()) continue;
+            // Android SharedPreferences XML can preserve serializer indentation
+            // after a newline-terminated ledger. Whitespace-only lines never
+            // encode ownership; ignore them without normalizing a real rule.
+            // Any spaces INSIDE or around a populated record still fail the
+            // exact parser below, protecting live-rule identity checks.
+            if (line.trim().isEmpty()) continue;
             String[] parts = line.split("\\|", -1);
             if ((parts.length != 5 && parts.length != 6)
                     || !(parts[0].equals("4") || parts[0].equals("6"))
