@@ -2683,6 +2683,7 @@ final class RootMultiKernelSession {
                 stage = "ACTUAL_PUBLIC_PEER_ROUTE_PREDICTIONS";
                 int lookedUp = 0;
                 int successes = 0;
+                StringBuilder compact = new StringBuilder();
                 for (int i = 0; i < uids.length; i++) {
                     int uid = uids[i];
                     if (!RootUidRouteAudit.supportedUid(uid)) {
@@ -2730,10 +2731,16 @@ final class RootMultiKernelSession {
                             .append(", other selected tunnel ")
                             .append(protectedOutcomes[2]).append(", unknown ")
                             .append(protectedOutcomes[3]).append(".\n");
+                    compact.append(advisory.compactLine(labels[i])).append("\n");
                     report.append("  READ-ONLY DIRECT ROUTE ADVISORY: ")
                             .append(advisory.safeWarning(i == 0, labels[i]))
                             .append("\n");
                 }
+                report.insert(0, "DIRECT-ROUTE SUMMARY — ROUTE PREDICTIONS ONLY\n"
+                        + compact.toString()
+                        + "Protected-from-VPN marks can reflect intentional Android exemptions; "
+                        + "ordinary physical predictions require investigation. Neither proves "
+                        + "actual packet egress. No enforcement is applied.\n\n");
                 report.append("\nLookups against ACTUAL observed public peers: ")
                         .append(lookedUp).append("/")
                         .append(RootLivePeerRouteAudit.MAX_ROUTE_QUERIES)
