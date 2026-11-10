@@ -21,10 +21,10 @@ FILE = BASE / "wonhee_owned_split_routes.xml"
 DNS_FILE = BASE / "wonhee_owned_dns_policy.xml"
 GUARD_FILE = BASE / "wonhee_owned_guard_policy.xml"
 KEY = "pending_or_installed_rules_v1"
-# Android SharedPreferences XmlSerializer may encode LF as an XML numeric
-# character reference. Compare decoded XML text for ownership, then remove only
-# the four literal spaces from the raw XML, not the LF/entity or any routing data.
-RAW_TRAILERS = (b"&#10;    ", b"&#xA;    ", b"&#xa;    ", b"\n    ")
+# SharedPreferences XML can encode LF as &#10;, &#xA;, another numeric
+# entity, or a literal LF. Validate the decoded XML text first and require the
+# raw serialized value to end in four literal spaces. The helper removes only
+# those four bytes and verifies that the parsed routing string stays exact.
 HOME = "wnma292ddb4b6da"
 AIR = "wnm68fe81200daa"
 EXPECTED = [
@@ -76,12 +76,9 @@ def inspect_ledger():
     require(value.endswith("\n    ") and
             len(value) - len(value.rstrip()) == 5,
             "Actual parsed preference is not exactly LF plus four spaces; refusing")
-    require(any(body.endswith(tail) for tail in RAW_TRAILERS),
-            "Serialized XML is not a recognized LF plus four-space suffix; refusing")
-    decoded_body = body.replace(b"&#10;", b"\n").replace(
-        b"&#xA;", b"\n").replace(b"&#xa;", b"\n")
-    require(decoded_body == value.encode("utf-8"),
-            "Raw XML and parsed value disagree; no repair")
+    require(body.endswith(b"    "),
+            "Serialized XML does not end in four literal spaces; refusing")
+    require(len(body) > 4, "Serialized routing string is unexpectedly short")
     clean_value = value[:-4]
     lines = clean_value.splitlines()
     require(len(lines) == 3, "Expected precisely three nonempty saved routes")
@@ -94,8 +91,12 @@ def inspect_ledger():
         net = ipaddress.ip_network(cidr)
         require(str(net.network_address + 1) == probe,
                 "Saved routing probe mismatch")
+    # Never interpret/rewrite the XML serializer's representation of LF;
+    # replace only the four proven padding bytes inside the matched string.
     new_body = body[:-4]
     patched = raw[:match.start(1)] + new_body + raw[match.end(1):]
+    require(len(raw) - len(patched) == 4,
+            "Patch would change more than the confirmed four padding bytes")
     try:
         root = ET.fromstring(patched)
         node = root.find("./string[@name='pending_or_installed_rules_v1']")
