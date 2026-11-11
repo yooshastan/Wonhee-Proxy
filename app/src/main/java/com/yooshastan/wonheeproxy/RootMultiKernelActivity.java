@@ -170,6 +170,10 @@ public final class RootMultiKernelActivity extends Activity {
             labTabButtons.add(tabButton);
             tabButton.setOnClickListener(v -> showLabTab(index));
         }
+        // A single shared profile selector sits above every tab's content.
+        // It is never duplicated: Android Views have one parent, and selection
+        // stays unchanged when the active lab tab changes.
+        LinearLayout configs = card(page);
         for (int i = 0; i < labNames.length; i++) {
             LinearLayout section = new LinearLayout(this);
             section.setOrientation(LinearLayout.VERTICAL);
@@ -181,7 +185,6 @@ public final class RootMultiKernelActivity extends Activity {
         LinearLayout dnsPage = labPages.get(2);
         LinearLayout activityPage = labPages.get(3);
 
-        LinearLayout configs = card(tunnelsPage);
         label(configs, "SELECT ACTIVE PROFILES", 18, PINK);
         label(configs, "Select any combination of saved profiles. A default Internet "
                 + "route can coexist with distinct split destinations, but overlapping "
@@ -1062,7 +1065,9 @@ public final class RootMultiKernelActivity extends Activity {
                 + "or hidden network rules are installed by these checks. "
                 + "Keep USB ADB recovery ready for future enforcement testing.", 13, PINK);
 
-        LinearLayout diagnostics = card(activityPage);
+        // Shared across all four tabs. Every result is visible below the active
+        // tab's controls; changing tabs retains the latest text and selections.
+        LinearLayout diagnostics = card(page);
         label(diagnostics, "LATEST RESULT", 18, PINK);
         output = label(diagnostics, "Select profiles, preview and connect, then audit "
                 + "routing. Any correction is a separate opt-in action. Remove owned "
@@ -1287,7 +1292,6 @@ public final class RootMultiKernelActivity extends Activity {
         operation.invoke(list, (ok, result) -> {
             if (isFinishing() || isDestroyed()) return;
             output.setText((ok ? "COMPLETE\n" : "CHECK REQUIRED\n") + result);
-            showLabTab(3);
             if (action.startsWith("Live peer route attribution")) {
                 // Share only the compact, bounded aggregate. Never raw socket metadata.
                 int detail = result.indexOf("LIVE PUBLIC PEER ROUTES");
