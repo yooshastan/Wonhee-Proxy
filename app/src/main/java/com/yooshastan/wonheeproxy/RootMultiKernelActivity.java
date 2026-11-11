@@ -415,16 +415,9 @@ public final class RootMultiKernelActivity extends Activity {
         guidedAudit.setOnClickListener(v -> startGuidedAudit());
         guidedDetails = button(guided, "Review safety check details");
         guidedDetails.setOnClickListener(v -> showGuidedDetails());
-        advancedToggle = button(guided, "Show advanced security controls");
-        advancedToggle.setOnClickListener(v -> {
-            boolean reveal = advancedGroup.getVisibility() != View.VISIBLE;
-            advancedGroup.setVisibility(reveal ? View.VISIBLE : View.GONE);
-            advancedToggle.setText(reveal ? "Hide advanced security controls"
-                    : "Show advanced security controls");
-        });
-        label(guided, "Advanced controls contain recovery, routing rules, DNS probes and "
-                + "network diagnostics. They remain available, but are hidden until needed. "
-                + "The guided audit never enables the experimental kill switch or guarantees leak-free traffic.", 13, PINK);
+        label(guided, "Additional experimental controls are available at the "
+                + "bottom of their corresponding tab. Read-only audits do not "
+                + "guarantee leak-free traffic.", 13, MUTED);
 
         advancedGroup = new LinearLayout(this);
         advancedGroup.setOrientation(LinearLayout.VERTICAL);
@@ -1072,8 +1065,56 @@ public final class RootMultiKernelActivity extends Activity {
         output = label(diagnostics, "Select profiles, preview and connect, then audit "
                 + "routing. Any correction is a separate opt-in action. Remove owned "
                 + "rules before disconnecting or changing tunnels.", 14, WHITE);
+
+        // Reparent existing advanced cards, preserving all listeners and controls.
+        // Each tab retains a short primary flow, with one opt-in deeper menu at
+        // its bottom. Tabs and Latest Result share profile selection/report state.
+        LinearLayout advancedTunnels = new LinearLayout(this);
+        advancedTunnels.setOrientation(LinearLayout.VERTICAL);
+        moveAdvancedCard(manualControls, advancedTunnels);
+        moveAdvancedCard(recoveryCard, advancedTunnels);
+        moveAdvancedCard(routing, advancedTunnels);
+        appendAdvancedMenu(tunnelsPage, advancedTunnels,
+                "Advanced Tunnel & Routing Settings");
+
+        LinearLayout advancedDns = new LinearLayout(this);
+        advancedDns.setOrientation(LinearLayout.VERTICAL);
+        moveAdvancedCard(encryptedDns, advancedDns);
+        moveAdvancedCard(enforcement, advancedDns);
+        appendAdvancedMenu(dnsPage, advancedDns,
+                "Advanced DNS & Filtering Settings");
+
+        LinearLayout advancedActivity = new LinearLayout(this);
+        advancedActivity.setOrientation(LinearLayout.VERTICAL);
+        moveAdvancedCard(privacy, advancedActivity);
+        appendAdvancedMenu(activityPage, advancedActivity,
+                "Advanced Diagnostics");
+
+        appendAdvancedMenu(statusPage, advancedGroup,
+                "Advanced Connection Controls");
         updateButtons();
         showLabTab(activeLabTab);
+    }
+
+    private void moveAdvancedCard(LinearLayout card, LinearLayout destination) {
+        if (card.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) card.getParent()).removeView(card);
+        }
+        destination.addView(card);
+    }
+
+    private void appendAdvancedMenu(LinearLayout page, LinearLayout details, String title) {
+        Button entry = button(page, title + " · show");
+        details.setVisibility(View.GONE);
+        if (details.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) details.getParent()).removeView(details);
+        }
+        page.addView(details);
+        entry.setOnClickListener(v -> {
+            boolean expanded = details.getVisibility() != View.VISIBLE;
+            details.setVisibility(expanded ? View.VISIBLE : View.GONE);
+            entry.setText(title + (expanded ? " · hide" : " · show"));
+        });
     }
 
     private void showLabTab(int index) {
