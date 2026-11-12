@@ -626,14 +626,54 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void profileTab() {
         LinearLayout group = card(content);
-        text(group, "YOUR TUNNELS", 16, PINK);
+        text(group, "SAVED TUNNELS", 16, PINK);
         button(group, "＋  Add tunnel", this::openTunnelImporter);
-        text(group, "Choose which tunnels Start uses on Home.", 12, MUTED);
-        showQuickTunnelPicker(group, true);
-        button(group, "Manage tunnel connections & routes", () -> openRootTab(1));
-        secondaryButton(group, "Edit imported profiles", this::openVpnManager);
-        text(group, "Current backend: one default exit plus compatible "
-                + "destination-specific profiles. Overlapping routes are refused.", 12, MUTED);
+        text(group, "Choose which tunnels to start on Home. "
+                + "Manage each saved tunnel here.", 12, MUTED);
+        showManagedProfiles(group);
+    }
+
+    /** Tunnels is a library, not a second connection-selection screen. */
+    private void showManagedProfiles(LinearLayout group) {
+        if (profileStoreError) {
+            text(group, "Your saved tunnels could not be loaded.", 13, MUTED);
+            return;
+        }
+        if (profiles.isEmpty()) {
+            text(group, "No saved tunnels. Add a WireGuard configuration to begin.",
+                    13, MUTED);
+            return;
+        }
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            LinearLayout item = card(group);
+            text(item, profile.name, 16, WHITE);
+            String purpose = profile.routeMode == VpnRouteModes.ALL
+                    ? "Internet exit" : profile.routeMode == VpnRouteModes.HOME
+                    ? "Private destinations" : "Imported routes";
+            text(item, purpose, 12, MUTED);
+            if (rootMode && lastSnapshot != null && lastSnapshot.rootsAvailable) {
+                boolean found = false;
+                for (RootMultiKernelSession.TunnelStatus tunnel : lastSnapshot.tunnels) {
+                    if (profile.name.equals(tunnel.name)) {
+                        found = true;
+                        text(item, !tunnel.present ? "Stopped"
+                                : tunnel.verified ? "Interface running"
+                                : "Identity needs verification", 12,
+                                tunnel.present && !tunnel.verified ? PINK : MUTED);
+                        break;
+                    }
+                }
+                if (!found) text(item, "Status not available", 12, MUTED);
+            }
+            secondaryButton(item, "Edit " + profile.name,
+                    () -> openTunnelEditor(profile.name));
+        }
+    }
+
+    private void openTunnelEditor(String name) {
+        Intent edit = new Intent(this, TunnelProfileSettingsActivity.class);
+        edit.putExtra(TunnelProfileSettingsActivity.EXTRA_PROFILE_NAME, name);
+        startActivity(edit);
     }
 
     private void protectionTab() {
@@ -833,24 +873,11 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void standardProfiles() {
         LinearLayout group = card(content);
-        text(group, "YOUR TUNNELS", 18, PINK);
+        text(group, "SAVED TUNNELS", 16, PINK);
         button(group, "＋  Add tunnel", this::openTunnelImporter);
-        if (profileStoreError) {
-            text(group, "Encrypted profile storage is unavailable.", 13, MUTED);
-        } else if (profiles.isEmpty()) {
-            text(group, "No saved VPN profiles yet. Import a WireGuard profile to start.",
-                    14, MUTED);
-        } else {
-            text(group, profiles.size() + " saved profile(s) · select one in VPN settings",
-                    13, MUTED);
-            for (SecureTunnelProfileStore.Profile profile : profiles) {
-                text(group, "• " + profile.name, 15, WHITE);
-            }
-        }
-        secondaryButton(group, "Manage existing tunnels", this::openVpnManager);
-        text(group, "Standard mode manages one Android VPN tunnel at a time. "
-                + "It does not offer root-only per-app or multi-exit routing.",
-                12, MUTED);
+        text(group, "Choose your active tunnel on Home. "
+                + "Manage each saved tunnel here.", 12, MUTED);
+        showManagedProfiles(group);
     }
 
     private void standardProtection() {
