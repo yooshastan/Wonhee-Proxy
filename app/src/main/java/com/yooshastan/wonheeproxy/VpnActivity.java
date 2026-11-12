@@ -125,14 +125,23 @@ public final class VpnActivity extends Activity {
     };
 
     private boolean routeOldLauncherTaskToHome() {
-        // Explicit import/start/stop intents come from the new Home screen.
-        // This redirect is only for a stranded, previously launcher-rooted
-        // legacy activity, not an intentionally opened connection manager.
-        if (!isTaskRoot() || getIntent().hasExtra("wonhee.quick.action")) {
+        // Normal use enters the modern Home screen. Only explicit controls
+        // from inside Wonhee may display the older advanced profile editor.
+        // Historical launcher icons, stale notification intents and restored
+        // pre-upgrade activity stacks must not expose the old dashboard.
+        Intent original = getIntent();
+        if (original.hasExtra("wonhee.quick.action")
+                || original.getBooleanExtra("wonhee.explicit.advanced", false)) {
             return false;
         }
         Intent home = new Intent(this, WonheeDashboardPreviewActivity.class);
-        home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        home.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (isTaskRoot()) {
+            // An old launcher-root task must be replaced in full. No tunnel,
+            // service or firewall command is executed by this redirect.
+            home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        }
         startActivity(home);
         finish();
         return true;
