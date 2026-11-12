@@ -73,6 +73,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 MODE_PRIVATE).getAll().isEmpty()
                 || !getSharedPreferences("wonhee_owned_split_routes",
                         MODE_PRIVATE).getAll().isEmpty()
+                || !getSharedPreferences("wonhee_owned_dns_policy",
+                        MODE_PRIVATE).getAll().isEmpty()
+                || !getSharedPreferences("wonhee_owned_guard_policy",
+                        MODE_PRIVATE).getAll().isEmpty()
                 || getSharedPreferences(ROOT_NOTIFICATION_PREFS, MODE_PRIVATE)
                         .getBoolean("enabled", false);
         rootMode = ui.getBoolean(ROOT_MODE_KEY, legacyRootUi);
@@ -627,9 +631,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         LinearLayout group = card(content);
         text(group, "PROTECTION", 18, PINK);
         text(group, "Privacy-first connection controls", 15, WHITE);
-        protectionRow(group, "VPN interface", standardVpnConnected() == null
-                ? "Unknown" : Boolean.TRUE.equals(standardVpnConnected())
-                        ? "Active · traffic protection not audited" : "Disconnected");
+        Boolean active = standardVpnConnected();
+        protectionRow(group, "VPN interface", active == null
+                ? "Unknown" : active ? "Active · traffic protection not audited"
+                        : "Disconnected");
         protectionRow(group, "Disconnect protection",
                 "Use Android's Always-on and Block connections without VPN settings");
         protectionRow(group, "DNS / ad blocking",
@@ -716,18 +721,33 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, "Display mode: " + (rootMode ? "Root advanced" : "Standard privacy first"),
                 14, WHITE);
         if (rootMode) {
-            text(group, "Changing the interface does not stop active root tunnels. "
-                    + "Use Safe Stop from Connection Controls before updates.",
+            text(group, "Switching views never disconnects root tunnels. "
+                    + "Use Safe Stop and verify clean state before changing mode.",
                     12, MUTED);
-            button(group, "Switch to Standard interface", () ->
+            button(group, "Switch to Standard interface", () -> {
+                boolean clean = lastSnapshot != null && lastSnapshot.rootsAvailable
+                        && lastSnapshot.presentTunnels == 0
+                        && "OFF".equals(session.dnsLedgerStatus())
+                        && "OFF".equals(session.guardLedgerStatus());
+                if (!clean) {
                     new AlertDialog.Builder(this)
-                            .setTitle("Change interface only?")
-                            .setMessage("Existing rooted tunnels, routing and DNS "
-                                    + "will continue unchanged. Standard view cannot "
-                                    + "control them. Return to Root mode to manage them.")
-                            .setNegativeButton("Cancel", null)
-                            .setPositiveButton("Switch view", (d, w) -> setRootMode(false))
-                            .show());
+                            .setTitle("Root workspace still needs attention")
+                            .setMessage("Wonhee cannot confirm an idle root network "
+                                    + "with no recorded DNS or guard policy. Remain in "
+                                    + "Root mode, use Safe Controls to audit and stop "
+                                    + "the stack, then switch views. No network changes "
+                                    + "were made.")
+                            .setPositiveButton("Open Safe Controls", (d, w) -> openRootTab(0))
+                            .setNegativeButton("Not now", null).show();
+                    return;
+                }
+                new AlertDialog.Builder(this).setTitle("Change to Standard view?")
+                        .setMessage("The saved root profiles remain available. "
+                                + "This switches only the interface.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Switch view", (d, w) -> setRootMode(false))
+                        .show();
+            });
             showNotificationControl(group);
         } else {
             text(group, "Advanced rooted networking is optional and requires "
