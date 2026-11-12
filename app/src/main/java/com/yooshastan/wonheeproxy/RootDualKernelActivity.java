@@ -192,7 +192,11 @@ public final class RootDualKernelActivity extends Activity {
                 + "and one internet exit. This preview activates two at a time; "
                 + "additional concurrent tunnels need route validation.", 13, MUTED);
         Button importButton = button(profiles, "Import / manage profiles");
-        importButton.setOnClickListener(v -> startActivity(new Intent(this, VpnActivity.class)));
+        importButton.setOnClickListener(v -> {
+            Intent advanced = new Intent(this, VpnActivity.class);
+            advanced.putExtra("wonhee.explicit.advanced", true);
+            startActivity(advanced);
+        });
         Button multiButton = button(profiles, "Open experimental multi-tunnel lab");
         multiButton.setOnClickListener(v -> startActivity(
                 new Intent(this, RootMultiKernelActivity.class)));
