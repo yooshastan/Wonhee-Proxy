@@ -745,6 +745,48 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
     }
 
+    private void showStandardTunnelPicker(LinearLayout parent, boolean connected) {
+        if (profileStoreError) {
+            text(parent, "Saved connections unavailable.", 13, MUTED);
+            return;
+        }
+        if (profiles.isEmpty()) {
+            text(parent, "No tunnels yet. Add a WireGuard configuration above.",
+                    13, MUTED);
+            return;
+        }
+        SecureTunnelProfileStore store = new SecureTunnelProfileStore(this);
+        int selected = store.preferredIndex(profiles.size());
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.VERTICAL);
+        parent.addView(group);
+        for (int i = 0; i < profiles.size(); i++) {
+            final int index = i;
+            RadioButton option = new RadioButton(this);
+            option.setId(View.generateViewId());
+            option.setText(profiles.get(i).name);
+            option.setTextColor(WHITE);
+            option.setTextSize(15);
+            option.setButtonTintList(ColorStateList.valueOf(PINK));
+            option.setMinHeight(dp(48));
+            option.setEnabled(!connected);
+            group.addView(option);
+            if (i == selected) group.check(option.getId());
+            option.setOnClickListener(v -> {
+                try {
+                    store.rememberSelectedIndex(index);
+                } catch (Exception unavailable) {
+                    new AlertDialog.Builder(this).setTitle("Could not save choice")
+                            .setMessage("Wonhee could not remember your selected tunnel. "
+                                    + "Try again or check encrypted profile storage.")
+                            .setPositiveButton("OK", null).show();
+                }
+            });
+        }
+        if (connected) text(parent, "Stop the current VPN before choosing a different tunnel.",
+                12, MUTED);
+    }
+
     private void standardHome() {
         Boolean connected = standardVpnConnected();
         LinearLayout hero = card(content);
@@ -756,6 +798,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         primary.setMinHeight(dp(72));
         primary.setEnabled(connected != null);
         secondaryButton(hero, "＋  Add tunnel", this::openTunnelImporter);
+        text(hero, "CHOOSE YOUR TUNNEL", 13, LAVENDER);
+        showStandardTunnelPicker(hero, Boolean.TRUE.equals(connected));
         text(hero, connected == null ? "Checking your VPN…" :
                 connected ? "VPN running" : "Not connected", 17, WHITE);
         text(hero, profileStoreError ? "Saved connections unavailable"
@@ -771,18 +815,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     + "kernel tunnels or firewall rules.", 12, WHITE);
             secondaryButton(warning, "Inspect rooted network", this::requestRootWorkspace);
         }
-        LinearLayout tunnels = card(content);
-        text(tunnels, "YOUR TUNNELS", 15, PINK);
-        if (profileStoreError) {
-            text(tunnels, "Encrypted profile storage unavailable.", 13, MUTED);
-        } else if (profiles.isEmpty()) {
-            text(tunnels, "Add a WireGuard configuration to begin.", 13, MUTED);
-        } else {
-            int shown = Math.min(2, profiles.size());
-            for (int i = 0; i < shown; i++) showProfile(tunnels, profiles.get(i));
-        }
-        secondaryButton(tunnels, "See all tunnels", () -> selectTab(1));
-
         LinearLayout protection = card(content);
         text(protection, "PRIVACY", 15, PINK);
         protectionRow(protection, "Android VPN", connected == null ? "Status unavailable"
