@@ -454,6 +454,20 @@ public final class VpnActivity extends Activity {
         if (getIntent().getStringExtra("wonhee.quick.action") == null) {
             root.post(this::maybeShowNotificationOnboarding);
         }
+        if (quickImportFlow) {
+            // Existing validation and secure profile import still run here, but
+            // the user must not see the obsolete full manager behind the picker.
+            LinearLayout importPage = new LinearLayout(this);
+            importPage.setOrientation(LinearLayout.VERTICAL);
+            importPage.setPadding(dp(20), dp(65), dp(20), dp(30));
+            importPage.setBackgroundColor(0xff12101d);
+            label(importPage, "ADD TUNNEL", 26, PINK);
+            label(importPage, "Select a WireGuard configuration file. "
+                    + "Nothing connects until you press Start on Home.", 15, WHITE);
+            Button cancelImport = button(importPage, "Cancel · Back to Home");
+            cancelImport.setOnClickListener(v -> finish());
+            setContentView(importPage);
+        }
     }
 
     @Override protected void onResume() {
@@ -526,14 +540,11 @@ public final class VpnActivity extends Activity {
             selectTunnelForConnection(0);
             savedPicker.post(this::confirmConnect);
         } else {
-            String[] names = new String[profiles.size()];
-            for (int i = 0; i < names.length; i++) names[i] = profiles.get(i).name;
-            new AlertDialog.Builder(this).setTitle("Choose a VPN tunnel")
-                    .setItems(names, (dialog, which) -> {
-                        selectTunnelForConnection(which);
-                        savedPicker.post(this::confirmConnect);
-                    })
-                    .setNegativeButton("Cancel", null).show();
+            // The user already chose a profile on Home. Reuse that selection,
+            // rather than presenting another picker for the same decision.
+            int preferred = profileStore.preferredIndex(profiles.size());
+            selectTunnelForConnection(preferred);
+            savedPicker.post(this::confirmConnect);
         }
     }
 
