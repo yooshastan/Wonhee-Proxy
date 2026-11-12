@@ -261,10 +261,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void showLiveSignals() {
         LinearLayout group = card(content);
-        text(group, "LIVE SIGNALS", 15, PINK);
+        text(group, "LIVE ACTIVITY", 15, PINK);
         text(group, throughputLine(), 20, WHITE);
-        text(group, "Combined verified WireGuard tunnel speeds · updates while visible. "
-                + "Not device-wide traffic and not per-profile throughput.", 12, MUTED);
+        text(group, "Speeds from verified VPN tunnels only; not all phone traffic.",
+                12, MUTED);
         RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
         boolean verified = snapshot != null && snapshot.dnsVerified
                 && snapshot.trackerEnabled && snapshot.blocked != null;
@@ -275,7 +275,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 + (snapshot == null || !snapshot.dnsVerified ? "unverified"
                         : snapshot.trackerEnabled ? "enabled" : "off"),
                 13, verified ? WHITE : MUTED);
-        text(group, "Blocked total belongs to the current verified DNS relay lifetime.",
+        text(group, "Block count resets when the verified DNS relay restarts.",
                 12, MUTED);
     }
 
@@ -347,18 +347,18 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void home() {
         LinearLayout hero = card(content);
-        text(hero, "CONNECTION OVERVIEW", 12, LAVENDER);
+        text(hero, "YOUR CONNECTION", 12, LAVENDER);
         RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
-        String status = "Checking local root tunnel state…";
+        String status = "Checking your connections…";
         if (snapshot != null && !snapshot.rootsAvailable) {
-            status = "Root tunnel status unavailable";
+            status = "Connection status unavailable";
         } else if (snapshot != null && snapshot.presentTunnels == 0) {
-            status = "No saved-profile root tunnels detected";
+            status = "No rooted tunnels running";
         } else if (snapshot != null && snapshot.verifiedTunnels == snapshot.presentTunnels) {
-            status = snapshot.verifiedTunnels + " verified root tunnel"
-                    + (snapshot.verifiedTunnels == 1 ? "" : "s");
+            status = snapshot.verifiedTunnels + " tunnel"
+                    + (snapshot.verifiedTunnels == 1 ? "" : "s") + " running";
         } else if (snapshot != null) {
-            status = "Attention: some tunnel identities unverified";
+            status = "Connections need attention";
         }
         text(hero, status, 20, WHITE);
         if (snapshot != null && snapshot.rootsAvailable) {
@@ -373,7 +373,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         showLiveSignals();
 
         LinearLayout stack = card(content);
-        text(stack, "YOUR CONNECTIONS", 15, PINK);
+        text(stack, "SAVED CONNECTIONS", 15, PINK);
         if (profileStoreError) {
             text(stack, "Encrypted profiles unavailable. Check Android Keystore.", 13, MUTED);
         } else if (profiles.isEmpty()) {
@@ -385,57 +385,59 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             for (int i = 0; i < shown; i++) showProfile(stack, profiles.get(i));
             if (profiles.size() > shown) {
                 text(stack, "+" + (profiles.size() - shown)
-                        + " more saved profiles — see Profiles", 12, LAVENDER);
+                        + " more — see Tunnels", 12, LAVENDER);
             }
         }
 
         LinearLayout protection = card(content);
-        text(protection, "PROTECTION AT A GLANCE", 15, PINK);
-        protectionRow(protection, "DNS relay (not a leak test)", dnsState());
-        protectionRow(protection, "Ads & Trackers", blockState());
-        protectionRow(protection, "DNS-port firewall", dnsFirewallLedgerState());
-        protectionRow(protection, "All-traffic kill switch", killSwitchState());
+        text(protection, "PRIVACY AT A GLANCE", 15, PINK);
+        protectionRow(protection, "DNS", dnsState());
+        protectionRow(protection, "Ads & trackers", blockState());
+        protectionRow(protection, "Kill switch", killSwitchState());
+        button(protection, "See all protection details", () -> selectTab(2));
 
         showRecoveryGuidance();
 
         // One safe destination appears in Connection Recovery Guidance above.
     }
 
-    /** Guidance never tries to repair ownership or change the network itself. */
+    /** Friendly guidance is read-only and never changes routing or recovery state. */
     private void showRecoveryGuidance() {
-        LinearLayout group = card(content);
-        text(group, "CONNECTION RECOVERY GUIDANCE", 15, PINK);
         RootMultiKernelSession.RootTrafficSnapshot s = lastSnapshot;
-        String guidance;
-        if (s == null || !s.rootsAvailable) {
-            guidance = "Root status cannot be verified. Check USB ADB and run "
-                    + "Read live kernel status in Safe Controls. Do not assume "
-                    + "the tunnels or DNS rules are stopped.";
+        LinearLayout group = card(content);
+        String title;
+        String message;
+        if (s == null) {
+            title = "CHECKING HEALTH";
+            message = "Wonhee is reading your current connection state.";
+        } else if (!s.rootsAvailable) {
+            title = "STATUS UNAVAILABLE";
+            message = "Wonhee cannot inspect the rooted connections. "
+                    + "Avoid force-stopping tunnels until you can audit their state.";
         } else if (s.presentTunnels > 0 && s.verifiedTunnels != s.presentTunnels) {
-            guidance = "Some running tunnel identities are unverified. Avoid "
-                    + "manual interface deletion or forced disconnect. Capture "
-                    + "the read-only lifecycle and tunnel audit before Safe Stop.";
+            title = "CONNECTIONS NEED ATTENTION";
+            message = "One or more tunnel identities could not be verified. "
+                    + "Review connection controls before making changes.";
         } else if (s.presentTunnels == 0) {
-            guidance = "No saved-profile tunnels detected. If a prior session "
-                    + "was interrupted, run H.2a read-only lifecycle audit before "
-                    + "starting a complete stack. This is not proof of clean stop.";
+            title = "READY FOR A CONNECTION";
+            message = "No saved-profile root tunnels were detected. "
+                    + "If a previous session was interrupted, check its recovery state first.";
         } else if (!s.countersAvailable) {
-            guidance = "Tunnel counters are not fully verified. Run F.2 passive "
-                    + "health snapshot; inspect identities before attempting recovery.";
+            title = "CHECK CONNECTION HEALTH";
+            message = "Tunnels were found, but live transfer data is incomplete. "
+                    + "Use the read-only diagnostics to investigate.";
         } else if (!s.dnsVerified) {
-            guidance = "Tunnels appear verified, but the DNS relay is not verified. "
-                    + "Audit owned DNS rules and relay before restarting anything. "
-                    + "Do not disable DNS protection solely for a diagnostic.";
+            title = "DNS NEEDS ATTENTION";
+            message = "Tunnels are present but the local DNS relay is not verified. "
+                    + "Inspect DNS ownership before restarting anything.";
         } else {
-            guidance = "Tunnels and local DNS relay are verified at this snapshot. "
-                    + "If browsing fails, use Connected but no Internet (read only) "
-                    + "before the coordinated H.1 Safe Stop when practical.";
+            title = "STATUS AVAILABLE";
+            message = "Tunnel identities and the local DNS relay were verified "
+                    + "at the last check. This is not a full-device leak test.";
         }
-        text(group, guidance, 13, WHITE);
-        text(group, "Keep Android Private DNS OFF. All-traffic guard remains paused. "
-                + "Never force a firewall flush or tunnel deletion.", 12, MUTED);
-        button(group, "Troubleshoot in advanced controls",
-                () -> openRootTab(0));
+        text(group, title, 15, PINK);
+        text(group, message, 13, WHITE);
+        button(group, "Connection help & safe controls", () -> openRootTab(0));
     }
 
     private void profileTab() {
