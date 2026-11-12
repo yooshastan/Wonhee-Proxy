@@ -274,7 +274,7 @@ public final class TunnelProfileSettingsActivity extends Activity {
                     ? SecureTunnelProfileStore.Profile.ROLE_HOME
                     : mode == VpnRouteModes.ALL
                     ? SecureTunnelProfileStore.Profile.ROLE_INTERNET
-                    : SecureTunnelProfileStore.Profile.ROLE_OTHER;
+                    : original.role; // Preserve imported-role semantics for PROFILE routes.
             SecureTunnelProfileStore.Profile updated =
                     new SecureTunnelProfileStore.Profile(original.name,
                             original.configuration, mode, routes,
