@@ -131,6 +131,7 @@ public final class VpnActivity extends Activity {
         // pre-upgrade activity stacks must not expose the old dashboard.
         Intent original = getIntent();
         if (original.hasExtra("wonhee.quick.action")
+                || original.getBooleanExtra("wonhee.home.workflow", false)
                 || original.getBooleanExtra("wonhee.explicit.advanced", false)) {
             return false;
         }
@@ -515,6 +516,10 @@ public final class VpnActivity extends Activity {
         if (!quickActionConsumed) {
             quickActionConsumed = true;
             String action = getIntent().getStringExtra("wonhee.quick.action");
+            // Persist the origin even after consuming the one-shot action.
+            // Returning from Android's file picker or VPN permission dialog
+            // must not mistake this authorized flow for a legacy launcher.
+            if (action != null) getIntent().putExtra("wonhee.home.workflow", true);
             getIntent().removeExtra("wonhee.quick.action");
             if ("import".equals(action) || "start".equals(action)
                     || "stop".equals(action)) {
