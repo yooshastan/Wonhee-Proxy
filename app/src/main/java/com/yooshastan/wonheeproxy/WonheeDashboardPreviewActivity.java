@@ -81,6 +81,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 || getSharedPreferences(ROOT_NOTIFICATION_PREFS, MODE_PRIVATE)
                         .getBoolean("enabled", false);
         rootMode = ui.getBoolean(ROOT_MODE_KEY, legacyRootUi);
+        if (!ui.contains(ROOT_MODE_KEY)) {
+            // Keep the legacy manager consistent with the migrated root workspace.
+            ui.edit().putBoolean(ROOT_MODE_KEY, rootMode).apply();
+        }
         tab = Math.max(0, Math.min(4, ui.getInt(TAB_KEY, 0)));
         if (rootMode) session = RootMultiKernelSession.get(this);
         getWindow().setStatusBarColor(BACKGROUND);
