@@ -32,7 +32,7 @@ The pre-existing Root Multi-Tunnel Lab still has **Status / Tunnels / DNS / Acti
 - Existing users with a recorded root-lab state, owned route/DNS/guard preferences, or active root speed-notification preference default to the **Root workspace** to prevent unexpectedly showing only the standard VPN.
 - If the user manually selects Root workspace, run one read-only root snapshot and show the advanced UI only after it reports root availability.
 - Standard mode never starts a root tunnel or a background root sampler.
-- Switching back to Standard is blocked when root state is unknown, a saved-profile root tunnel is present, or owned DNS/guard policy is recorded. The user is guided to the existing Safe Controls first.
+- Switching back to Standard when the rooted stack is not confirmed clean first warns and offers Safe Controls. A conscious override is permitted for recoverability (e.g. after root access is lost); Standard Home then displays a persistent **ROOT STATE NOT VERIFIED** warning rather than implying rooted connections are off. Clean stop clears this warning on a confirmed switch.
 - Workspace and tab choices are local UI preferences only. Switching modes never modifies WireGuard, DNS, routing, firewall, root permissions or Android Private DNS.
 
 ## Security and truth-in-UI rules
@@ -74,7 +74,7 @@ The pre-existing Root Multi-Tunnel Lab still has **Status / Tunnels / DNS / Acti
 - [ ] Route to Root Lab Status/Tunnels/DNS/Activity is correct, keeps selections and never executes action on entry.
 - [ ] Existing managed Start, H.1 Safe Stop, H.2a lifecycle audit and update-preflight remain unchanged.
 - [ ] DNS unavailable / failed / verified statuses remain distinct; counters are absent rather than zero when unknown.
-- [ ] Can't accidentally switch to Standard while rooted tunnels or recorded DNS/guard policy still exist.
+- [ ] Dirty or unverified root state warns on mode switch; explicitly overriding shows a durable banner on Standard Home. No root operation is triggered.
 - [ ] Persistent root status notification opt-in/out still works with Android 13+ permission behavior.
 - [ ] Root tunnel speed measurements never pretend to represent all device traffic.
 
