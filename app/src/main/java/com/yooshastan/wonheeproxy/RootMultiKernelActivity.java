@@ -199,7 +199,11 @@ public final class RootMultiKernelActivity extends Activity {
         profileRows.setOrientation(LinearLayout.VERTICAL);
         configs.addView(profileRows);
         Button manage = button(configs, "Import / edit encrypted profiles");
-        manage.setOnClickListener(v -> startActivity(new Intent(this, VpnActivity.class)));
+        manage.setOnClickListener(v -> {
+            Intent advanced = new Intent(this, VpnActivity.class);
+            advanced.putExtra("wonhee.explicit.advanced", true);
+            startActivity(advanced);
+        });
         preview = button(configs, "Preview selected routes · read only");
         preview.setOnClickListener(v -> run("Preview routes", false, session::preview));
 
