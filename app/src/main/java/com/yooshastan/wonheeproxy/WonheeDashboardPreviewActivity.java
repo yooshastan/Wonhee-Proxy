@@ -57,34 +57,59 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private LinearLayout navigation;
     private boolean visible;
     private int tab;
+    private int lastRenderedTab = -1;
+    private boolean rootMode;
+    private ScrollView dashboardScroll;
+    private static final String UI_PREFS = "wonhee_everyday_ui_v1";
+    private static final String ROOT_MODE_KEY = "root_mode";
+    private static final String TAB_KEY = "selected_tab";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        session = RootMultiKernelSession.get(this);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BACKGROUND);
+        SharedPreferences ui = getSharedPreferences(UI_PREFS, MODE_PRIVATE);
+        // Respect existing root-lab installations; new installs begin with
+        // the simpler standard VPN experience. This changes UI only.
+        boolean legacyRootUi = !getSharedPreferences("wonhee_root_lab_ui_v1",
+                MODE_PRIVATE).getAll().isEmpty()
+                || !getSharedPreferences("wonhee_owned_split_routes",
+                        MODE_PRIVATE).getAll().isEmpty()
+                || getSharedPreferences(ROOT_NOTIFICATION_PREFS, MODE_PRIVATE)
+                        .getBoolean("enabled", false);
+        rootMode = ui.getBoolean(ROOT_MODE_KEY, legacyRootUi);
+        tab = Math.max(0, Math.min(4, ui.getInt(TAB_KEY, 0)));
+        if (rootMode) session = RootMultiKernelSession.get(this);
+        getWindow().setStatusBarColor(BACKGROUND);
+        getWindow().setNavigationBarColor(BACKGROUND);
+
+        LinearLayout frame = new LinearLayout(this);
+        frame.setOrientation(LinearLayout.VERTICAL);
+        frame.setBackgroundColor(BACKGROUND);
+        dashboardScroll = new ScrollView(this);
+        dashboardScroll.setFillViewport(true);
+        dashboardScroll.setBackgroundColor(BACKGROUND);
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(18), dp(18), dp(18), dp(30));
-        scroll.addView(page);
-        setContentView(scroll);
+        page.setPadding(dp(18), dp(18), dp(18), dp(24));
+        dashboardScroll.addView(page);
+        frame.addView(dashboardScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        TextView name = text(page, "✦ WONHEE PROXY", 24, PINK);
+        TextView name = text(page, "✦ WONHEE", 26, PINK);
         name.setContentDescription("Wonhee Proxy");
-        text(page, "Candy Pink  •  Connection dashboard", 12, MUTED);
-        text(page, "Live status is read-only; network changes remain in Safe Controls.",
-                12, LAVENDER);
-        navigation = new LinearLayout(this);
-        navigation.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams tabs = new LinearLayout.LayoutParams(-1, -2);
-        tabs.topMargin = dp(14);
-        page.addView(navigation, tabs);
+        text(page, "Private by default. In control when you need it.", 13, MUTED);
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         page.addView(content, new LinearLayout.LayoutParams(-1, -2));
+
+        // Persistent bottom navigation never scrolls offscreen.
+        navigation = new LinearLayout(this);
+        navigation.setOrientation(LinearLayout.HORIZONTAL);
+        navigation.setPadding(dp(7), dp(8), dp(7), dp(9));
+        navigation.setBackground(tint(SURFACE, 0));
+        frame.addView(navigation, new LinearLayout.LayoutParams(-1, -2));
+        setContentView(frame);
         render();
+
     }
 
     @Override protected void onResume() {
@@ -123,6 +148,12 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private void refreshSnapshot() {
         if (!visible) return;
         handler.removeCallbacks(refresh);
+        if (!rootMode) {
+            lastSnapshot = null;
+            render();
+            handler.postDelayed(refresh, REFRESH_MS);
+            return;
+        }
         session.readRootTrafficSnapshot(snapshot -> {
             if (!visible || isFinishing() || isDestroyed()) return;
             lastSnapshot = snapshot;
@@ -160,33 +191,56 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     }
 
     private void render() {
-        if (content == null) return;
+        if (content == null || navigation == null) return;
+        final int scrollY = lastRenderedTab == tab && dashboardScroll != null
+                ? dashboardScroll.getScrollY() : 0;
+        lastRenderedTab = tab;
         navigation.removeAllViews();
-        String[] tabs = {"Status", "Tunnels", "DNS", "Activity"};
+        String[] tabs = {"Home", "Tunnels", "Protect", "Activity", "Settings"};
         for (int i = 0; i < tabs.length; i++) {
             final int next = i;
             Button button = new Button(this);
             button.setAllCaps(false);
             button.setText(tabs[i]);
-            button.setTextSize(12);
+            button.setContentDescription(tabs[i] + (i == tab ? ", selected" : ""));
+            button.setTextSize(11);
             button.setTextColor(i == tab ? BACKGROUND : WHITE);
-            button.setBackground(tint(i == tab ? PINK : SURFACE_ALT, 13));
+            button.setBackground(tint(i == tab ? PINK : SURFACE_ALT, 12));
             button.setMinHeight(dp(48));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(52), 1f);
-            lp.setMargins(dp(2), 0, dp(2), dp(10));
+            lp.setMargins(dp(2), 0, dp(2), 0);
             navigation.addView(button, lp);
-            button.setOnClickListener(v -> { tab = next; render(); });
+            button.setOnClickListener(v -> {
+                tab = next;
+                getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                        .putInt(TAB_KEY, next).apply();
+                render();
+            });
         }
 
         content.removeAllViews();
-        switch (tab) {
-            case 0: home(); break;
-            case 1: profileTab(); break;
-            case 2: protectionTab(); break;
-            default: activityTab();
+        text(content, rootMode ? "ADVANCED · ROOT WORKSPACE"
+                : "STANDARD · PRIVACY FIRST", 12, LAVENDER);
+        if (rootMode) {
+            switch (tab) {
+                case 0: home(); break;
+                case 1: profileTab(); break;
+                case 2: protectionTab(); break;
+                case 3: activityTab(); break;
+                default: settingsTab(); break;
+            }
+        } else {
+            switch (tab) {
+                case 0: standardHome(); break;
+                case 1: standardProfiles(); break;
+                case 2: standardProtection(); break;
+                case 3: standardActivity(); break;
+                default: settingsTab(); break;
+            }
         }
-        // Navigation to Safe Controls belongs to the Status recovery card only.
-        // All other tabs remain read-only; no duplicate footer link.
+        if (dashboardScroll != null) {
+            dashboardScroll.post(() -> dashboardScroll.scrollTo(0, scrollY));
+        }
     }
 
     /** Observed root counters only; these figures are not system VPN statistics. */
@@ -219,7 +273,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 13, verified ? WHITE : MUTED);
         text(group, "Blocked total belongs to the current verified DNS relay lifetime.",
                 12, MUTED);
-        showNotificationControl(group);
     }
 
     private boolean wantsNotification() {
@@ -311,6 +364,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                             : "live counters not verified"), 13, LAVENDER);
         }
         text(hero, "Tunnel connection is not proof of full-device leak protection.", 12, MUTED);
+        button(hero, "Manage connection & safe stop", () -> openRootTab(0));
 
         showLiveSignals();
 
@@ -376,8 +430,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, guidance, 13, WHITE);
         text(group, "Keep Android Private DNS OFF. All-traffic guard remains paused. "
                 + "Never force a firewall flush or tunnel deletion.", 12, MUTED);
-        button(group, "Safe Controls & Diagnostics",
-                () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
+        button(group, "Troubleshoot in advanced controls",
+                () -> openRootTab(0));
     }
 
     private void profileTab() {
@@ -414,8 +468,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             text(group, "These are periodic snapshots, not per-tunnel live "
                     + "speeds or end-to-end connection tests.", 12, MUTED);
         }
+        button(group, "Manage tunnel connections & routes", () -> openRootTab(1));
         button(group, "Import / edit saved VPN profiles",
-                () -> startActivity(new Intent(this, VpnActivity.class)));
+                () -> openVpnManager());
         text(group, "Current backend: one default exit plus compatible "
                 + "destination-specific profiles. Overlapping routes are refused.", 12, MUTED);
     }
@@ -426,6 +481,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         protectionRow(group, "Local DNS relay", dnsState());
         protectionRow(group, "Ad & tracker filtering", blockState());
         protectionRow(group, "DNS-port firewall", dnsFirewallLedgerState());
+        button(group, "DNS & filtering controls", () -> openRootTab(2));
         button(group, dnsDetailsExpanded ? "Hide technical protection details"
                 : "Show technical protection details", () -> {
             dnsDetailsExpanded = !dnsDetailsExpanded;
@@ -494,9 +550,201 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(group, "Baseline is an opt-in local comparison, not a guarantee "
                 + "of uninterrupted DNS or network protection.", 12, MUTED);
         text(group, "Live tunnel rates: " + throughputLine(), 13, WHITE);
-        showNotificationControl(group);
-        button(group, "Read current tunnel and firewall diagnostics",
-                () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
+        button(group, "Open network diagnostics", () -> openRootTab(3));
+    }
+
+
+    private void openVpnManager() {
+        startActivity(new Intent(this, VpnActivity.class));
+    }
+
+    private void openRootTab(int section) {
+        Intent intent = new Intent(this, RootMultiKernelActivity.class);
+        intent.putExtra("wonhee.lab.tab", Math.max(0, Math.min(3, section)));
+        startActivity(intent);
+    }
+
+    private Boolean standardVpnConnected() {
+        try {
+            return WireGuardSession.get(this).isConnected();
+        } catch (Exception | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private void standardHome() {
+        Boolean connected = standardVpnConnected();
+        LinearLayout hero = card(content);
+        text(hero, "YOUR VPN", 12, LAVENDER);
+        text(hero, connected == null ? "Status unavailable"
+                : connected ? "VPN interface active" : "VPN disconnected", 23, WHITE);
+        text(hero, connected == null
+                ? "Could not read the Android VPN engine. Open connection controls."
+                : connected ? "A tunnel interface is active. Encryption, DNS and "
+                        + "absence of leaks have not been independently verified."
+                        : "Connect a saved VPN profile when you're ready.", 13, MUTED);
+        button(hero, connected != null && connected
+                ? "Connection details & disconnect" : "Choose VPN & connect",
+                this::openVpnManager);
+
+        LinearLayout safety = card(content);
+        text(safety, "PRIVACY FIRST", 15, PINK);
+        text(safety, "One VPN connection at a time in Standard mode. "
+                + "Wonhee does not silently switch to a direct connection.", 14, WHITE);
+        text(safety, "For protection during disconnections, enable Android's "
+                + "Always-on VPN and Block connections without VPN in system settings. "
+                + "Verify this before relying on fail-closed protection.", 12, MUTED);
+        button(safety, "Open Android VPN settings", this::openSystemVpnSettings);
+
+        LinearLayout shortcuts = card(content);
+        text(shortcuts, "QUICK ACCESS", 15, PINK);
+        button(shortcuts, "Manage saved connections", () -> selectTab(1));
+        button(shortcuts, "Protection & privacy guidance", () -> selectTab(2));
+    }
+
+    private void standardProfiles() {
+        LinearLayout group = card(content);
+        text(group, "YOUR CONNECTIONS", 18, PINK);
+        if (profileStoreError) {
+            text(group, "Encrypted profile storage is unavailable.", 13, MUTED);
+        } else if (profiles.isEmpty()) {
+            text(group, "No saved VPN profiles yet. Import a WireGuard profile to start.",
+                    14, MUTED);
+        } else {
+            text(group, profiles.size() + " saved profile(s) · select one in VPN settings",
+                    13, MUTED);
+            for (SecureTunnelProfileStore.Profile profile : profiles) {
+                text(group, "• " + profile.name, 15, WHITE);
+            }
+        }
+        button(group, "Import / edit / connect", this::openVpnManager);
+        text(group, "Standard mode manages one Android VPN tunnel at a time. "
+                + "It does not offer root-only per-app or multi-exit routing.",
+                12, MUTED);
+    }
+
+    private void standardProtection() {
+        LinearLayout group = card(content);
+        text(group, "PROTECTION", 18, PINK);
+        text(group, "Privacy-first connection controls", 15, WHITE);
+        protectionRow(group, "VPN interface", standardVpnConnected() == null
+                ? "Unknown" : Boolean.TRUE.equals(standardVpnConnected())
+                        ? "Active · traffic protection not audited" : "Disconnected");
+        protectionRow(group, "Disconnect protection",
+                "Use Android's Always-on and Block connections without VPN settings");
+        protectionRow(group, "DNS / ad blocking",
+                "Depends on your active VPN configuration · not verified here");
+        protectionRow(group, "Wonhee all-traffic kill switch",
+                "Not yet released or verified");
+        button(group, "Android VPN & lockdown settings", this::openSystemVpnSettings);
+        text(group, "Wonhee does not claim that an active VPN interface alone "
+                + "guarantees leak-free traffic.", 12, MUTED);
+    }
+
+    private void standardActivity() {
+        LinearLayout group = card(content);
+        text(group, "ACTIVITY", 18, PINK);
+        text(group, "Standard VPN throughput, peer handshakes and read-only "
+                + "diagnostics are available in the connection manager.", 14, WHITE);
+        text(group, "Root-only blocked DNS counters and kernel interface stats "
+                + "are intentionally not shown in Standard mode.", 12, MUTED);
+        button(group, "See VPN statistics", this::openVpnManager);
+    }
+
+    private void openSystemVpnSettings() {
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_VPN_SETTINGS));
+        } catch (RuntimeException unavailable) {
+            new AlertDialog.Builder(this).setTitle("Settings unavailable")
+                    .setMessage("Open Android Settings, then search for VPN. "
+                            + "Enable Always-on and Block connections without VPN "
+                            + "if supported by your device and profile.")
+                    .setPositiveButton("OK", null).show();
+        }
+    }
+
+    private void selectTab(int selected) {
+        tab = Math.max(0, Math.min(4, selected));
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                .putInt(TAB_KEY, tab).apply();
+        render();
+    }
+
+    private void setRootMode(boolean enabled) {
+        rootMode = enabled;
+        if (enabled) session = RootMultiKernelSession.get(this);
+        lastSnapshot = null;
+        liveRates = null;
+        traffic.reset();
+        tab = 0;
+        lastRenderedTab = -1;
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                .putBoolean(ROOT_MODE_KEY, enabled).putInt(TAB_KEY, 0).apply();
+        handler.removeCallbacks(refresh);
+        loadSavedProfiles();
+        refreshSnapshot();
+    }
+
+    private void requestRootWorkspace() {
+        new AlertDialog.Builder(this)
+                .setTitle("Enable advanced root workspace?")
+                .setMessage("This shows multi-tunnel, split-routing and diagnostic "
+                        + "controls. It does not connect or modify your network. "
+                        + "Root access is requested only for the status check and "
+                        + "the existing explicit root operations.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Check root", (dialog, which) ->
+                        RootMultiKernelSession.get(this).readRootTrafficSnapshot(snapshot -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            if (snapshot != null && snapshot.rootsAvailable) {
+                                setRootMode(true);
+                            } else {
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Root access unavailable")
+                                        .setMessage("The advanced workspace needs "
+                                                + "working root access. No tunnel "
+                                                + "or firewall settings were changed.")
+                                        .setPositiveButton("OK", null).show();
+                            }
+                        }))
+                .show();
+    }
+
+    private void settingsTab() {
+        LinearLayout group = card(content);
+        text(group, "PREFERENCES", 18, PINK);
+        text(group, "Display mode: " + (rootMode ? "Root advanced" : "Standard privacy first"),
+                14, WHITE);
+        if (rootMode) {
+            text(group, "Changing the interface does not stop active root tunnels. "
+                    + "Use Safe Stop from Connection Controls before updates.",
+                    12, MUTED);
+            button(group, "Switch to Standard interface", () ->
+                    new AlertDialog.Builder(this)
+                            .setTitle("Change interface only?")
+                            .setMessage("Existing rooted tunnels, routing and DNS "
+                                    + "will continue unchanged. Standard view cannot "
+                                    + "control them. Return to Root mode to manage them.")
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Switch view", (d, w) -> setRootMode(false))
+                            .show());
+            showNotificationControl(group);
+        } else {
+            text(group, "Advanced rooted networking is optional and requires "
+                    + "an explicit root permission check.", 12, MUTED);
+            button(group, "Unlock rooted multi-tunnel workspace", this::requestRootWorkspace);
+            button(group, "VPN notifications & preferences", this::openVpnManager);
+        }
+        LinearLayout tools = card(content);
+        text(tools, "TOOLS", 16, PINK);
+        button(tools, "WireGuard profile manager", this::openVpnManager);
+        button(tools, "Ultgram proxy companion",
+                () -> startActivity(new Intent(this, MainActivity.class)));
+        if (rootMode) {
+            button(tools, "Advanced diagnostics", () -> openRootTab(3));
+        }
+        text(tools, "Your display choice is saved on this device. "
+                + "It never changes firewall rules or tunnel connections.", 12, MUTED);
     }
 
     private RootDnsContinuityBaseline.Reading currentDnsReading() {
