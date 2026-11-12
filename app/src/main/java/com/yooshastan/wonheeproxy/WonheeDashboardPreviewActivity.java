@@ -728,7 +728,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
 
     private void openVpnManager() {
-        startActivity(new Intent(this, VpnActivity.class));
+        Intent advanced = new Intent(this, VpnActivity.class);
+        advanced.putExtra("wonhee.explicit.advanced", true);
+        startActivity(advanced);
     }
 
     private void openRootTab(int section) {
