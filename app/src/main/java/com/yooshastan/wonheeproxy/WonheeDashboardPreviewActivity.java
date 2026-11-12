@@ -703,7 +703,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         LinearLayout hosts = card(content);
         text(hosts, "HOSTS FILE", 16, PINK);
         text(hosts, hostsFileStatus, 14, WHITE);
-        button(hosts, "Import hosts file", this::openHostsFilePicker);
+        Button importHosts = button(hosts, hostsImportBusy
+                ? "Importing hosts file…" : "Import hosts file",
+                this::openHostsFilePicker);
+        importHosts.setEnabled(!hostsImportBusy);
         text(hosts, "Accepts hosts.txt or one domain per line. "
                 + "Saved lists apply the next time DNS is started with filtering on.",
                 12, MUTED);
@@ -1016,7 +1019,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void setRootMode(boolean enabled) {
         rootMode = enabled;
-        if (enabled) session = RootMultiKernelSession.get(this);
+        if (enabled) {
+            session = RootMultiKernelSession.get(this);
+            refreshHostsFileSummary();
+        }
         lastSnapshot = null;
         liveRates = null;
         traffic.reset();
