@@ -46,6 +46,7 @@ public final class RootMultiKernelActivity extends Activity {
     private ScrollView labScroll;
     private int activeLabTab = 0;
     private boolean quickActionConsumed;
+    private boolean quickFlowFromHome;
 
     private SecureTunnelProfileStore store;
     private RootMultiKernelSession session;
@@ -1148,6 +1149,7 @@ public final class RootMultiKernelActivity extends Activity {
             String quick = getIntent().getStringExtra("wonhee.quick.action");
             quickActionConsumed = true;
             if ("start".equals(quick) || "stop".equals(quick)) {
+                quickFlowFromHome = true;
                 // Home tap is an intentional request to enter the EXISTING guarded
                 // full-stack action. It never executes a mutating operation on entry.
                 ArrayList<String> active =
@@ -1176,6 +1178,41 @@ public final class RootMultiKernelActivity extends Activity {
             return;
         }
         final boolean stopping = "stop".equals(action);
+        if (activeNames != null) {
+            // Selection came from Home. Do not make the user select the same
+            // tunnels AGAIN in the laboratory. Preserve the existing preflight,
+            // final confirmation, and identity-verified Safe Stop.
+            Set<String> names = new HashSet<>(activeNames);
+            Set<String> accepted = new HashSet<>();
+            int dns = -1;
+            int fallback = -1;
+            for (int i = 0; i < saved.size(); i++) {
+                SecureTunnelProfileStore.Profile profile = saved.get(i);
+                CheckBox checkbox = selection.get(profile.name);
+                boolean chosen = names.contains(profile.name);
+                if (checkbox != null) checkbox.setChecked(chosen);
+                if (chosen) {
+                    accepted.add(profile.name);
+                    if (fallback < 0) fallback = i;
+                    if (profile.routeMode == VpnRouteModes.ALL) dns = i;
+                }
+            }
+            if (accepted.isEmpty() || accepted.size() != names.size()) {
+                new AlertDialog.Builder(this).setTitle("Tunnel selection changed")
+                        .setMessage("One or more selected tunnels were removed or "
+                                + "cannot be read. Return Home and check your selection.")
+                        .setPositiveButton("Back to Home", (d, w) -> finish())
+                        .show();
+                return;
+            }
+            if (!stopping && dohTunnel != null) {
+                dohTunnel.setSelection(dns >= 0 ? dns : fallback);
+            }
+            updateButtons();
+            if (stopping) stopManagedStack();
+            else startManagedStack();
+            return;
+        }
         Set<String> previous = new HashSet<>(getSharedPreferences(
                 "wonhee_everyday_ui_v1", MODE_PRIVATE)
                 .getStringSet("last_quick_profiles", Collections.emptySet()));
@@ -1671,6 +1708,7 @@ public final class RootMultiKernelActivity extends Activity {
         journal.record("RESULT", "Batch H.1 managed lifecycle "
                 + (ok ? "verified complete" : "requires user audit"));
         updateButtons();
+        if (ok && quickFlowFromHome) finish();
     }
 
     private void rollbackFailedStart(List<SecureTunnelProfileStore.Profile> chosen,
@@ -1740,7 +1778,9 @@ public final class RootMultiKernelActivity extends Activity {
                         + "Normal Wi-Fi/cellular traffic may then resume: this is NOT "
                         + "a zero-leak kill switch. Set Android Private DNS OFF, "
                         + "disable Batch C auto-recovery, and keep USB ADB available.")
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", (d, w) -> {
+                    if (quickFlowFromHome) finish();
+                })
                 .setPositiveButton("Start full stack", (dialog, which) -> {
                     saveTrackerOptions();
                     lifecycleBusy = true;
@@ -1860,7 +1900,9 @@ public final class RootMultiKernelActivity extends Activity {
                         + "Incomplete or foreign ownership makes it stop safely "
                         + "without flushing unrelated firewall rules. "
                         + "Normal Wi-Fi/cellular traffic may resume; keep USB ADB available.")
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", (d, w) -> {
+                    if (quickFlowFromHome) finish();
+                })
                 .setPositiveButton("Safe stop", (dialog, which) -> {
                     lifecycleBusy = true;
                     updateButtons();
