@@ -38,6 +38,7 @@
              reopening the app from launcher must not strand users here. -->
         <activity android:name=".VpnActivity" android:exported="true"
             android:finishOnTaskLaunch="true" />
+        <activity android:name=".TunnelProfileSettingsActivity" android:exported="false" />
         <!-- Android Always-on calls the WireGuard library's VpnService.
              WonheeApplication registers a callback to restore the last selected
              encrypted tunnel. Lockdown is controlled by Android Settings. -->
