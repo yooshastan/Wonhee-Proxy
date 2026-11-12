@@ -34,7 +34,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".VpnActivity" android:exported="true" />
+        <!-- Legacy configuration tools remain available by explicit choice only;
+             reopening the app from launcher must not strand users here. -->
+        <activity android:name=".VpnActivity" android:exported="true"
+            android:finishOnTaskLaunch="true" />
         <!-- Android Always-on calls the WireGuard library's VpnService.
              WonheeApplication registers a callback to restore the last selected
              encrypted tunnel. Lockdown is controlled by Android Settings. -->
