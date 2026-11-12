@@ -203,6 +203,13 @@ public final class TunnelProfileSettingsActivity extends Activity {
         SharedPreferences ui = getSharedPreferences(
                 "wonhee_everyday_ui_v1", Context.MODE_PRIVATE);
         if (!ui.getBoolean("root_mode", false)) {
+            // A user may switch to Standard view despite unverified old root
+            // state. That UI choice must not authorize profile mutation.
+            if (ui.getBoolean("root_state_unverified", false)) {
+                blocked("Earlier rooted networking was not confirmed stopped. "
+                        + "Verify Safe Stop before editing saved profiles.");
+                return;
+            }
             busy = false;
             approved.run();
             return;
@@ -319,8 +326,26 @@ public final class TunnelProfileSettingsActivity extends Activity {
 
     private Spinner select(LinearLayout parent, String[] labels) {
         Spinner spinner = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels);
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, labels) {
+            @Override public View getView(int position, View convert,
+                    android.view.ViewGroup parentView) {
+                View result = super.getView(position, convert, parentView);
+                if (result instanceof TextView) {
+                    ((TextView) result).setTextColor(WHITE);
+                }
+                return result;
+            }
+            @Override public View getDropDownView(int position, View convert,
+                    android.view.ViewGroup parentView) {
+                View result = super.getDropDownView(position, convert, parentView);
+                if (result instanceof TextView) {
+                    ((TextView) result).setTextColor(0xff15101e);
+                }
+                return result;
+            }
+        };
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
         parent.addView(spinner);
         return spinner;
