@@ -108,7 +108,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
         TextView name = text(page, "✦ WONHEE", 26, PINK);
         name.setContentDescription("Wonhee Proxy");
-        text(page, "Your network, under your control.", 13, MUTED);
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -459,7 +458,12 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         secondaryButton(protection, "Protection details", () -> selectTab(2));
 
         showLiveSignals();
-        showRecoveryGuidance();
+        // Keep troubleshooting off Home unless a real state needs attention.
+        if (snapshot != null && (!snapshot.rootsAvailable
+                || snapshot.presentTunnels != snapshot.verifiedTunnels
+                || (snapshot.presentTunnels > 0 && !snapshot.dnsVerified))) {
+            showRecoveryGuidance();
+        }
     }
 
     private void launchRootQuickAction(String action) {
@@ -902,13 +906,13 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         LinearLayout tools = card(content);
         text(tools, "TOOLS", 16, PINK);
-        button(tools, "Ultgram proxy companion",
+        secondaryButton(tools, "Ultgram proxy tools",
                 () -> startActivity(new Intent(this, MainActivity.class)));
         if (rootMode) {
             secondaryButton(tools, "Advanced diagnostics", () -> openRootTab(3));
         }
-        text(tools, "Your display choice is saved on this device. "
-                + "It never changes firewall rules or tunnel connections.", 12, MUTED);
+        text(tools, "Settings change the display only unless you explicitly "
+                + "open a connection or network control.", 12, MUTED);
     }
 
     private RootDnsContinuityBaseline.Reading currentDnsReading() {
