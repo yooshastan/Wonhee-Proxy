@@ -149,8 +149,10 @@ public final class RootMultiTrafficNotificationService extends Service {
     }
 
     private Notification notification(String speed, String detail, String title) {
-        Intent openIntent = new Intent(this, RootMultiKernelActivity.class);
-        openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent openIntent = new Intent(this, WonheeDashboardPreviewActivity.class);
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent open = PendingIntent.getActivity(this, 1, openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL)
