@@ -26,6 +26,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Collections;
 
 /** Small opt-in UI for generalizing root tunnel controls without regressing the pair. */
 public final class RootMultiKernelActivity extends Activity {
@@ -42,6 +45,7 @@ public final class RootMultiKernelActivity extends Activity {
     private final List<Button> labTabButtons = new ArrayList<>();
     private ScrollView labScroll;
     private int activeLabTab = 0;
+    private boolean quickActionConsumed;
 
     private SecureTunnelProfileStore store;
     private RootMultiKernelSession session;
@@ -1140,6 +1144,92 @@ public final class RootMultiKernelActivity extends Activity {
         if (dnsEnforcementStatus != null) {
             dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
         }
+        if (!quickActionConsumed) {
+            String quick = getIntent().getStringExtra("wonhee.quick.action");
+            quickActionConsumed = true;
+            if ("start".equals(quick) || "stop".equals(quick)) {
+                // Home tap is an intentional request to enter the EXISTING guarded
+                // full-stack action. It never executes a mutating operation on entry.
+                ArrayList<String> active =
+                        getIntent().getStringArrayListExtra("wonhee.quick.profiles");
+                getIntent().removeExtra("wonhee.quick.action");
+                getIntent().removeExtra("wonhee.quick.profiles");
+                showLabTab(0);
+                labScroll.post(() -> showQuickSelection(quick, active));
+            }
+        }
+    }
+
+    private void showQuickSelection(String action, List<String> activeNames) {
+        if (isFinishing() || isDestroyed() || session.isBusy() || lifecycleBusy) return;
+        if (saved.isEmpty()) {
+            output.setText("Add a WireGuard tunnel first, then press Start.");
+            new AlertDialog.Builder(this).setTitle("No saved tunnels")
+                    .setMessage("Add a WireGuard configuration before using "
+                            + "the complete-stack connection controls.")
+                    .setPositiveButton("Add tunnel", (dialog, which) -> {
+                        Intent intent = new Intent(this, VpnActivity.class);
+                        intent.putExtra("wonhee.quick.action", "import");
+                        startActivity(intent);
+                    })
+                    .setNegativeButton("Close", null).show();
+            return;
+        }
+        final boolean stopping = "stop".equals(action);
+        Set<String> previous = new HashSet<>(getSharedPreferences(
+                "wonhee_everyday_ui_v1", MODE_PRIVATE)
+                .getStringSet("last_quick_profiles", Collections.emptySet()));
+        String[] names = new String[saved.size()];
+        boolean[] checked = new boolean[saved.size()];
+        for (int i = 0; i < saved.size(); i++) {
+            names[i] = saved.get(i).name;
+            checked[i] = stopping
+                    ? activeNames != null && activeNames.contains(names[i])
+                    : previous.contains(names[i]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(stopping ? "Which tunnels should Safe Stop close?"
+                        : "Choose tunnels to start")
+                .setMessage(stopping
+                        ? "Select every active Wonhee tunnel. Safe Stop will verify "
+                                + "identities and owned DNS/routing rules before disconnecting."
+                        : "Select your Internet tunnel and any private-network tunnels. "
+                                + "Wonhee will check routing and DNS before starting. "
+                                + "Nothing changes until you approve the next confirmation.")
+                .setMultiChoiceItems(names, checked,
+                        (dialog, which, selected) -> checked[which] = selected)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Continue", (dialog, which) -> {
+                    int selectedCount = 0;
+                    int preferredDns = -1;
+                    int fallbackDns = -1;
+                    Set<String> selectedNames = new HashSet<>();
+                    for (int i = 0; i < names.length; i++) {
+                        CheckBox box = selection.get(names[i]);
+                        if (box != null) box.setChecked(checked[i]);
+                        if (!checked[i]) continue;
+                        selectedCount++;
+                        selectedNames.add(names[i]);
+                        if (fallbackDns < 0) fallbackDns = i;
+                        if (saved.get(i).routeMode == VpnRouteModes.ALL) {
+                            preferredDns = i;
+                        }
+                    }
+                    if (selectedCount == 0) {
+                        output.setText("Choose at least one tunnel; nothing changed.");
+                        return;
+                    }
+                    if (!stopping) {
+                        getSharedPreferences("wonhee_everyday_ui_v1", MODE_PRIVATE)
+                                .edit().putStringSet("last_quick_profiles", selectedNames)
+                                .apply();
+                        if (dohTunnel != null) dohTunnel.setSelection(
+                                preferredDns >= 0 ? preferredDns : fallbackDns);
+                    }
+                    updateButtons();
+                    if (stopping) stopManagedStack();
+                    else startManagedStack();
+                }).show();
     }
 
     @Override protected void onPause() {
