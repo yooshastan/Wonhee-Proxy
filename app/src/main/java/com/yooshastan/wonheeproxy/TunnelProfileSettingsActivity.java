@@ -56,6 +56,9 @@ public final class TunnelProfileSettingsActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        getWindow().setStatusBarColor(BACKGROUND);
+        getWindow().setNavigationBarColor(BACKGROUND);
+        getWindow().getDecorView().setSystemUiVisibility(0);
         store = new SecureTunnelProfileStore(this);
         final String requested = getIntent().getStringExtra(EXTRA_PROFILE_NAME);
         try {
