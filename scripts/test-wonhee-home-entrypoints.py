@@ -104,6 +104,31 @@ require('android:name=".TunnelProfileSettingsActivity" android:exported="false"'
         (APP / "AndroidManifest.xml").read_text(encoding="utf-8"),
         "Focused editor must not be externally launchable")
 
+# Everyday Protection is compact DNS status + a real offline hosts import.
+# The old relay-history wall of text belongs only in explicit diagnostics.
+start = dashboard.index("    private void protectionTab() {")
+end = dashboard.index("    /** Hosts files are stored offline", start)
+protect = dashboard[start:end]
+require("RootBlocklistStore" not in protect
+        and "openHostsFilePicker" in protect
+        and 'text(dns, "DNS"' in protect
+        and 'text(hosts, "HOSTS FILE"' in protect,
+        "Protection must lead with basic DNS and direct hosts import")
+require("showDnsCoverage()" not in protect
+        and "dnsBaselineComparison()" not in protect,
+        "Technical DNS reports must not crowd the everyday Protect tab")
+require("RootBlocklistStore.importFrom" in dashboard
+        and "getContentResolver().openInputStream" in dashboard,
+        "Hosts import must use the validated offline blocklist store")
+require('RootBlocklistStore.current' in dashboard,
+        "Protect must show saved hosts list status")
+require('!"OFF".equals(session.dnsLedgerStatus())' in dashboard,
+        "Hosts imports must refuse to change lists during active DNS ownership")
+require("RootBlocklistStore.importFrom" not in
+        dashboard[dashboard.index("    private void standardProtection() {"):
+                  dashboard.index("    private void standardActivity() {")],
+        "Standard mode must not claim root-only hosts functionality")
+
 print("PASS: Home is the only manifest launcher, Quick Settings and both "
       "speed notifications lead Home, the proxy return control leads Home, "
       "and stranded legacy / import entry points are handled.")
