@@ -75,6 +75,8 @@ public final class VpnActivity extends Activity {
     private Config pendingConnection;
     private boolean updatingList;
     private boolean visible;
+    private boolean quickActionConsumed;
+    private boolean quickImportFlow;
     private boolean statisticsPending;
     private boolean diagnosticsRunning;
     private boolean homeServiceProbeRunning;
@@ -122,8 +124,38 @@ public final class VpnActivity extends Activity {
         }
     };
 
+    private boolean routeOldLauncherTaskToHome() {
+        // Normal use enters the modern Home screen. Only explicit controls
+        // from inside Wonhee may display the older advanced profile editor.
+        // Historical launcher icons, stale notification intents and restored
+        // pre-upgrade activity stacks must not expose the old dashboard.
+        Intent original = getIntent();
+        if (original.hasExtra("wonhee.quick.action")
+                || original.getBooleanExtra("wonhee.home.workflow", false)
+                || original.getBooleanExtra("wonhee.explicit.advanced", false)) {
+            return false;
+        }
+        Intent home = new Intent(this, WonheeDashboardPreviewActivity.class);
+        home.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (isTaskRoot()) {
+            // An old launcher-root task must be replaced in full. No tunnel,
+            // service or firewall command is executed by this redirect.
+            home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        }
+        startActivity(home);
+        finish();
+        return true;
+    }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // Older releases used VpnActivity as the launcher root. Android may
+        // restore that old task after an in-place update. Redirect an orphaned
+        // legacy task to Home, without stopping or changing any network state.
+        if (routeOldLauncherTaskToHome()) return;
+        quickImportFlow = "import".equals(
+                getIntent().getStringExtra("wonhee.quick.action"));
         profileStore = new SecureTunnelProfileStore(this);
         recoveryPrefs = new VpnRecoveryPreferences(this);
         ScrollView scroll = new ScrollView(this);
@@ -136,13 +168,16 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · single + multiple connections", 15, MUTED);
-        Button rootDashboard = button(root,
-                "✦ Open Candy Pink multi-connection dashboard");
-        rootDashboard.setOnClickListener(v -> startActivity(
-                new Intent(this, WonheeDashboardPreviewActivity.class)));
-        label(root, "New dashboard is read-only for connections; existing Connect "
-                + "and Safe Stop remain in Advanced Controls.", 12, MUTED);
+        label(root, "Standard WireGuard connection manager", 15, MUTED);
+        Button rootDashboard = button(root, "← Return to Wonhee Home");
+        rootDashboard.setOnClickListener(v -> {
+            Intent home = new Intent(this, WonheeDashboardPreviewActivity.class);
+            home.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(home);
+            finish();
+        });
+        label(root, "This screen controls the single Android VPN connection. "
+                + "Rooted multi-tunnel controls live in the advanced workspace.", 12, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -263,8 +298,11 @@ public final class VpnActivity extends Activity {
                 + "manage two independent kernel tunnels in the experimental control center.", 12, MUTED);
         importButton = button(configCard, "Import WireGuard .conf files");
         importButton.setOnClickListener(v -> chooseConfig());
-        Button rootDualLab = button(configCard, "Open root control center · 2 tunnels");
-        rootDualLab.setOnClickListener(v -> startActivity(new Intent(this, RootDualKernelActivity.class)));
+        Button rootDualLab = button(configCard, "Legacy rooted 2-tunnel controls");
+        rootDualLab.setVisibility(getSharedPreferences("wonhee_everyday_ui_v1",
+                MODE_PRIVATE).getBoolean("root_mode", false) ? View.VISIBLE : View.GONE);
+        rootDualLab.setOnClickListener(v -> startActivity(
+                new Intent(this, RootDualKernelActivity.class)));
         tunnelList = new LinearLayout(this);
         tunnelList.setOrientation(LinearLayout.VERTICAL);
         configCard.addView(tunnelList);
@@ -439,11 +477,31 @@ public final class VpnActivity extends Activity {
         reloadProfiles(null);
         refreshButtons();
         refreshNotificationPermissionUi();
-        root.post(this::maybeShowNotificationOnboarding);
+        // A Home quick action must not be covered by first-run notification
+        // onboarding while the system file picker / connection dialog opens.
+        if (getIntent().getStringExtra("wonhee.quick.action") == null) {
+            root.post(this::maybeShowNotificationOnboarding);
+        }
+        if (quickImportFlow) {
+            // Existing validation and secure profile import still run here, but
+            // the user must not see the obsolete full manager behind the picker.
+            LinearLayout importPage = new LinearLayout(this);
+            importPage.setOrientation(LinearLayout.VERTICAL);
+            importPage.setPadding(dp(20), dp(65), dp(20), dp(30));
+            importPage.setBackgroundColor(0xff12101d);
+            label(importPage, "ADD TUNNEL", 26, PINK);
+            label(importPage, "Select a WireGuard configuration file. "
+                    + "Nothing connects until you press Start on Home.", 15, WHITE);
+            Button cancelImport = button(importPage, "Cancel · Back to Home");
+            cancelImport.setOnClickListener(v -> finish());
+            setContentView(importPage);
+        }
     }
 
     @Override protected void onResume() {
         super.onResume();
+        // Also cover pre-upgrade activities that are still resident in memory.
+        if (routeOldLauncherTaskToHome()) return;
         visible = true;
         refreshButtons();
         refreshNotificationPermissionUi();
@@ -455,6 +513,73 @@ public final class VpnActivity extends Activity {
         }
         pollHandler.removeCallbacks(poll);
         pollHandler.post(poll);
+        if (!quickActionConsumed) {
+            quickActionConsumed = true;
+            String action = getIntent().getStringExtra("wonhee.quick.action");
+            // Persist the origin even after consuming the one-shot action.
+            // Returning from Android's file picker or VPN permission dialog
+            // must not mistake this authorized flow for a legacy launcher.
+            if (action != null) getIntent().putExtra("wonhee.home.workflow", true);
+            getIntent().removeExtra("wonhee.quick.action");
+            if ("import".equals(action) || "start".equals(action)
+                    || "stop".equals(action)) {
+                scrollQuickAction(action);
+            }
+        }
+    }
+
+    private void scrollQuickAction(String action) {
+        // Explicit user navigation from Home; never auto-executes on cold launch.
+        if ("import".equals(action)) {
+            if (session != null && session.isConnected()) {
+                new AlertDialog.Builder(this).setTitle("Disconnect to add a tunnel")
+                        .setMessage("Android's single VPN connection is running. "
+                                + "Disconnect before importing or changing a profile.")
+                        .setPositiveButton("OK", null).show();
+                return;
+            }
+            chooseConfig(); // Android's system file picker, not a legacy settings page.
+            return;
+        }
+        if (session == null || session.isBusy()) return;
+        if ("stop".equals(action)) {
+            if (!session.isConnected()) {
+                message.setText("The Android VPN is already stopped.");
+                return;
+            }
+            if (session.isAlwaysOn()) {
+                new AlertDialog.Builder(this).setTitle("Managed by Android")
+                        .setMessage("Disable Always-on VPN in Android Settings before "
+                                + "disconnecting this connection.")
+                        .setPositiveButton("Open VPN settings", (d, w) ->
+                                openSystemVpnSettings())
+                        .setNegativeButton("Cancel", null).show();
+                return;
+            }
+            new AlertDialog.Builder(this).setTitle("Disconnect VPN?")
+                    .setMessage("Internet traffic may resume without VPN protection "
+                            + "unless Android's Block connections without VPN is enabled.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Stop", (d, w) -> stopTunnel())
+                    .show();
+            return;
+        }
+        if (session.isConnected()) return;
+        if (profiles.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Add your first tunnel")
+                    .setMessage("Choose a WireGuard configuration to connect.")
+                    .setPositiveButton("Add tunnel", (d, w) -> chooseConfig())
+                    .setNegativeButton("Cancel", null).show();
+        } else if (profiles.size() == 1) {
+            selectTunnelForConnection(0);
+            savedPicker.post(this::confirmConnect);
+        } else {
+            // The user already chose a profile on Home. Reuse that selection,
+            // rather than presenting another picker for the same decision.
+            int preferred = profileStore.preferredIndex(profiles.size());
+            selectTunnelForConnection(preferred);
+            savedPicker.post(this::confirmConnect);
+        }
     }
 
     @Override protected void onPause() {
@@ -934,7 +1059,12 @@ public final class VpnActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request == PICK_CONFIG) {
-            if (result != RESULT_OK || data == null) return;
+            if (result != RESULT_OK || data == null) {
+                // The user cancelled Add tunnel; do not reveal the legacy,
+                // scroll-heavy manager underneath Android's file picker.
+                if (quickImportFlow) finish();
+                return;
+            }
             importTunnelDocuments(data);
         } else if (request == PICK_EXTRA_PEER) {
             if (result != RESULT_OK || data == null || data.getData() == null) return;
@@ -953,6 +1083,12 @@ public final class VpnActivity extends Activity {
     private void importTunnelDocuments(Intent data) {
         if (session != null && (session.isConnected() || session.isBusy())) {
             message.setText("Disconnect before importing additional tunnels.");
+            if (quickImportFlow) {
+                new AlertDialog.Builder(this).setTitle("Import unavailable")
+                        .setMessage("Disconnect the Android VPN before importing a tunnel.")
+                        .setPositiveButton("Back to Home", (d, w) -> finish())
+                        .setOnCancelListener(d -> finish()).show();
+            }
             return;
         }
         List<Uri> documents = new ArrayList<>();
@@ -967,6 +1103,7 @@ public final class VpnActivity extends Activity {
         }
         if (documents.isEmpty()) {
             message.setText("No WireGuard configuration files selected.");
+            if (quickImportFlow) finish();
             return;
         }
 
@@ -983,6 +1120,16 @@ public final class VpnActivity extends Activity {
             message.setText(imported + " profile(s) imported and configured. "
                     + skipped + " skipped or invalid. "
                     + "Profiles remain encrypted; routing choices can be edited later.");
+            if (quickImportFlow) {
+                // Complete the same secure import flow, but return straight to
+                // Home rather than exposing an unrelated old dashboard.
+                new AlertDialog.Builder(this)
+                        .setTitle(imported > 0 ? "Tunnel saved" : "No tunnels added")
+                        .setMessage(imported + " saved, " + skipped
+                                + " skipped. Your profiles stay encrypted on this device.")
+                        .setPositiveButton("Back to Home", (d, w) -> finish())
+                        .setOnCancelListener(d -> finish()).show();
+            }
             return;
         }
         final Config config;

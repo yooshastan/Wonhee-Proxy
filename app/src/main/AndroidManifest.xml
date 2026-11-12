@@ -26,13 +26,19 @@
         android:usesCleartextTraffic="false">
         <activity android:name=".RootDualKernelActivity" android:exported="false" />
         <activity android:name=".RootMultiKernelActivity" android:exported="false" />
-        <activity android:name=".WonheeDashboardPreviewActivity" android:exported="false" />
-        <activity android:name=".VpnActivity" android:exported="true">
+        <!-- Unified everyday home is the app entry. Older connection and
+             laboratory screens remain reachable without changing their backends. -->
+        <activity android:name=".WonheeDashboardPreviewActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Legacy configuration tools remain available by explicit choice only;
+             reopening the app from launcher must not strand users here. -->
+        <activity android:name=".VpnActivity" android:exported="true"
+            android:finishOnTaskLaunch="true" />
+        <activity android:name=".TunnelProfileSettingsActivity" android:exported="false" />
         <!-- Android Always-on calls the WireGuard library's VpnService.
              WonheeApplication registers a callback to restore the last selected
              encrypted tunnel. Lockdown is controlled by Android Settings. -->

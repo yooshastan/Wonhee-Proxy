@@ -6,12 +6,23 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.content.Intent;
+import android.net.Uri;
+import java.io.InputStream;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.view.WindowInsets;
+import android.widget.ImageView;
+import android.widget.CheckBox;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.content.res.ColorStateList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -36,11 +47,14 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private static final int LAVENDER = 0xffd2c1ff;
     private static final int WHITE = 0xfffff7fd;
     private static final int MUTED = 0xffc9bed2;
+    private static final int NAV_BACKGROUND = 0xff22182d;
+
     private static final long REFRESH_MS = 8_000L;
     private static final String DNS_CHECKPOINT_PREFS = "wonhee-dns-checkpoint-v1";
     private static final String DNS_CHECKPOINT_KEY = "aggregate-only";
     private static final String ROOT_NOTIFICATION_PREFS = "wonhee_root_traffic_notification";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 8452;
+    private static final int REQUEST_HOSTS_FILE = 8562;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = this::refreshSnapshot;
@@ -50,6 +64,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private final RootDashboardTelemetry traffic = new RootDashboardTelemetry();
     private TunnelTrafficRates.Result liveRates;
     private boolean dnsDetailsExpanded;
+    private String hostsFileStatus = "Checking saved lists…";
+    private int hostsStatusGeneration;
+    private boolean hostsImportBusy;
     private int relaySeenPid = -1;
     private long relaySeenBlocked = -1;
     private String relayCounterEvent = "Awaiting verified relay counters";
@@ -57,33 +74,88 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private LinearLayout navigation;
     private boolean visible;
     private int tab;
+    private int lastRenderedTab = -1;
+    private boolean rootMode;
+    private ScrollView dashboardScroll;
+    private static final String UI_PREFS = "wonhee_everyday_ui_v1";
+    private static final String ROOT_MODE_KEY = "root_mode";
+    private static final String ROOT_STATE_WARNING_KEY = "root_state_unverified";
+    private static final String TAB_KEY = "selected_tab";
+    private static final String QUICK_SELECTION_KEY = "last_quick_profiles";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        session = RootMultiKernelSession.get(this);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BACKGROUND);
+        SharedPreferences ui = getSharedPreferences(UI_PREFS, MODE_PRIVATE);
+        // Respect existing root-lab installations; new installs begin with
+        // the simpler standard VPN experience. This changes UI only.
+        boolean legacyRootUi = !getSharedPreferences("wonhee_root_lab_ui_v1",
+                MODE_PRIVATE).getAll().isEmpty()
+                || !getSharedPreferences("wonhee_owned_split_routes",
+                        MODE_PRIVATE).getAll().isEmpty()
+                || !getSharedPreferences("wonhee_owned_dns_policy",
+                        MODE_PRIVATE).getAll().isEmpty()
+                || !getSharedPreferences("wonhee_owned_guard_policy",
+                        MODE_PRIVATE).getAll().isEmpty()
+                || getSharedPreferences(ROOT_NOTIFICATION_PREFS, MODE_PRIVATE)
+                        .getBoolean("enabled", false);
+        rootMode = ui.getBoolean(ROOT_MODE_KEY, legacyRootUi);
+        if (!ui.contains(ROOT_MODE_KEY)) {
+            // Keep the legacy manager consistent with the migrated root workspace.
+            ui.edit().putBoolean(ROOT_MODE_KEY, rootMode).apply();
+        }
+        tab = Math.max(0, Math.min(4, ui.getInt(TAB_KEY, 0)));
+        if (rootMode) session = RootMultiKernelSession.get(this);
+        getWindow().setStatusBarColor(BACKGROUND);
+        getWindow().setNavigationBarColor(BACKGROUND);
+
+        LinearLayout frame = new LinearLayout(this);
+        frame.setOrientation(LinearLayout.VERTICAL);
+        frame.setBackgroundColor(BACKGROUND);
+        dashboardScroll = new ScrollView(this);
+        dashboardScroll.setFillViewport(true);
+        dashboardScroll.setBackgroundColor(BACKGROUND);
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(18), dp(18), dp(18), dp(30));
-        scroll.addView(page);
-        setContentView(scroll);
+        page.setPadding(dp(18), dp(18), dp(18), dp(24));
+        dashboardScroll.addView(page);
+        frame.addView(dashboardScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        TextView name = text(page, "✦ WONHEE PROXY", 24, PINK);
+        TextView name = text(page, "✦ WONHEE", 26, PINK);
         name.setContentDescription("Wonhee Proxy");
-        text(page, "Candy Pink  •  Connection dashboard", 12, MUTED);
-        text(page, "Live status is read-only; network changes remain in Safe Controls.",
-                12, LAVENDER);
-        navigation = new LinearLayout(this);
-        navigation.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams tabs = new LinearLayout.LayoutParams(-1, -2);
-        tabs.topMargin = dp(14);
-        page.addView(navigation, tabs);
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         page.addView(content, new LinearLayout.LayoutParams(-1, -2));
+
+        // Persistent bottom navigation never scrolls offscreen.
+        navigation = new LinearLayout(this);
+        navigation.setOrientation(LinearLayout.HORIZONTAL);
+        navigation.setPadding(dp(7), dp(8), dp(7), dp(9));
+        navigation.setBackground(tint(SURFACE, 0));
+        frame.addView(navigation, new LinearLayout.LayoutParams(-1, -2));
+        // Android 15/16 enforce edge-to-edge for apps targeting recent SDKs.
+        // Reserve system bars explicitly so navigation never sits under gestures
+        // and page headings never overlap the clock or camera cutout.
+        frame.setOnApplyWindowInsetsListener((v, insets) -> {
+            int top, bottom, left, right;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets safe = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                top = safe.top;
+                bottom = safe.bottom;
+                left = safe.left;
+                right = safe.right;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
+            }
+            v.setPadding(left, top, right, bottom);
+            return insets;
+        });
+        setContentView(frame);
+        frame.requestApplyInsets();
         render();
     }
 
@@ -92,7 +164,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         visible = true;
         traffic.reset();
         liveRates = null;
+        lastSnapshot = null; // Never show an old protection snapshot after backgrounding.
         loadSavedProfiles();
+        refreshHostsFileSummary();
         refreshSnapshot();
     }
 
@@ -123,6 +197,12 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private void refreshSnapshot() {
         if (!visible) return;
         handler.removeCallbacks(refresh);
+        if (!rootMode) {
+            lastSnapshot = null;
+            render();
+            handler.postDelayed(refresh, REFRESH_MS);
+            return;
+        }
         session.readRootTrafficSnapshot(snapshot -> {
             if (!visible || isFinishing() || isDestroyed()) return;
             lastSnapshot = snapshot;
@@ -160,33 +240,80 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     }
 
     private void render() {
-        if (content == null) return;
+        if (content == null || navigation == null) return;
+        final int scrollY = lastRenderedTab == tab && dashboardScroll != null
+                ? dashboardScroll.getScrollY() : 0;
+        lastRenderedTab = tab;
         navigation.removeAllViews();
-        String[] tabs = {"Status", "Tunnels", "DNS", "Activity"};
+        String[] tabs = {"Home", "Tunnels", "Protect", "Stats", "More"};
+        int[] icons = {
+                android.R.drawable.ic_menu_view,
+                android.R.drawable.ic_menu_add,
+                android.R.drawable.ic_lock_lock,
+                android.R.drawable.ic_menu_info_details,
+                android.R.drawable.ic_menu_preferences
+        };
+        navigation.setBackgroundColor(NAV_BACKGROUND);
         for (int i = 0; i < tabs.length; i++) {
             final int next = i;
-            Button button = new Button(this);
-            button.setAllCaps(false);
-            button.setText(tabs[i]);
-            button.setTextSize(12);
-            button.setTextColor(i == tab ? BACKGROUND : WHITE);
-            button.setBackground(tint(i == tab ? PINK : SURFACE_ALT, 13));
-            button.setMinHeight(dp(48));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(52), 1f);
-            lp.setMargins(dp(2), 0, dp(2), dp(10));
-            navigation.addView(button, lp);
-            button.setOnClickListener(v -> { tab = next; render(); });
+            boolean selected = i == tab;
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(android.view.Gravity.CENTER);
+            item.setPadding(dp(3), dp(5), dp(3), dp(5));
+            item.setMinimumHeight(dp(60));
+            item.setBackground(tint(selected ? SURFACE_ALT : NAV_BACKGROUND, 13));
+            item.setClickable(true);
+            item.setFocusable(true);
+            item.setContentDescription(tabs[i] + (selected ? ", selected" : ""));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.setMargins(dp(2), 0, dp(2), 0);
+            navigation.addView(item, lp);
+
+            ImageView image = new ImageView(this);
+            image.setImageResource(icons[i]);
+            image.setColorFilter(selected ? PINK : MUTED);
+            image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            item.addView(image, new LinearLayout.LayoutParams(dp(22), dp(22)));
+
+            TextView caption = new TextView(this);
+            caption.setText(tabs[i]);
+            caption.setTextSize(10);
+            caption.setGravity(android.view.Gravity.CENTER);
+            caption.setSingleLine(true);
+            caption.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            caption.setTextColor(selected ? WHITE : MUTED);
+            caption.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            LinearLayout.LayoutParams textLp =
+                    new LinearLayout.LayoutParams(-1, -2);
+            textLp.topMargin = dp(3);
+            item.addView(caption, textLp);
+            item.setOnClickListener(v -> selectTab(next));
         }
 
         content.removeAllViews();
-        switch (tab) {
-            case 0: home(); break;
-            case 1: profileTab(); break;
-            case 2: protectionTab(); break;
-            default: activityTab();
+        if (tab != 0) text(content, rootMode ? "ROOT WORKSPACE"
+                : "STANDARD VPN", 12, LAVENDER);
+        if (rootMode) {
+            switch (tab) {
+                case 0: home(); break;
+                case 1: profileTab(); break;
+                case 2: protectionTab(); break;
+                case 3: activityTab(); break;
+                default: settingsTab(); break;
+            }
+        } else {
+            switch (tab) {
+                case 0: standardHome(); break;
+                case 1: standardProfiles(); break;
+                case 2: standardProtection(); break;
+                case 3: standardActivity(); break;
+                default: settingsTab(); break;
+            }
         }
-        // Navigation to Safe Controls belongs to the Status recovery card only.
-        // All other tabs remain read-only; no duplicate footer link.
+        if (dashboardScroll != null) {
+            dashboardScroll.post(() -> dashboardScroll.scrollTo(0, scrollY));
+        }
     }
 
     /** Observed root counters only; these figures are not system VPN statistics. */
@@ -203,10 +330,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void showLiveSignals() {
         LinearLayout group = card(content);
-        text(group, "LIVE SIGNALS", 15, PINK);
+        text(group, "LIVE ACTIVITY", 15, PINK);
         text(group, throughputLine(), 20, WHITE);
-        text(group, "Combined verified WireGuard tunnel speeds · updates while visible. "
-                + "Not device-wide traffic and not per-profile throughput.", 12, MUTED);
+        text(group, "Speeds from verified VPN tunnels only; not all phone traffic.",
+                12, MUTED);
         RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
         boolean verified = snapshot != null && snapshot.dnsVerified
                 && snapshot.trackerEnabled && snapshot.blocked != null;
@@ -217,9 +344,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 + (snapshot == null || !snapshot.dnsVerified ? "unverified"
                         : snapshot.trackerEnabled ? "enabled" : "off"),
                 13, verified ? WHITE : MUTED);
-        text(group, "Blocked total belongs to the current verified DNS relay lifetime.",
+        text(group, "Block count resets when the verified DNS relay restarts.",
                 12, MUTED);
-        showNotificationControl(group);
     }
 
     private boolean wantsNotification() {
@@ -288,189 +414,415 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
     }
 
-    private void home() {
-        LinearLayout hero = card(content);
-        text(hero, "CONNECTION OVERVIEW", 12, LAVENDER);
-        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
-        String status = "Checking local root tunnel state…";
-        if (snapshot != null && !snapshot.rootsAvailable) {
-            status = "Root tunnel status unavailable";
-        } else if (snapshot != null && snapshot.presentTunnels == 0) {
-            status = "No saved-profile root tunnels detected";
-        } else if (snapshot != null && snapshot.verifiedTunnels == snapshot.presentTunnels) {
-            status = snapshot.verifiedTunnels + " verified root tunnel"
-                    + (snapshot.verifiedTunnels == 1 ? "" : "s");
-        } else if (snapshot != null) {
-            status = "Attention: some tunnel identities unverified";
-        }
-        text(hero, status, 20, WHITE);
-        if (snapshot != null && snapshot.rootsAvailable) {
-            text(hero, "Identity-verified " + snapshot.verifiedTunnels + "/"
-                    + snapshot.presentTunnels + " detected tunnel(s) · "
-                    + (snapshot.countersAvailable ? "live counters available"
-                            : "live counters not verified"), 13, LAVENDER);
-        }
-        text(hero, "Tunnel connection is not proof of full-device leak protection.", 12, MUTED);
 
-        showLiveSignals();
+    /** A persistent, named tunnel selection. Never changes a running route. */
+    private Set<String> chosenRootTunnels() {
+        SharedPreferences prefs = getSharedPreferences(UI_PREFS, MODE_PRIVATE);
+        Set<String> existing = prefs.getStringSet(QUICK_SELECTION_KEY, null);
+        if (existing != null) return new LinkedHashSet<>(existing);
 
-        LinearLayout stack = card(content);
-        text(stack, "YOUR CONNECTIONS", 15, PINK);
-        if (profileStoreError) {
-            text(stack, "Encrypted profiles unavailable. Check Android Keystore.", 13, MUTED);
-        } else if (profiles.isEmpty()) {
-            text(stack, "No profiles saved. Import a WireGuard configuration to begin.",
-                    13, MUTED);
-        } else {
-            text(stack, profiles.size() + " saved · up to eight supported", 12, MUTED);
-            int shown = Math.min(3, profiles.size());
-            for (int i = 0; i < shown; i++) showProfile(stack, profiles.get(i));
-            if (profiles.size() > shown) {
-                text(stack, "+" + (profiles.size() - shown)
-                        + " more saved profiles — see Profiles", 12, LAVENDER);
+        // New user-friendly default: at most one internet exit and one private
+        // destination. Additional profiles are opt-in; no routes are activated.
+        Set<String> suggested = new LinkedHashSet<>();
+        boolean hasInternet = false;
+        boolean hasPrivate = false;
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            if (!hasInternet && (profile.role == SecureTunnelProfileStore.Profile.ROLE_INTERNET
+                    || profile.routeMode == VpnRouteModes.ALL)) {
+                suggested.add(profile.name);
+                hasInternet = true;
+            } else if (!hasPrivate && (profile.role == SecureTunnelProfileStore.Profile.ROLE_HOME
+                    || profile.routeMode == VpnRouteModes.HOME)) {
+                suggested.add(profile.name);
+                hasPrivate = true;
             }
+        }
+        if (suggested.isEmpty() && !profiles.isEmpty()) suggested.add(profiles.get(0).name);
+        prefs.edit().putStringSet(QUICK_SELECTION_KEY, suggested).apply();
+        return suggested;
+    }
+
+    private void chooseRootTunnel(String name, boolean choose) {
+        Set<String> chosen = chosenRootTunnels();
+        if (choose) chosen.add(name);
+        else chosen.remove(name);
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                .putStringSet(QUICK_SELECTION_KEY, chosen).apply();
+        // No network operations. Leave the current scroll and checkbox state alone.
+    }
+
+    /** Selection belongs on Home rather than in the advanced connection laboratory. */
+    private void showQuickTunnelPicker(LinearLayout parent, boolean includeStatus) {
+        if (profileStoreError) {
+            text(parent, "Saved tunnels unavailable — check secure storage.", 13, MUTED);
+            return;
+        }
+        if (profiles.isEmpty()) {
+            text(parent, "No tunnels yet. Add a WireGuard configuration above.", 13, MUTED);
+            return;
+        }
+        Set<String> selected = chosenRootTunnels();
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setPadding(dp(10), dp(4), dp(10), dp(4));
+            item.setBackground(tint(SURFACE_ALT, 12));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.bottomMargin = dp(6);
+            parent.addView(item, lp);
+            CheckBox check = new CheckBox(this);
+            check.setText(profile.name);
+            check.setTextColor(WHITE);
+            check.setTextSize(15);
+            check.setButtonTintList(ColorStateList.valueOf(PINK));
+            check.setMinHeight(dp(48));
+            check.setChecked(selected.contains(profile.name));
+            check.setOnCheckedChangeListener((view, checked) ->
+                    chooseRootTunnel(profile.name, checked));
+            item.addView(check);
+            if (includeStatus) {
+                String purpose = profile.routeMode == VpnRouteModes.ALL
+                        ? "Internet exit" : profile.routeMode == VpnRouteModes.HOME
+                        ? "Private destinations" : "Custom routes";
+                text(item, purpose, 11, MUTED);
+            }
+        }
+    }
+
+    private void home() {
+        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
+        boolean known = snapshot != null && snapshot.rootsAvailable;
+        boolean running = known && snapshot.presentTunnels > 0;
+        boolean cleanIdentity = known && snapshot.presentTunnels == snapshot.verifiedTunnels;
+
+        LinearLayout hero = card(content);
+        Button primary = button(hero, running ? (cleanIdentity ? "Stop" : "Review connection")
+                : known ? "Start" : "Checking connection…",
+                running && cleanIdentity ? () -> launchRootQuickAction("stop")
+                        : running ? () -> openRootTab(0)
+                        : () -> launchRootQuickAction("start"));
+        primary.setTextSize(20);
+        primary.setMinHeight(dp(72));
+        primary.setEnabled(known);
+        secondaryButton(hero, "＋  Add tunnel", this::openTunnelImporter);
+
+        text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
+        showQuickTunnelPicker(hero, false);
+
+        String status = "Checking your connection…";
+        if (known && snapshot.presentTunnels == 0) {
+            status = "Not connected";
+        } else if (running && cleanIdentity) {
+            status = snapshot.verifiedTunnels + " tunnel"
+                    + (snapshot.verifiedTunnels == 1 ? "" : "s") + " running";
+        } else if (running) {
+            status = "Connection needs attention";
+        } else if (snapshot != null) {
+            status = "Connection status unavailable";
+        }
+        text(hero, status, 17, WHITE);
+        if (profileStoreError) {
+            text(hero, "Saved connections unavailable", 12, MUTED);
+        } else {
+            text(hero, profiles.size() + " saved connection"
+                    + (profiles.size() == 1 ? "" : "s"), 12, MUTED);
         }
 
         LinearLayout protection = card(content);
-        text(protection, "PROTECTION AT A GLANCE", 15, PINK);
-        protectionRow(protection, "DNS relay (not a leak test)", dnsState());
-        protectionRow(protection, "Ads & Trackers", blockState());
-        protectionRow(protection, "DNS-port firewall", dnsFirewallLedgerState());
-        protectionRow(protection, "All-traffic kill switch", killSwitchState());
+        text(protection, "PROTECTION", 15, PINK);
+        protectionRow(protection, "DNS", dnsState());
+        protectionRow(protection, "Ads & trackers", blockState());
+        protectionRow(protection, "Kill switch", "Not yet enabled");
+        secondaryButton(protection, "Protection details", () -> selectTab(2));
 
-        showRecoveryGuidance();
-
-        // One safe destination appears in Connection Recovery Guidance above.
+        showLiveSignals();
+        // Keep troubleshooting off Home unless a real state needs attention.
+        if (snapshot != null && (!snapshot.rootsAvailable
+                || snapshot.presentTunnels != snapshot.verifiedTunnels
+                || (snapshot.presentTunnels > 0 && !snapshot.dnsVerified))) {
+            showRecoveryGuidance();
+        }
     }
 
-    /** Guidance never tries to repair ownership or change the network itself. */
-    private void showRecoveryGuidance() {
-        LinearLayout group = card(content);
-        text(group, "CONNECTION RECOVERY GUIDANCE", 15, PINK);
-        RootMultiKernelSession.RootTrafficSnapshot s = lastSnapshot;
-        String guidance;
-        if (s == null || !s.rootsAvailable) {
-            guidance = "Root status cannot be verified. Check USB ADB and run "
-                    + "Read live kernel status in Safe Controls. Do not assume "
-                    + "the tunnels or DNS rules are stopped.";
-        } else if (s.presentTunnels > 0 && s.verifiedTunnels != s.presentTunnels) {
-            guidance = "Some running tunnel identities are unverified. Avoid "
-                    + "manual interface deletion or forced disconnect. Capture "
-                    + "the read-only lifecycle and tunnel audit before Safe Stop.";
-        } else if (s.presentTunnels == 0) {
-            guidance = "No saved-profile tunnels detected. If a prior session "
-                    + "was interrupted, run H.2a read-only lifecycle audit before "
-                    + "starting a complete stack. This is not proof of clean stop.";
-        } else if (!s.countersAvailable) {
-            guidance = "Tunnel counters are not fully verified. Run F.2 passive "
-                    + "health snapshot; inspect identities before attempting recovery.";
-        } else if (!s.dnsVerified) {
-            guidance = "Tunnels appear verified, but the DNS relay is not verified. "
-                    + "Audit owned DNS rules and relay before restarting anything. "
-                    + "Do not disable DNS protection solely for a diagnostic.";
-        } else {
-            guidance = "Tunnels and local DNS relay are verified at this snapshot. "
-                    + "If browsing fails, use Connected but no Internet (read only) "
-                    + "before the coordinated H.1 Safe Stop when practical.";
+    private void launchRootQuickAction(String action) {
+        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
+        if (snapshot == null || !snapshot.rootsAvailable) {
+            new AlertDialog.Builder(this).setTitle("Connection status unavailable")
+                    .setMessage("Wonhee cannot verify your active tunnels. "
+                            + "Inspect the connection before changing it.")
+                    .setPositiveButton("Connection controls", (d, w) -> openRootTab(0))
+                    .setNegativeButton("Cancel", null).show();
+            return;
         }
-        text(group, guidance, 13, WHITE);
-        text(group, "Keep Android Private DNS OFF. All-traffic guard remains paused. "
-                + "Never force a firewall flush or tunnel deletion.", 12, MUTED);
-        button(group, "Safe Controls & Diagnostics",
-                () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
+        ArrayList<String> chosen = new ArrayList<>();
+        if ("stop".equals(action)) {
+            // Always propose stopping EVERY detected verified tunnel. Do not
+            // confuse the next-start selection with current active connections.
+            for (RootMultiKernelSession.TunnelStatus tunnel : snapshot.tunnels) {
+                if (tunnel.present && tunnel.verified) chosen.add(tunnel.name);
+            }
+        } else {
+            Set<String> selected = chosenRootTunnels();
+            for (SecureTunnelProfileStore.Profile profile : profiles) {
+                if (selected.contains(profile.name)) chosen.add(profile.name);
+            }
+            if (chosen.isEmpty()) {
+                new AlertDialog.Builder(this).setTitle("Choose a tunnel")
+                        .setMessage("Select at least one tunnel on Home, then press Start.")
+                        .setPositiveButton("OK", null).show();
+                return;
+            }
+        }
+        Intent intent = new Intent(this, RootMultiKernelActivity.class);
+        intent.putExtra("wonhee.lab.tab", 0);
+        intent.putExtra("wonhee.quick.action", action);
+        intent.putStringArrayListExtra("wonhee.quick.profiles", chosen);
+        startActivity(intent);
+    }
+
+    private void openTunnelImporter() {
+        Intent intent = new Intent(this, VpnActivity.class);
+        intent.putExtra("wonhee.quick.action", "import");
+        startActivity(intent);
+    }
+
+    private void secondaryButton(LinearLayout parent, String title, Runnable onClick) {
+        Button action = button(parent, title, onClick);
+        action.setTextColor(WHITE);
+        action.setBackground(tint(SURFACE_ALT, 14));
+    }
+
+    /** Friendly guidance is read-only and never changes routing or recovery state. */
+    private void showRecoveryGuidance() {
+        RootMultiKernelSession.RootTrafficSnapshot s = lastSnapshot;
+        LinearLayout group = card(content);
+        String title;
+        String message;
+        if (s == null) {
+            title = "CHECKING HEALTH";
+            message = "Wonhee is reading your current connection state.";
+        } else if (!s.rootsAvailable) {
+            title = "STATUS UNAVAILABLE";
+            message = "Wonhee cannot inspect the rooted connections. "
+                    + "Avoid force-stopping tunnels until you can audit their state.";
+        } else if (s.presentTunnels > 0 && s.verifiedTunnels != s.presentTunnels) {
+            title = "CONNECTIONS NEED ATTENTION";
+            message = "One or more tunnel identities could not be verified. "
+                    + "Review connection controls before making changes.";
+        } else if (s.presentTunnels == 0) {
+            title = "READY FOR A CONNECTION";
+            message = "No saved-profile root tunnels were detected. "
+                    + "If a previous session was interrupted, check its recovery state first.";
+        } else if (!s.countersAvailable) {
+            title = "CHECK CONNECTION HEALTH";
+            message = "Tunnels were found, but live transfer data is incomplete. "
+                    + "Use the read-only diagnostics to investigate.";
+        } else if (!s.dnsVerified) {
+            title = "DNS NEEDS ATTENTION";
+            message = "Tunnels are present but the local DNS relay is not verified. "
+                    + "Inspect DNS ownership before restarting anything.";
+        } else {
+            title = "STATUS AVAILABLE";
+            message = "Tunnel identities and the local DNS relay were verified "
+                    + "at the last check. This is not a full-device leak test.";
+        }
+        text(group, title, 15, PINK);
+        text(group, message, 13, WHITE);
+        button(group, "Connection help & safe controls", () -> openRootTab(0));
     }
 
     private void profileTab() {
         LinearLayout group = card(content);
-        text(group, "CONNECTION PROFILES", 16, PINK);
-        text(group, "Use your own connection names. HOME, Work, Media and Internet are "
-                + "optional roles, not required labels.", 13, MUTED);
+        text(group, "SAVED TUNNELS", 16, PINK);
+        button(group, "＋  Add tunnel", this::openTunnelImporter);
+        text(group, "Choose which tunnels to start on Home. "
+                + "Manage each saved tunnel here.", 12, MUTED);
+        showManagedProfiles(group);
+    }
+
+    /** Tunnels is a library, not a second connection-selection screen. */
+    private void showManagedProfiles(LinearLayout group) {
         if (profileStoreError) {
-            text(group, "Encrypted profile store could not be read.", 13, MUTED);
-        } else if (profiles.isEmpty()) {
-            text(group, "No saved profiles.", 13, MUTED);
-        } else if (lastSnapshot == null || !lastSnapshot.rootsAvailable) {
-            for (SecureTunnelProfileStore.Profile profile : profiles) {
-                text(group, profile.name + " · live health unavailable", 14, MUTED);
-            }
-        } else {
-            for (RootMultiKernelSession.TunnelStatus tunnel : lastSnapshot.tunnels) {
-                LinearLayout item = card(group);
-                text(item, tunnel.name, 16, PINK);
-                text(item, !tunnel.present ? "Stopped / not detected"
-                        : !tunnel.verified ? "Identity not verified — investigate"
-                        : "Kernel identity verified · interface UP", 13,
-                        tunnel.verified ? WHITE : MUTED);
-                if (tunnel.verified) {
-                    text(item, "Last handshake: " + tunnel.handshake
-                            + " · idle is not a failure", 12, MUTED);
-                    text(item, tunnel.received == null || tunnel.sent == null
-                            ? "RX/TX unavailable"
-                            : "RX " + TunnelTrafficRates.formatTotal(tunnel.received)
-                              + " · TX " + TunnelTrafficRates.formatTotal(tunnel.sent),
-                            13, WHITE);
-                }
-            }
-            text(group, "These are periodic snapshots, not per-tunnel live "
-                    + "speeds or end-to-end connection tests.", 12, MUTED);
+            text(group, "Your saved tunnels could not be loaded.", 13, MUTED);
+            return;
         }
-        button(group, "Import / edit saved VPN profiles",
-                () -> startActivity(new Intent(this, VpnActivity.class)));
-        text(group, "Current backend: one default exit plus compatible "
-                + "destination-specific profiles. Overlapping routes are refused.", 12, MUTED);
+        if (profiles.isEmpty()) {
+            text(group, "No saved tunnels. Add a WireGuard configuration to begin.",
+                    13, MUTED);
+            return;
+        }
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            LinearLayout item = card(group);
+            text(item, profile.name, 16, WHITE);
+            String purpose = profile.routeMode == VpnRouteModes.ALL
+                    ? "Internet exit" : profile.routeMode == VpnRouteModes.HOME
+                    ? "Private destinations" : "Imported routes";
+            text(item, purpose, 12, MUTED);
+            if (rootMode && lastSnapshot != null && lastSnapshot.rootsAvailable) {
+                boolean found = false;
+                for (RootMultiKernelSession.TunnelStatus tunnel : lastSnapshot.tunnels) {
+                    if (profile.name.equals(tunnel.name)) {
+                        found = true;
+                        text(item, !tunnel.present ? "Stopped"
+                                : tunnel.verified ? "Interface running"
+                                : "Identity needs verification", 12,
+                                tunnel.present && !tunnel.verified ? PINK : MUTED);
+                        break;
+                    }
+                }
+                if (!found) text(item, "Status not available", 12, MUTED);
+            }
+            secondaryButton(item, "Edit " + profile.name,
+                    () -> openTunnelEditor(profile.name));
+        }
+    }
+
+    private void openTunnelEditor(String name) {
+        Intent edit = new Intent(this, TunnelProfileSettingsActivity.class);
+        edit.putExtra(TunnelProfileSettingsActivity.EXTRA_PROFILE_NAME, name);
+        startActivity(edit);
     }
 
     private void protectionTab() {
-        LinearLayout group = card(content);
-        text(group, "DNS PROTECTION", 16, PINK);
-        protectionRow(group, "Local DNS relay", dnsState());
-        protectionRow(group, "Ad & tracker filtering", blockState());
-        protectionRow(group, "DNS-port firewall", dnsFirewallLedgerState());
-        button(group, dnsDetailsExpanded ? "Hide technical protection details"
-                : "Show technical protection details", () -> {
-            dnsDetailsExpanded = !dnsDetailsExpanded;
-            render();
-        });
-        if (dnsDetailsExpanded) {
-            protectionRow(group, "Connections",
-                    lastSnapshot == null ? "Checking…"
-                    : lastSnapshot.verifiedTunnels + " verified tunnels");
-            protectionRow(group, "Routing", "Details in Safe Controls");
-            protectionRow(group, "All-traffic kill switch", killSwitchState());
-            text(group, "DNS-port enforcement is not an all-traffic kill switch. "
-                    + "Live firewall verification requires a separate audit; "
-                    + "the route ledger alone is not proof. DNS blocks count "
-                    + "only requests reaching the local relay.", 12, MUTED);
+        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
+        LinearLayout dns = card(content);
+        text(dns, "DNS", 18, PINK);
+        text(dns, "Encrypted DNS", 14, WHITE);
+        text(dns, snapshot == null ? "Checking…" : snapshot.dnsVerified
+                ? "Verified local relay" : "Off or not verified", 13, MUTED);
+        text(dns, "Ad & tracker blocking", 14, WHITE);
+        text(dns, snapshot == null ? "Checking…" : !snapshot.dnsVerified
+                ? "Not verified" : snapshot.trackerEnabled ? "On" : "Off",
+                13, MUTED);
+        if (snapshot != null && snapshot.dnsVerified && snapshot.trackerEnabled
+                && snapshot.blocked != null) {
+            text(dns, blockedCount() + " blocked requests", 16, LAVENDER);
+            text(dns, "Counted by this DNS relay since it started.", 11, MUTED);
         }
-        RootMultiKernelSession.RootTrafficSnapshot dns = lastSnapshot;
-        LinearLayout totals = card(content);
-        text(totals, "DNS & AD-BLOCK ACTIVITY", 16, PINK);
-        if (dns != null && dns.dnsVerified && dns.dnsCounters != null) {
-            text(totals, "Received: " + dns.dnsCounters.received
-                    + "  ·  Forwarded: " + dns.dnsCounters.forwarded, 14, WHITE);
-            text(totals, "Blocked: " + blockedCount()
-                    + "  ·  Failed: " + dns.dnsCounters.failed, 14, LAVENDER);
-        } else {
-            text(totals, "DNS relay counters unavailable or unverified.", 14, MUTED);
+
+        LinearLayout hosts = card(content);
+        text(hosts, "HOSTS FILE", 16, PINK);
+        text(hosts, hostsFileStatus, 14, WHITE);
+        Button importHosts = button(hosts, hostsImportBusy
+                ? "Importing hosts file…" : "Import hosts file",
+                this::openHostsFilePicker);
+        importHosts.setEnabled(!hostsImportBusy);
+        text(hosts, "Accepts hosts.txt or one domain per line. "
+                + "Saved lists apply the next time DNS is started with filtering on.",
+                12, MUTED);
+
+        LinearLayout more = card(content);
+        text(more, "MORE PROTECTION", 15, PINK);
+        protectionRow(more, "Kill switch", RootGuardSafetyGate.activationPaused()
+                ? "Not available yet" : "Not yet verified for everyday use");
+        secondaryButton(more, "Advanced DNS settings", () -> openRootTab(2));
+    }
+
+    /** Hosts files are stored offline; this never switches DNS or firewall rules. */
+    private void refreshHostsFileSummary() {
+        if (!rootMode || hostsImportBusy) return;
+        final int generation = ++hostsStatusGeneration;
+        new Thread(() -> {
+            String status;
+            try {
+                RootBlocklistStore.Snapshot saved =
+                        RootBlocklistStore.current(getApplicationContext().getFilesDir());
+                status = saved == null ? "No hosts file imported"
+                        : saved.domains.size() + " blocked domains saved";
+            } catch (Exception invalid) {
+                status = "Saved hosts file could not be verified";
+            }
+            final String result = status;
+            runOnUiThread(() -> {
+                if (generation != hostsStatusGeneration || !visible
+                        || isFinishing() || isDestroyed()) return;
+                hostsFileStatus = result;
+                if (tab == 2) render();
+            });
+        }, "wonhee-hosts-status").start();
+    }
+
+    private void openHostsFilePicker() {
+        if (!rootMode || session == null) return;
+        if (hostsImportBusy || session.isBusy()
+                || !"OFF".equals(session.dnsLedgerStatus())) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Stop DNS before changing the hosts file")
+                    .setMessage("The imported list can only be replaced when "
+                            + "the rooted DNS policy is stopped. Use Safe Stop "
+                            + "or disable and audit DNS protection first.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("DNS controls", (d, w) -> openRootTab(2))
+                    .show();
+            return;
         }
-        if (dns != null && dns.dnsVerified && dns.dnsCounters != null
-                && dns.trackerEnabled && dns.dnsCounters.received > 0) {
-            double percent = 100.0 * dns.dnsCounters.blocked
-                    / dns.dnsCounters.received;
-            text(totals, String.format(java.util.Locale.ROOT,
-                    "Blocked %.1f%% of requests observed by this relay", percent),
-                    13, LAVENDER);
+        Intent file = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        file.addCategory(Intent.CATEGORY_OPENABLE);
+        file.setType("*/*");
+        file.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivityForResult(file, REQUEST_HOSTS_FILE);
+        } catch (RuntimeException unavailable) {
+            new AlertDialog.Builder(this).setTitle("File picker unavailable")
+                    .setMessage("Android could not open a file picker on this device.")
+                    .setPositiveButton("OK", null).show();
         }
-        text(totals, relayCounterEvent, 12, LAVENDER);
-        text(totals, "Only requests reaching this relay are counted. Browser or "
-                + "app-owned encrypted DNS may bypass local filtering.", 12, MUTED);
-        LinearLayout continuity = card(content);
-        text(continuity, "DNS BASELINE · READ-ONLY COMPARISON", 15, PINK);
-        text(continuity, dnsBaselineComparison(), 13, WHITE);
-        text(continuity, "The saved baseline compares a verified relay process "
-                + "and aggregate counters. It is not continuous monitoring "
-                + "or proof of leak prevention.", 12, MUTED);
-        showDnsCoverage();
+    }
+
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != REQUEST_HOSTS_FILE || result != RESULT_OK
+                || data == null || data.getData() == null) return;
+        if (!rootMode || session == null || hostsImportBusy
+                || session.isBusy() || !"OFF".equals(session.dnsLedgerStatus())) {
+            new AlertDialog.Builder(this).setTitle("Import not started")
+                    .setMessage("DNS state changed or another network operation "
+                            + "is running. No hosts list was replaced.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        final Uri selected = data.getData();
+        final int generation = ++hostsStatusGeneration;
+        hostsImportBusy = true;
+        hostsFileStatus = "Importing and checking file…";
+        render();
+        new Thread(() -> {
+            String status;
+            boolean success;
+            try {
+                if (session.isBusy() || !"OFF".equals(session.dnsLedgerStatus())) {
+                    throw new IllegalStateException("DNS policy changed");
+                }
+                try (InputStream stream = getContentResolver().openInputStream(selected)) {
+                    RootBlocklistStore.Snapshot saved = RootBlocklistStore.importFrom(
+                            getApplicationContext().getFilesDir(), stream);
+                    status = saved.domains.size() + " blocked domains saved";
+                    success = true;
+                }
+            } catch (Exception failure) {
+                status = "Import failed; previous list kept";
+                success = false;
+            }
+            final boolean imported = success;
+            final String finalStatus = status;
+            runOnUiThread(() -> {
+                hostsImportBusy = false;
+                if (generation != hostsStatusGeneration || isFinishing()
+                        || isDestroyed()) return;
+                hostsFileStatus = finalStatus;
+                if (tab == 2) render();
+                new AlertDialog.Builder(this)
+                        .setTitle(imported ? "Hosts file saved" : "Could not import file")
+                        .setMessage(imported ? finalStatus + ". "
+                                + "Your running network was not changed. "
+                                + "The list is available at the next explicit DNS "
+                                + "start with tracker filtering enabled."
+                                : "Choose a hosts.txt or plain domain list "
+                                + "under 20 MiB and 250,000 unique domains. "
+                                + "Your previous saved list was retained.")
+                        .setPositiveButton("OK", null).show();
+            });
+        }, "wonhee-hosts-import").start();
     }
 
     private void activityTab() {
@@ -490,13 +842,285 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         text(group, "DNS blocked replies: " + blockedCount()
                 + " (current verified relay only)", 14, WHITE);
-        text(group, "DNS relay continuity: " + dnsBaselineComparison(), 12, MUTED);
-        text(group, "Baseline is an opt-in local comparison, not a guarantee "
-                + "of uninterrupted DNS or network protection.", 12, MUTED);
+        String comparison = dnsBaselineComparison();
+        text(group, comparison.toUpperCase(java.util.Locale.ROOT)
+                        .contains("REBOOT OR DEVICE CLOCK CHANGE SUSPECTED")
+                        ? "DNS history needs a fresh check after a possible restart "
+                                + "or clock change."
+                        : comparison.startsWith("No baseline saved")
+                                ? "DNS history has not been saved." : "DNS history is available "
+                                        + "in Protection details.", 12, MUTED);
+        secondaryButton(group, "DNS history details",
+                () -> new AlertDialog.Builder(this)
+                        .setTitle("DNS continuity")
+                        .setMessage(comparison + "\\n\\nThis is historical monitoring "
+                                + "only. A missing comparison is not proof "
+                                + "that current DNS or VPN protection failed.")
+                        .setPositiveButton("OK", null).show());
         text(group, "Live tunnel rates: " + throughputLine(), 13, WHITE);
-        showNotificationControl(group);
-        button(group, "Read current tunnel and firewall diagnostics",
-                () -> startActivity(new Intent(this, RootMultiKernelActivity.class)));
+        button(group, "Open network diagnostics", () -> openRootTab(3));
+    }
+
+
+    private void openVpnManager() {
+        Intent advanced = new Intent(this, VpnActivity.class);
+        advanced.putExtra("wonhee.explicit.advanced", true);
+        startActivity(advanced);
+    }
+
+    private void openRootTab(int section) {
+        Intent intent = new Intent(this, RootMultiKernelActivity.class);
+        intent.putExtra("wonhee.lab.tab", Math.max(0, Math.min(3, section)));
+        startActivity(intent);
+    }
+
+    private Boolean standardVpnConnected() {
+        try {
+            return WireGuardSession.get(this).isConnected();
+        } catch (Exception | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private void showStandardTunnelPicker(LinearLayout parent, boolean connected) {
+        if (profileStoreError) {
+            text(parent, "Saved connections unavailable.", 13, MUTED);
+            return;
+        }
+        if (profiles.isEmpty()) {
+            text(parent, "No tunnels yet. Add a WireGuard configuration above.",
+                    13, MUTED);
+            return;
+        }
+        SecureTunnelProfileStore store = new SecureTunnelProfileStore(this);
+        int selected = store.preferredIndex(profiles.size());
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.VERTICAL);
+        parent.addView(group);
+        for (int i = 0; i < profiles.size(); i++) {
+            final int index = i;
+            RadioButton option = new RadioButton(this);
+            option.setId(View.generateViewId());
+            option.setText(profiles.get(i).name);
+            option.setTextColor(WHITE);
+            option.setTextSize(15);
+            option.setButtonTintList(ColorStateList.valueOf(PINK));
+            option.setMinHeight(dp(48));
+            option.setEnabled(!connected);
+            group.addView(option);
+            if (i == selected) group.check(option.getId());
+            option.setOnClickListener(v -> {
+                try {
+                    store.rememberSelectedIndex(index);
+                } catch (Exception unavailable) {
+                    new AlertDialog.Builder(this).setTitle("Could not save choice")
+                            .setMessage("Wonhee could not remember your selected tunnel. "
+                                    + "Try again or check encrypted profile storage.")
+                            .setPositiveButton("OK", null).show();
+                }
+            });
+        }
+        if (connected) text(parent, "Stop the current VPN before choosing a different tunnel.",
+                12, MUTED);
+    }
+
+    private void standardHome() {
+        Boolean connected = standardVpnConnected();
+        LinearLayout hero = card(content);
+        Button primary = button(hero, connected == null ? "Checking connection…"
+                : connected ? "Stop" : "Start",
+                () -> openStandardQuickAction(Boolean.TRUE.equals(connected)
+                        ? "stop" : "start"));
+        primary.setTextSize(20);
+        primary.setMinHeight(dp(72));
+        primary.setEnabled(connected != null);
+        secondaryButton(hero, "＋  Add tunnel", this::openTunnelImporter);
+        text(hero, "CHOOSE YOUR TUNNEL", 13, LAVENDER);
+        showStandardTunnelPicker(hero, Boolean.TRUE.equals(connected));
+        text(hero, connected == null ? "Checking your VPN…" :
+                connected ? "VPN running" : "Not connected", 17, WHITE);
+        text(hero, profileStoreError ? "Saved connections unavailable"
+                : profiles.size() + " saved connection"
+                        + (profiles.size() == 1 ? "" : "s"), 12, MUTED);
+
+        if (getSharedPreferences(UI_PREFS, MODE_PRIVATE)
+                .getBoolean(ROOT_STATE_WARNING_KEY, false)) {
+            LinearLayout warning = card(content);
+            text(warning, "ROOT STATE NOT VERIFIED", 15, PINK);
+            text(warning, "A previous rooted network has not been confirmed "
+                    + "cleanly stopped. Android VPN status does not describe "
+                    + "kernel tunnels or firewall rules.", 12, WHITE);
+            secondaryButton(warning, "Inspect rooted network", this::requestRootWorkspace);
+        }
+        LinearLayout protection = card(content);
+        text(protection, "PRIVACY", 15, PINK);
+        protectionRow(protection, "Android VPN", connected == null ? "Status unavailable"
+                : connected ? "Interface active · protection unverified" : "Off");
+        protectionRow(protection, "Kill switch", "Configure Android VPN lockdown");
+        secondaryButton(protection, "Protection settings", () -> selectTab(2));
+    }
+
+    private void openStandardQuickAction(String action) {
+        Intent intent = new Intent(this, VpnActivity.class);
+        intent.putExtra("wonhee.quick.action", action);
+        startActivity(intent);
+    }
+
+    private void standardProfiles() {
+        LinearLayout group = card(content);
+        text(group, "SAVED TUNNELS", 16, PINK);
+        button(group, "＋  Add tunnel", this::openTunnelImporter);
+        text(group, "Choose your active tunnel on Home. "
+                + "Manage each saved tunnel here.", 12, MUTED);
+        showManagedProfiles(group);
+    }
+
+    private void standardProtection() {
+        LinearLayout dns = card(content);
+        text(dns, "DNS", 18, PINK);
+        protectionRow(dns, "DNS server", "Controlled by your selected VPN profile");
+        protectionRow(dns, "DNS protection", "Not independently verified");
+        protectionRow(dns, "Hosts file filtering", "Requires rooted DNS mode");
+
+        LinearLayout safety = card(content);
+        text(safety, "CONNECTION SAFETY", 15, PINK);
+        protectionRow(safety, "Kill switch", "Use Android VPN lockdown");
+        secondaryButton(safety, "Android VPN settings", this::openSystemVpnSettings);
+    }
+
+    private void standardActivity() {
+        LinearLayout group = card(content);
+        text(group, "ACTIVITY", 18, PINK);
+        text(group, "Standard VPN throughput, peer handshakes and read-only "
+                + "diagnostics are available in the connection manager.", 14, WHITE);
+        text(group, "Root-only blocked DNS counters and kernel interface stats "
+                + "are intentionally not shown in Standard mode.", 12, MUTED);
+        button(group, "See VPN statistics", this::openVpnManager);
+    }
+
+    private void openSystemVpnSettings() {
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_VPN_SETTINGS));
+        } catch (RuntimeException unavailable) {
+            new AlertDialog.Builder(this).setTitle("Settings unavailable")
+                    .setMessage("Open Android Settings, then search for VPN. "
+                            + "Enable Always-on and Block connections without VPN "
+                            + "if supported by your device and profile.")
+                    .setPositiveButton("OK", null).show();
+        }
+    }
+
+    private void selectTab(int selected) {
+        tab = Math.max(0, Math.min(4, selected));
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                .putInt(TAB_KEY, tab).apply();
+        render();
+    }
+
+    private void setRootMode(boolean enabled) {
+        rootMode = enabled;
+        if (enabled) {
+            session = RootMultiKernelSession.get(this);
+            refreshHostsFileSummary();
+        }
+        lastSnapshot = null;
+        liveRates = null;
+        traffic.reset();
+        tab = 0;
+        lastRenderedTab = -1;
+        SharedPreferences.Editor choice =
+                getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                        .putBoolean(ROOT_MODE_KEY, enabled).putInt(TAB_KEY, 0);
+        if (enabled) choice.putBoolean(ROOT_STATE_WARNING_KEY, false);
+        choice.apply();
+        handler.removeCallbacks(refresh);
+        loadSavedProfiles();
+        refreshSnapshot();
+    }
+
+    private void requestRootWorkspace() {
+        new AlertDialog.Builder(this)
+                .setTitle("Enable advanced root workspace?")
+                .setMessage("This shows multi-tunnel, split-routing and diagnostic "
+                        + "controls. It does not connect or modify your network. "
+                        + "Root access is requested only for the status check and "
+                        + "the existing explicit root operations.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Check root", (dialog, which) ->
+                        RootMultiKernelSession.get(this).readRootTrafficSnapshot(snapshot -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            if (snapshot != null && snapshot.rootsAvailable) {
+                                setRootMode(true);
+                            } else {
+                                new AlertDialog.Builder(this)
+                                        .setTitle("Root access unavailable")
+                                        .setMessage("The advanced workspace needs "
+                                                + "working root access. No tunnel "
+                                                + "or firewall settings were changed.")
+                                        .setPositiveButton("OK", null).show();
+                            }
+                        }))
+                .show();
+    }
+
+    private void settingsTab() {
+        LinearLayout group = card(content);
+        text(group, "PREFERENCES", 18, PINK);
+        text(group, "Display mode: " + (rootMode ? "Root advanced" : "Standard privacy first"),
+                14, WHITE);
+        if (rootMode) {
+            text(group, "Switching views never disconnects root tunnels. "
+                    + "Use Safe Stop and verify clean state before changing mode.",
+                    12, MUTED);
+            button(group, "Switch to Standard interface", () -> {
+                boolean clean = lastSnapshot != null && lastSnapshot.rootsAvailable
+                        && lastSnapshot.presentTunnels == 0
+                        && "OFF".equals(session.dnsLedgerStatus())
+                        && "OFF".equals(session.guardLedgerStatus());
+                if (!clean) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("Root network may still be active")
+                            .setMessage("Wonhee cannot verify a clean root stop. "
+                                    + "Standard mode shows only the Android VPN, "
+                                    + "not existing kernel tunnels, DNS or routing rules. "
+                                    + "Use Safe Controls first when possible. "
+                                    + "Switching anyway will keep a clear warning "
+                                    + "on Standard Home; it changes no network settings.")
+                            .setNeutralButton("Safe Controls", (d, w) -> openRootTab(0))
+                            .setNegativeButton("Stay in Root mode", null)
+                            .setPositiveButton("Switch with warning", (d, w) -> {
+                                getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                                        .putBoolean(ROOT_STATE_WARNING_KEY, true).apply();
+                                setRootMode(false);
+                            }).show();
+                    return;
+                }
+                new AlertDialog.Builder(this).setTitle("Change to Standard view?")
+                        .setMessage("The saved root profiles remain available. "
+                                + "This switches only the interface.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Switch view", (d, w) -> {
+                            getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                                    .putBoolean(ROOT_STATE_WARNING_KEY, false).apply();
+                            setRootMode(false);
+                        }).show();
+            });
+            showNotificationControl(group);
+        } else {
+            text(group, "Advanced rooted networking is optional and requires "
+                    + "an explicit root permission check.", 12, MUTED);
+            button(group, "Unlock rooted multi-tunnel workspace", this::requestRootWorkspace);
+            button(group, "VPN notifications & preferences", this::openVpnManager);
+        }
+        LinearLayout tools = card(content);
+        text(tools, "TOOLS", 16, PINK);
+        secondaryButton(tools, "Ultgram proxy tools",
+                () -> startActivity(new Intent(this, MainActivity.class)));
+        if (rootMode) {
+            secondaryButton(tools, "Advanced diagnostics", () -> openRootTab(3));
+        }
+        text(tools, "Settings change the display only unless you explicitly "
+                + "open a connection or network control.", 12, MUTED);
     }
 
     private RootDnsContinuityBaseline.Reading currentDnsReading() {
@@ -695,7 +1319,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         return view;
     }
 
-    private void button(LinearLayout parent, String label, Runnable click) {
+    private Button button(LinearLayout parent, String label, Runnable click) {
         Button view = new Button(this);
         view.setAllCaps(false);
         view.setText(label);
@@ -707,6 +1331,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         lp.topMargin = dp(8);
         parent.addView(view, lp);
         view.setOnClickListener(v -> click.run());
+        return view;
     }
 
     private GradientDrawable tint(int color, int corner) {

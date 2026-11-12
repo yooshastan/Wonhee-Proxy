@@ -12,8 +12,10 @@ import android.service.quicksettings.TileService;
 public final class WonheeQuickSettingsTile extends TileService {
     @Override public void onClick() {
         super.onClick();
-        Intent open = new Intent(this, VpnActivity.class)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent open = new Intent(this, WonheeDashboardPreviewActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         try {
             if (Build.VERSION.SDK_INT >= 34) {
                 PendingIntent pending = PendingIntent.getActivity(this, 8701, open,
