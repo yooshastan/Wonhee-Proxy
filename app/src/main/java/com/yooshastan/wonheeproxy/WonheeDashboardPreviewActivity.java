@@ -359,7 +359,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         if (snapshot != null && !snapshot.rootsAvailable) {
             status = "Connection status unavailable";
         } else if (snapshot != null && snapshot.presentTunnels == 0) {
-            status = "No rooted tunnels running";
+            status = "No saved-profile tunnels detected";
         } else if (snapshot != null && snapshot.verifiedTunnels == snapshot.presentTunnels) {
             status = snapshot.verifiedTunnels + " tunnel"
                     + (snapshot.verifiedTunnels == 1 ? "" : "s") + " running";
@@ -373,7 +373,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     + (snapshot.countersAvailable ? "live counters available"
                             : "live counters not verified"), 13, LAVENDER);
         }
-        text(hero, "Tunnel connection is not proof of full-device leak protection.", 12, MUTED);
+        text(hero, "Only this app's saved profile identities are inspected. "
+                + "Another installed VPN app may have its own tunnels. "
+                + "Tunnel state does not prove leak protection.", 12, MUTED);
         button(hero, "Manage connection & safe stop", () -> openRootTab(0));
 
         showLiveSignals();
