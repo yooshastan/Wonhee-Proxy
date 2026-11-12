@@ -1093,7 +1093,10 @@ public final class RootMultiKernelActivity extends Activity {
         appendAdvancedMenu(statusPage, advancedGroup,
                 "Advanced Connection Controls");
         updateButtons();
-        showLabTab(activeLabTab);
+        // Open the relevant advanced section from the everyday dashboard.
+        // This changes only the visible tab, never runs an audit or action.
+        int requestedTab = getIntent().getIntExtra("wonhee.lab.tab", activeLabTab);
+        showLabTab(Math.max(0, Math.min(3, requestedTab)));
     }
 
     private void moveAdvancedCard(LinearLayout card, LinearLayout destination) {
