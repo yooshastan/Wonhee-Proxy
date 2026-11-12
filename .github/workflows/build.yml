@@ -1,4 +1,4 @@
-name: Wonhee Proxy 0.15.38 Manual Direct-Route Warnings · Guard Paused
+name: Wonhee Android CI · Debug Build and Guarded Release
 
 on:
   push:
@@ -239,7 +239,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-01529-safe-update-preflight-rootlab-debug-apk
+          name: wonhee-rootlab-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
