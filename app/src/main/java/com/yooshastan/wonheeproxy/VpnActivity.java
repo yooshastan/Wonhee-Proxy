@@ -124,8 +124,26 @@ public final class VpnActivity extends Activity {
         }
     };
 
+    private boolean routeOldLauncherTaskToHome() {
+        // Explicit import/start/stop intents come from the new Home screen.
+        // This redirect is only for a stranded, previously launcher-rooted
+        // legacy activity, not an intentionally opened connection manager.
+        if (!isTaskRoot() || getIntent().hasExtra("wonhee.quick.action")) {
+            return false;
+        }
+        Intent home = new Intent(this, WonheeDashboardPreviewActivity.class);
+        home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(home);
+        finish();
+        return true;
+    }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // Older releases used VpnActivity as the launcher root. Android may
+        // restore that old task after an in-place update. Redirect an orphaned
+        // legacy task to Home, without stopping or changing any network state.
+        if (routeOldLauncherTaskToHome()) return;
         quickImportFlow = "import".equals(
                 getIntent().getStringExtra("wonhee.quick.action"));
         profileStore = new SecureTunnelProfileStore(this);
@@ -472,6 +490,8 @@ public final class VpnActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        // Also cover pre-upgrade activities that are still resident in memory.
+        if (routeOldLauncherTaskToHome()) return;
         visible = true;
         refreshButtons();
         refreshNotificationPermissionUi();
