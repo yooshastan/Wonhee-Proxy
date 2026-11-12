@@ -70,6 +70,40 @@ require("showQuickTunnelPicker(hero, false)" in dashboard,
 require("showStandardTunnelPicker(hero," in dashboard,
         "Standard Home selection missing")
 
+# Tunnels is not a second selection screen. Every profile has one direct
+# editor; advanced diagnostics do not masquerade as profile management.
+dashboard = (JAVA / "WonheeDashboardPreviewActivity.java").read_text(
+    encoding="utf-8")
+start = dashboard.index("    private void profileTab() {")
+end = dashboard.index("    private void protectionTab() {", start)
+root_tunnels_page = dashboard[start:end]
+start = dashboard.index("    private void standardProfiles() {")
+end = dashboard.index("    private void standardProtection() {", start)
+standard_tunnels_page = dashboard[start:end]
+for page in (root_tunnels_page, standard_tunnels_page):
+    require("showManagedProfiles(group)" in page,
+            "Tunnels tab must show direct saved-profile management")
+    require("showQuickTunnelPicker" not in page,
+            "Tunnels tab must not duplicate Home's tunnel selection")
+    require("openRootTab(1)" not in page,
+            "Tunnels tab must not send the user to Root Lab's second picker")
+    require("openVpnManager()" not in page,
+            "Tunnels tab must not send the user back to legacy WireGuard manager")
+require("new Intent(this, TunnelProfileSettingsActivity.class)" in dashboard,
+        "Profile Edit must open the modern focused editor")
+editor = (JAVA / "TunnelProfileSettingsActivity.java").read_text(
+    encoding="utf-8")
+require("VpnRouteModes.prepare" in editor and "VpnDnsOverride.prepare" in editor,
+        "Settings editor must validate saved routes and DNS")
+require("readRootTrafficSnapshot" in editor and "verifyStopped" in editor,
+        "Edits must be guarded when root/Android VPN state is uncertain")
+require('android:name=".TunnelProfileSettingsActivity"' in
+        (APP / "AndroidManifest.xml").read_text(encoding="utf-8"),
+        "Focused editor must be declared in manifest")
+require('android:name=".TunnelProfileSettingsActivity" android:exported="false"' in
+        (APP / "AndroidManifest.xml").read_text(encoding="utf-8"),
+        "Focused editor must not be externally launchable")
+
 print("PASS: Home is the only manifest launcher, Quick Settings and both "
       "speed notifications lead Home, the proxy return control leads Home, "
       "and stranded legacy / import entry points are handled.")
