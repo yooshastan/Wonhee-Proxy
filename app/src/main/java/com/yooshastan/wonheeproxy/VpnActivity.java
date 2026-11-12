@@ -76,6 +76,7 @@ public final class VpnActivity extends Activity {
     private boolean updatingList;
     private boolean visible;
     private boolean quickActionConsumed;
+    private boolean quickImportFlow;
     private boolean statisticsPending;
     private boolean diagnosticsRunning;
     private boolean homeServiceProbeRunning;
@@ -125,6 +126,8 @@ public final class VpnActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        quickImportFlow = "import".equals(
+                getIntent().getStringExtra("wonhee.quick.action"));
         profileStore = new SecureTunnelProfileStore(this);
         recoveryPrefs = new VpnRecoveryPreferences(this);
         ScrollView scroll = new ScrollView(this);
@@ -1011,7 +1014,12 @@ public final class VpnActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request == PICK_CONFIG) {
-            if (result != RESULT_OK || data == null) return;
+            if (result != RESULT_OK || data == null) {
+                // The user cancelled Add tunnel; do not reveal the legacy,
+                // scroll-heavy manager underneath Android's file picker.
+                if (quickImportFlow) finish();
+                return;
+            }
             importTunnelDocuments(data);
         } else if (request == PICK_EXTRA_PEER) {
             if (result != RESULT_OK || data == null || data.getData() == null) return;
@@ -1030,6 +1038,12 @@ public final class VpnActivity extends Activity {
     private void importTunnelDocuments(Intent data) {
         if (session != null && (session.isConnected() || session.isBusy())) {
             message.setText("Disconnect before importing additional tunnels.");
+            if (quickImportFlow) {
+                new AlertDialog.Builder(this).setTitle("Import unavailable")
+                        .setMessage("Disconnect the Android VPN before importing a tunnel.")
+                        .setPositiveButton("Back to Home", (d, w) -> finish())
+                        .setOnCancelListener(d -> finish()).show();
+            }
             return;
         }
         List<Uri> documents = new ArrayList<>();
@@ -1044,6 +1058,7 @@ public final class VpnActivity extends Activity {
         }
         if (documents.isEmpty()) {
             message.setText("No WireGuard configuration files selected.");
+            if (quickImportFlow) finish();
             return;
         }
 
@@ -1060,6 +1075,16 @@ public final class VpnActivity extends Activity {
             message.setText(imported + " profile(s) imported and configured. "
                     + skipped + " skipped or invalid. "
                     + "Profiles remain encrypted; routing choices can be edited later.");
+            if (quickImportFlow) {
+                // Complete the same secure import flow, but return straight to
+                // Home rather than exposing an unrelated old dashboard.
+                new AlertDialog.Builder(this)
+                        .setTitle(imported > 0 ? "Tunnel saved" : "No tunnels added")
+                        .setMessage(imported + " saved, " + skipped
+                                + " skipped. Your profiles stay encrypted on this device.")
+                        .setPositiveButton("Back to Home", (d, w) -> finish())
+                        .setOnCancelListener(d -> finish()).show();
+            }
             return;
         }
         final Config config;
