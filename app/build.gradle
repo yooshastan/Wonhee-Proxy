@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 98
-        versionName '0.15.51-home-entrypoints'
+        versionCode 99
+        versionName '0.15.52-simplified-tunnels'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
