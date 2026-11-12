@@ -446,7 +446,11 @@ public final class VpnActivity extends Activity {
         reloadProfiles(null);
         refreshButtons();
         refreshNotificationPermissionUi();
-        root.post(this::maybeShowNotificationOnboarding);
+        // A Home quick action must not be covered by first-run notification
+        // onboarding while the system file picker / connection dialog opens.
+        if (getIntent().getStringExtra("wonhee.quick.action") == null) {
+            root.post(this::maybeShowNotificationOnboarding);
+        }
     }
 
     @Override protected void onResume() {
