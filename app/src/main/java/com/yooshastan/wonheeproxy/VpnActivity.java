@@ -75,6 +75,7 @@ public final class VpnActivity extends Activity {
     private Config pendingConnection;
     private boolean updatingList;
     private boolean visible;
+    private boolean quickActionConsumed;
     private boolean statisticsPending;
     private boolean diagnosticsRunning;
     private boolean homeServiceProbeRunning;
@@ -461,6 +462,72 @@ public final class VpnActivity extends Activity {
         }
         pollHandler.removeCallbacks(poll);
         pollHandler.post(poll);
+        if (!quickActionConsumed) {
+            quickActionConsumed = true;
+            String action = getIntent().getStringExtra("wonhee.quick.action");
+            getIntent().removeExtra("wonhee.quick.action");
+            if ("import".equals(action) || "start".equals(action)
+                    || "stop".equals(action)) {
+                scrollQuickAction(action);
+            }
+        }
+    }
+
+    private void scrollQuickAction(String action) {
+        // Explicit user navigation from Home; never auto-executes on cold launch.
+        if ("import".equals(action)) {
+            if (session != null && session.isConnected()) {
+                new AlertDialog.Builder(this).setTitle("Disconnect to add a tunnel")
+                        .setMessage("Android's single VPN connection is running. "
+                                + "Disconnect before importing or changing a profile.")
+                        .setPositiveButton("OK", null).show();
+                return;
+            }
+            chooseConfig(); // Android's system file picker, not a legacy settings page.
+            return;
+        }
+        if (session == null || session.isBusy()) return;
+        if ("stop".equals(action)) {
+            if (!session.isConnected()) {
+                message.setText("The Android VPN is already stopped.");
+                return;
+            }
+            if (session.isAlwaysOn()) {
+                new AlertDialog.Builder(this).setTitle("Managed by Android")
+                        .setMessage("Disable Always-on VPN in Android Settings before "
+                                + "disconnecting this connection.")
+                        .setPositiveButton("Open VPN settings", (d, w) ->
+                                openSystemVpnSettings())
+                        .setNegativeButton("Cancel", null).show();
+                return;
+            }
+            new AlertDialog.Builder(this).setTitle("Disconnect VPN?")
+                    .setMessage("Internet traffic may resume without VPN protection "
+                            + "unless Android's Block connections without VPN is enabled.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Stop", (d, w) -> stopTunnel())
+                    .show();
+            return;
+        }
+        if (session.isConnected()) return;
+        if (profiles.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Add your first tunnel")
+                    .setMessage("Choose a WireGuard configuration to connect.")
+                    .setPositiveButton("Add tunnel", (d, w) -> chooseConfig())
+                    .setNegativeButton("Cancel", null).show();
+        } else if (profiles.size() == 1) {
+            selectTunnelForConnection(0);
+            savedPicker.post(this::confirmConnect);
+        } else {
+            String[] names = new String[profiles.size()];
+            for (int i = 0; i < names.length; i++) names[i] = profiles.get(i).name;
+            new AlertDialog.Builder(this).setTitle("Choose a VPN tunnel")
+                    .setItems(names, (dialog, which) -> {
+                        selectTunnelForConnection(which);
+                        savedPicker.post(this::confirmConnect);
+                    })
+                    .setNegativeButton("Cancel", null).show();
+        }
     }
 
     @Override protected void onPause() {
