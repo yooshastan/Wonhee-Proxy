@@ -595,8 +595,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
         LinearLayout safety = card(content);
         text(safety, "PRIVACY FIRST", 15, PINK);
-        text(safety, "One VPN connection at a time in Standard mode. "
-                + "Wonhee does not silently switch to a direct connection.", 14, WHITE);
+        text(safety, "One Android VPN connection at a time. "
+                + "The active profile determines which traffic is included; "
+                + "split routes may leave other traffic outside the VPN.", 14, WHITE);
         text(safety, "For protection during disconnections, enable Android's "
                 + "Always-on VPN and Block connections without VPN in system settings. "
                 + "Verify this before relying on fail-closed protection.", 12, MUTED);
