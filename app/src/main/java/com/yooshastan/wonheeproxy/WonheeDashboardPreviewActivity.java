@@ -100,7 +100,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
         TextView name = text(page, "✦ WONHEE", 26, PINK);
         name.setContentDescription("Wonhee Proxy");
-        text(page, "Private by default. In control when you need it.", 13, MUTED);
+        text(page, "Your network, under your control.", 13, MUTED);
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -122,6 +122,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         visible = true;
         traffic.reset();
         liveRates = null;
+        lastSnapshot = null; // Never show an old protection snapshot after backgrounding.
         loadSavedProfiles();
         refreshSnapshot();
     }
