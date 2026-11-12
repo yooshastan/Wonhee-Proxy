@@ -62,6 +62,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private ScrollView dashboardScroll;
     private static final String UI_PREFS = "wonhee_everyday_ui_v1";
     private static final String ROOT_MODE_KEY = "root_mode";
+    private static final String ROOT_STATE_WARNING_KEY = "root_state_unverified";
     private static final String TAB_KEY = "selected_tab";
 
     @Override public void onCreate(Bundle state) {
@@ -579,11 +580,22 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     }
 
     private void standardHome() {
+        if (getSharedPreferences(UI_PREFS, MODE_PRIVATE)
+                .getBoolean(ROOT_STATE_WARNING_KEY, false)) {
+            LinearLayout warning = card(content);
+            text(warning, "ROOT STATE NOT VERIFIED", 16, PINK);
+            text(warning, "An earlier rooted workspace has not been confirmed "
+                    + "cleanly stopped. Android VPN status below does not describe "
+                    + "kernel VPN tunnels, routing or DNS rules. Do not assume that "
+                    + "all rooted networking is off.", 13, WHITE);
+            button(warning, "Check rooted network", this::requestRootWorkspace);
+        }
         Boolean connected = standardVpnConnected();
         LinearLayout hero = card(content);
         text(hero, "YOUR VPN", 12, LAVENDER);
-        text(hero, connected == null ? "Status unavailable"
-                : connected ? "VPN interface active" : "VPN disconnected", 23, WHITE);
+        text(hero, connected == null ? "Android VPN status unknown"
+                : connected ? "Android VPN interface active"
+                        : "Android VPN disconnected", 21, WHITE);
         text(hero, connected == null
                 ? "Could not read the Android VPN engine. Open connection controls."
                 : connected ? "A tunnel interface is active. Encryption, DNS and "
@@ -686,8 +698,11 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         traffic.reset();
         tab = 0;
         lastRenderedTab = -1;
-        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
-                .putBoolean(ROOT_MODE_KEY, enabled).putInt(TAB_KEY, 0).apply();
+        SharedPreferences.Editor choice =
+                getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                        .putBoolean(ROOT_MODE_KEY, enabled).putInt(TAB_KEY, 0);
+        if (enabled) choice.putBoolean(ROOT_STATE_WARNING_KEY, false);
+        choice.apply();
         handler.removeCallbacks(refresh);
         loadSavedProfiles();
         refreshSnapshot();
@@ -734,22 +749,31 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                         && "OFF".equals(session.guardLedgerStatus());
                 if (!clean) {
                     new AlertDialog.Builder(this)
-                            .setTitle("Root workspace still needs attention")
-                            .setMessage("Wonhee cannot confirm an idle root network "
-                                    + "with no recorded DNS or guard policy. Remain in "
-                                    + "Root mode, use Safe Controls to audit and stop "
-                                    + "the stack, then switch views. No network changes "
-                                    + "were made.")
-                            .setPositiveButton("Open Safe Controls", (d, w) -> openRootTab(0))
-                            .setNegativeButton("Not now", null).show();
+                            .setTitle("Root network may still be active")
+                            .setMessage("Wonhee cannot verify a clean root stop. "
+                                    + "Standard mode shows only the Android VPN, "
+                                    + "not existing kernel tunnels, DNS or routing rules. "
+                                    + "Use Safe Controls first when possible. "
+                                    + "Switching anyway will keep a clear warning "
+                                    + "on Standard Home; it changes no network settings.")
+                            .setNeutralButton("Safe Controls", (d, w) -> openRootTab(0))
+                            .setNegativeButton("Stay in Root mode", null)
+                            .setPositiveButton("Switch with warning", (d, w) -> {
+                                getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                                        .putBoolean(ROOT_STATE_WARNING_KEY, true).apply();
+                                setRootMode(false);
+                            }).show();
                     return;
                 }
                 new AlertDialog.Builder(this).setTitle("Change to Standard view?")
                         .setMessage("The saved root profiles remain available. "
                                 + "This switches only the interface.")
                         .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Switch view", (d, w) -> setRootMode(false))
-                        .show();
+                        .setPositiveButton("Switch view", (d, w) -> {
+                            getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                                    .putBoolean(ROOT_STATE_WARNING_KEY, false).apply();
+                            setRootMode(false);
+                        }).show();
             });
             showNotificationControl(group);
         } else {
