@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.content.Intent;
+import android.net.Uri;
+import java.io.InputStream;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Build;
@@ -52,6 +54,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private static final String DNS_CHECKPOINT_KEY = "aggregate-only";
     private static final String ROOT_NOTIFICATION_PREFS = "wonhee_root_traffic_notification";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 8452;
+    private static final int REQUEST_HOSTS_FILE = 8562;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = this::refreshSnapshot;
@@ -61,6 +64,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private final RootDashboardTelemetry traffic = new RootDashboardTelemetry();
     private TunnelTrafficRates.Result liveRates;
     private boolean dnsDetailsExpanded;
+    private String hostsFileStatus = "Checking saved lists…";
+    private int hostsStatusGeneration;
+    private boolean hostsImportBusy;
     private int relaySeenPid = -1;
     private long relaySeenBlocked = -1;
     private String relayCounterEvent = "Awaiting verified relay counters";
@@ -160,6 +166,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         liveRates = null;
         lastSnapshot = null; // Never show an old protection snapshot after backgrounding.
         loadSavedProfiles();
+        refreshHostsFileSummary();
         refreshSnapshot();
     }
 
@@ -677,57 +684,142 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     }
 
     private void protectionTab() {
-        LinearLayout group = card(content);
-        text(group, "DNS PROTECTION", 16, PINK);
-        protectionRow(group, "Local DNS relay", dnsState());
-        protectionRow(group, "Ad & tracker filtering", blockState());
-        protectionRow(group, "DNS-port firewall", dnsFirewallLedgerState());
-        button(group, "DNS & filtering controls", () -> openRootTab(2));
-        button(group, dnsDetailsExpanded ? "Hide technical protection details"
-                : "Show technical protection details", () -> {
-            dnsDetailsExpanded = !dnsDetailsExpanded;
-            render();
-        });
-        if (dnsDetailsExpanded) {
-            protectionRow(group, "Connections",
-                    lastSnapshot == null ? "Checking…"
-                    : lastSnapshot.verifiedTunnels + " verified tunnels");
-            protectionRow(group, "Routing", "Details in Safe Controls");
-            protectionRow(group, "All-traffic kill switch", killSwitchState());
-            text(group, "DNS-port enforcement is not an all-traffic kill switch. "
-                    + "Live firewall verification requires a separate audit; "
-                    + "the route ledger alone is not proof. DNS blocks count "
-                    + "only requests reaching the local relay.", 12, MUTED);
+        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
+        LinearLayout dns = card(content);
+        text(dns, "DNS", 18, PINK);
+        text(dns, "Encrypted DNS", 14, WHITE);
+        text(dns, snapshot == null ? "Checking…" : snapshot.dnsVerified
+                ? "Verified local relay" : "Off or not verified", 13, MUTED);
+        text(dns, "Ad & tracker blocking", 14, WHITE);
+        text(dns, snapshot == null ? "Checking…" : !snapshot.dnsVerified
+                ? "Not verified" : snapshot.trackerEnabled ? "On" : "Off",
+                13, MUTED);
+        if (snapshot != null && snapshot.dnsVerified && snapshot.trackerEnabled
+                && snapshot.blocked != null) {
+            text(dns, blockedCount() + " blocked requests", 16, LAVENDER);
+            text(dns, "Counted by this DNS relay since it started.", 11, MUTED);
         }
-        RootMultiKernelSession.RootTrafficSnapshot dns = lastSnapshot;
-        LinearLayout totals = card(content);
-        text(totals, "DNS & AD-BLOCK ACTIVITY", 16, PINK);
-        if (dns != null && dns.dnsVerified && dns.dnsCounters != null) {
-            text(totals, "Received: " + dns.dnsCounters.received
-                    + "  ·  Forwarded: " + dns.dnsCounters.forwarded, 14, WHITE);
-            text(totals, "Blocked: " + blockedCount()
-                    + "  ·  Failed: " + dns.dnsCounters.failed, 14, LAVENDER);
-        } else {
-            text(totals, "DNS relay counters unavailable or unverified.", 14, MUTED);
+
+        LinearLayout hosts = card(content);
+        text(hosts, "HOSTS FILE", 16, PINK);
+        text(hosts, hostsFileStatus, 14, WHITE);
+        button(hosts, "Import hosts file", this::openHostsFilePicker);
+        text(hosts, "Accepts hosts.txt or one domain per line. "
+                + "Saved lists apply the next time DNS is started with filtering on.",
+                12, MUTED);
+
+        LinearLayout more = card(content);
+        text(more, "MORE PROTECTION", 15, PINK);
+        protectionRow(more, "Kill switch", RootGuardSafetyGate.activationPaused()
+                ? "Not available yet" : "Not yet verified for everyday use");
+        secondaryButton(more, "Advanced DNS settings", () -> openRootTab(2));
+    }
+
+    /** Hosts files are stored offline; this never switches DNS or firewall rules. */
+    private void refreshHostsFileSummary() {
+        if (!rootMode || hostsImportBusy) return;
+        final int generation = ++hostsStatusGeneration;
+        new Thread(() -> {
+            String status;
+            try {
+                RootBlocklistStore.Snapshot saved =
+                        RootBlocklistStore.current(getApplicationContext().getFilesDir());
+                status = saved == null ? "No hosts file imported"
+                        : saved.domains.size() + " blocked domains saved";
+            } catch (Exception invalid) {
+                status = "Saved hosts file could not be verified";
+            }
+            final String result = status;
+            runOnUiThread(() -> {
+                if (generation != hostsStatusGeneration || !visible
+                        || isFinishing() || isDestroyed()) return;
+                hostsFileStatus = result;
+                if (tab == 2) render();
+            });
+        }, "wonhee-hosts-status").start();
+    }
+
+    private void openHostsFilePicker() {
+        if (!rootMode || session == null) return;
+        if (hostsImportBusy || session.isBusy()
+                || !"OFF".equals(session.dnsLedgerStatus())) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Stop DNS before changing the hosts file")
+                    .setMessage("The imported list can only be replaced when "
+                            + "the rooted DNS policy is stopped. Use Safe Stop "
+                            + "or disable and audit DNS protection first.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("DNS controls", (d, w) -> openRootTab(2))
+                    .show();
+            return;
         }
-        if (dns != null && dns.dnsVerified && dns.dnsCounters != null
-                && dns.trackerEnabled && dns.dnsCounters.received > 0) {
-            double percent = 100.0 * dns.dnsCounters.blocked
-                    / dns.dnsCounters.received;
-            text(totals, String.format(java.util.Locale.ROOT,
-                    "Blocked %.1f%% of requests observed by this relay", percent),
-                    13, LAVENDER);
+        Intent file = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        file.addCategory(Intent.CATEGORY_OPENABLE);
+        file.setType("*/*");
+        file.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivityForResult(file, REQUEST_HOSTS_FILE);
+        } catch (RuntimeException unavailable) {
+            new AlertDialog.Builder(this).setTitle("File picker unavailable")
+                    .setMessage("Android could not open a file picker on this device.")
+                    .setPositiveButton("OK", null).show();
         }
-        text(totals, relayCounterEvent, 12, LAVENDER);
-        text(totals, "Only requests reaching this relay are counted. Browser or "
-                + "app-owned encrypted DNS may bypass local filtering.", 12, MUTED);
-        LinearLayout continuity = card(content);
-        text(continuity, "DNS BASELINE · READ-ONLY COMPARISON", 15, PINK);
-        text(continuity, dnsBaselineComparison(), 13, WHITE);
-        text(continuity, "The saved baseline compares a verified relay process "
-                + "and aggregate counters. It is not continuous monitoring "
-                + "or proof of leak prevention.", 12, MUTED);
-        showDnsCoverage();
+    }
+
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != REQUEST_HOSTS_FILE || result != RESULT_OK
+                || data == null || data.getData() == null) return;
+        if (!rootMode || session == null || hostsImportBusy
+                || session.isBusy() || !"OFF".equals(session.dnsLedgerStatus())) {
+            new AlertDialog.Builder(this).setTitle("Import not started")
+                    .setMessage("DNS state changed or another network operation "
+                            + "is running. No hosts list was replaced.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        final Uri selected = data.getData();
+        final int generation = ++hostsStatusGeneration;
+        hostsImportBusy = true;
+        hostsFileStatus = "Importing and checking file…";
+        render();
+        new Thread(() -> {
+            String status;
+            boolean success;
+            try {
+                if (session.isBusy() || !"OFF".equals(session.dnsLedgerStatus())) {
+                    throw new IllegalStateException("DNS policy changed");
+                }
+                try (InputStream stream = getContentResolver().openInputStream(selected)) {
+                    RootBlocklistStore.Snapshot saved = RootBlocklistStore.importFrom(
+                            getApplicationContext().getFilesDir(), stream);
+                    status = saved.domains.size() + " blocked domains saved";
+                    success = true;
+                }
+            } catch (Exception failure) {
+                status = "Import failed; previous list kept";
+                success = false;
+            }
+            final boolean imported = success;
+            final String finalStatus = status;
+            runOnUiThread(() -> {
+                hostsImportBusy = false;
+                if (generation != hostsStatusGeneration || isFinishing()
+                        || isDestroyed()) return;
+                hostsFileStatus = finalStatus;
+                if (tab == 2) render();
+                new AlertDialog.Builder(this)
+                        .setTitle(imported ? "Hosts file saved" : "Could not import file")
+                        .setMessage(imported ? finalStatus + ". "
+                                + "Your running network was not changed. "
+                                + "The list is available at the next explicit DNS "
+                                + "start with tracker filtering enabled."
+                                : "Choose a hosts.txt or plain domain list "
+                                + "under 20 MiB and 250,000 unique domains. "
+                                + "Your previous saved list was retained.")
+                        .setPositiveButton("OK", null).show();
+            });
+        }, "wonhee-hosts-import").start();
     }
 
     private void activityTab() {
@@ -881,22 +973,16 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     }
 
     private void standardProtection() {
-        LinearLayout group = card(content);
-        text(group, "PROTECTION", 18, PINK);
-        text(group, "Privacy-first connection controls", 15, WHITE);
-        Boolean active = standardVpnConnected();
-        protectionRow(group, "VPN interface", active == null
-                ? "Unknown" : active ? "Active · traffic protection not audited"
-                        : "Disconnected");
-        protectionRow(group, "Disconnect protection",
-                "Use Android's Always-on and Block connections without VPN settings");
-        protectionRow(group, "DNS / ad blocking",
-                "Depends on your active VPN configuration · not verified here");
-        protectionRow(group, "Wonhee all-traffic kill switch",
-                "Not yet released or verified");
-        button(group, "Android VPN & lockdown settings", this::openSystemVpnSettings);
-        text(group, "Wonhee does not claim that an active VPN interface alone "
-                + "guarantees leak-free traffic.", 12, MUTED);
+        LinearLayout dns = card(content);
+        text(dns, "DNS", 18, PINK);
+        protectionRow(dns, "DNS server", "Controlled by your selected VPN profile");
+        protectionRow(dns, "DNS protection", "Not independently verified");
+        protectionRow(dns, "Hosts file filtering", "Requires rooted DNS mode");
+
+        LinearLayout safety = card(content);
+        text(safety, "CONNECTION SAFETY", 15, PINK);
+        protectionRow(safety, "Kill switch", "Use Android VPN lockdown");
+        secondaryButton(safety, "Android VPN settings", this::openSystemVpnSettings);
     }
 
     private void standardActivity() {
