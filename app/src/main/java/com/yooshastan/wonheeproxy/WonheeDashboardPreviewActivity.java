@@ -14,6 +14,13 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.view.WindowInsets;
 import android.widget.ImageView;
+import android.widget.CheckBox;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.content.res.ColorStateList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -68,6 +75,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private static final String ROOT_MODE_KEY = "root_mode";
     private static final String ROOT_STATE_WARNING_KEY = "root_state_unverified";
     private static final String TAB_KEY = "selected_tab";
+    private static final String QUICK_SELECTION_KEY = "last_quick_profiles";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -399,6 +407,81 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
     }
 
+
+    /** A persistent, named tunnel selection. Never changes a running route. */
+    private Set<String> chosenRootTunnels() {
+        SharedPreferences prefs = getSharedPreferences(UI_PREFS, MODE_PRIVATE);
+        Set<String> existing = prefs.getStringSet(QUICK_SELECTION_KEY, null);
+        if (existing != null) return new LinkedHashSet<>(existing);
+
+        // New user-friendly default: at most one internet exit and one private
+        // destination. Additional profiles are opt-in; no routes are activated.
+        Set<String> suggested = new LinkedHashSet<>();
+        boolean hasInternet = false;
+        boolean hasPrivate = false;
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            if (!hasInternet && (profile.role == SecureTunnelProfileStore.Profile.ROLE_INTERNET
+                    || profile.routeMode == VpnRouteModes.ALL)) {
+                suggested.add(profile.name);
+                hasInternet = true;
+            } else if (!hasPrivate && (profile.role == SecureTunnelProfileStore.Profile.ROLE_HOME
+                    || profile.routeMode == VpnRouteModes.HOME)) {
+                suggested.add(profile.name);
+                hasPrivate = true;
+            }
+        }
+        if (suggested.isEmpty() && !profiles.isEmpty()) suggested.add(profiles.get(0).name);
+        prefs.edit().putStringSet(QUICK_SELECTION_KEY, suggested).apply();
+        return suggested;
+    }
+
+    private void chooseRootTunnel(String name, boolean choose) {
+        Set<String> chosen = chosenRootTunnels();
+        if (choose) chosen.add(name);
+        else chosen.remove(name);
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                .putStringSet(QUICK_SELECTION_KEY, chosen).apply();
+        // No network operations. Leave the current scroll and checkbox state alone.
+    }
+
+    /** Selection belongs on Home rather than in the advanced connection laboratory. */
+    private void showQuickTunnelPicker(LinearLayout parent, boolean includeStatus) {
+        if (profileStoreError) {
+            text(parent, "Saved tunnels unavailable — check secure storage.", 13, MUTED);
+            return;
+        }
+        if (profiles.isEmpty()) {
+            text(parent, "No tunnels yet. Add a WireGuard configuration above.", 13, MUTED);
+            return;
+        }
+        Set<String> selected = chosenRootTunnels();
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setPadding(dp(10), dp(4), dp(10), dp(4));
+            item.setBackground(tint(SURFACE_ALT, 12));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.bottomMargin = dp(6);
+            parent.addView(item, lp);
+            CheckBox check = new CheckBox(this);
+            check.setText(profile.name);
+            check.setTextColor(WHITE);
+            check.setTextSize(15);
+            check.setButtonTintList(ColorStateList.valueOf(PINK));
+            check.setMinHeight(dp(48));
+            check.setChecked(selected.contains(profile.name));
+            check.setOnCheckedChangeListener((view, checked) ->
+                    chooseRootTunnel(profile.name, checked));
+            item.addView(check);
+            if (includeStatus) {
+                String purpose = profile.routeMode == VpnRouteModes.ALL
+                        ? "Internet exit" : profile.routeMode == VpnRouteModes.HOME
+                        ? "Private destinations" : "Custom routes";
+                text(item, purpose, 11, MUTED);
+            }
+        }
+    }
+
     private void home() {
         RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
         boolean known = snapshot != null && snapshot.rootsAvailable;
@@ -415,6 +498,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         primary.setMinHeight(dp(72));
         primary.setEnabled(known);
         secondaryButton(hero, "＋  Add tunnel", this::openTunnelImporter);
+
+        text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
+        showQuickTunnelPicker(hero, false);
 
         String status = "Checking your connection…";
         if (known && snapshot.presentTunnels == 0) {
@@ -434,21 +520,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             text(hero, profiles.size() + " saved connection"
                     + (profiles.size() == 1 ? "" : "s"), 12, MUTED);
         }
-
-        LinearLayout stack = card(content);
-        text(stack, "YOUR TUNNELS", 15, PINK);
-        if (profileStoreError) {
-            text(stack, "Unable to read encrypted profiles.", 13, MUTED);
-        } else if (profiles.isEmpty()) {
-            text(stack, "Add a WireGuard profile to get started.", 13, MUTED);
-        } else {
-            int shown = Math.min(2, profiles.size());
-            for (int i = 0; i < shown; i++) showProfile(stack, profiles.get(i));
-            if (profiles.size() > shown) {
-                text(stack, "+" + (profiles.size() - shown) + " more", 12, LAVENDER);
-            }
-        }
-        secondaryButton(stack, "See all tunnels", () -> selectTab(1));
 
         LinearLayout protection = card(content);
         text(protection, "PROTECTION", 15, PINK);
@@ -470,22 +541,35 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
         if (snapshot == null || !snapshot.rootsAvailable) {
             new AlertDialog.Builder(this).setTitle("Connection status unavailable")
-                    .setMessage("Wonhee cannot safely decide which action to offer. "
-                            + "Inspect current tunnel identities before changing the network.")
+                    .setMessage("Wonhee cannot verify your active tunnels. "
+                            + "Inspect the connection before changing it.")
                     .setPositiveButton("Connection controls", (d, w) -> openRootTab(0))
                     .setNegativeButton("Cancel", null).show();
             return;
         }
+        ArrayList<String> chosen = new ArrayList<>();
+        if ("stop".equals(action)) {
+            // Always propose stopping EVERY detected verified tunnel. Do not
+            // confuse the next-start selection with current active connections.
+            for (RootMultiKernelSession.TunnelStatus tunnel : snapshot.tunnels) {
+                if (tunnel.present && tunnel.verified) chosen.add(tunnel.name);
+            }
+        } else {
+            Set<String> selected = chosenRootTunnels();
+            for (SecureTunnelProfileStore.Profile profile : profiles) {
+                if (selected.contains(profile.name)) chosen.add(profile.name);
+            }
+            if (chosen.isEmpty()) {
+                new AlertDialog.Builder(this).setTitle("Choose a tunnel")
+                        .setMessage("Select at least one tunnel on Home, then press Start.")
+                        .setPositiveButton("OK", null).show();
+                return;
+            }
+        }
         Intent intent = new Intent(this, RootMultiKernelActivity.class);
         intent.putExtra("wonhee.lab.tab", 0);
         intent.putExtra("wonhee.quick.action", action);
-        if ("stop".equals(action)) {
-            ArrayList<String> active = new ArrayList<>();
-            for (RootMultiKernelSession.TunnelStatus tunnel : snapshot.tunnels) {
-                if (tunnel.present && tunnel.verified) active.add(tunnel.name);
-            }
-            intent.putStringArrayListExtra("wonhee.quick.profiles", active);
-        }
+        intent.putStringArrayListExtra("wonhee.quick.profiles", chosen);
         startActivity(intent);
     }
 
@@ -544,37 +628,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         LinearLayout group = card(content);
         text(group, "YOUR TUNNELS", 16, PINK);
         button(group, "＋  Add tunnel", this::openTunnelImporter);
-        text(group, "Use your own connection names. HOME, Work, Media and Internet are "
-                + "optional roles, not required labels.", 13, MUTED);
-        if (profileStoreError) {
-            text(group, "Encrypted profile store could not be read.", 13, MUTED);
-        } else if (profiles.isEmpty()) {
-            text(group, "No saved profiles.", 13, MUTED);
-        } else if (lastSnapshot == null || !lastSnapshot.rootsAvailable) {
-            for (SecureTunnelProfileStore.Profile profile : profiles) {
-                text(group, profile.name + " · live health unavailable", 14, MUTED);
-            }
-        } else {
-            for (RootMultiKernelSession.TunnelStatus tunnel : lastSnapshot.tunnels) {
-                LinearLayout item = card(group);
-                text(item, tunnel.name, 16, PINK);
-                text(item, !tunnel.present ? "Stopped / not detected"
-                        : !tunnel.verified ? "Identity not verified — investigate"
-                        : "Kernel identity verified · interface UP", 13,
-                        tunnel.verified ? WHITE : MUTED);
-                if (tunnel.verified) {
-                    text(item, "Last handshake: " + tunnel.handshake
-                            + " · idle is not a failure", 12, MUTED);
-                    text(item, tunnel.received == null || tunnel.sent == null
-                            ? "RX/TX unavailable"
-                            : "RX " + TunnelTrafficRates.formatTotal(tunnel.received)
-                              + " · TX " + TunnelTrafficRates.formatTotal(tunnel.sent),
-                            13, WHITE);
-                }
-            }
-            text(group, "These are periodic snapshots, not per-tunnel live "
-                    + "speeds or end-to-end connection tests.", 12, MUTED);
-        }
+        text(group, "Choose which tunnels Start uses on Home.", 12, MUTED);
+        showQuickTunnelPicker(group, true);
         button(group, "Manage tunnel connections & routes", () -> openRootTab(1));
         secondaryButton(group, "Edit imported profiles", this::openVpnManager);
         text(group, "Current backend: one default exit plus compatible "
