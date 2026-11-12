@@ -136,13 +136,16 @@ public final class VpnActivity extends Activity {
         setContentView(scroll);
 
         label(root, "WONHEE PROXY", 28, PINK);
-        label(root, "WireGuard VPN · single + multiple connections", 15, MUTED);
-        Button rootDashboard = button(root,
-                "✦ Open Candy Pink multi-connection dashboard");
-        rootDashboard.setOnClickListener(v -> startActivity(
-                new Intent(this, WonheeDashboardPreviewActivity.class)));
-        label(root, "New dashboard is read-only for connections; existing Connect "
-                + "and Safe Stop remain in Advanced Controls.", 12, MUTED);
+        label(root, "Standard WireGuard connection manager", 15, MUTED);
+        Button rootDashboard = button(root, "← Return to Wonhee Home");
+        rootDashboard.setOnClickListener(v -> {
+            Intent home = new Intent(this, WonheeDashboardPreviewActivity.class);
+            home.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(home);
+            finish();
+        });
+        label(root, "This screen controls the single Android VPN connection. "
+                + "Rooted multi-tunnel controls live in the advanced workspace.", 12, MUTED);
 
         LinearLayout dashboard = card(root);
         connectionStatus = label(dashboard, "Disconnected", 22, WHITE);
@@ -263,8 +266,11 @@ public final class VpnActivity extends Activity {
                 + "manage two independent kernel tunnels in the experimental control center.", 12, MUTED);
         importButton = button(configCard, "Import WireGuard .conf files");
         importButton.setOnClickListener(v -> chooseConfig());
-        Button rootDualLab = button(configCard, "Open root control center · 2 tunnels");
-        rootDualLab.setOnClickListener(v -> startActivity(new Intent(this, RootDualKernelActivity.class)));
+        Button rootDualLab = button(configCard, "Legacy rooted 2-tunnel controls");
+        rootDualLab.setVisibility(getSharedPreferences("wonhee_everyday_ui_v1",
+                MODE_PRIVATE).getBoolean("root_mode", false) ? View.VISIBLE : View.GONE);
+        rootDualLab.setOnClickListener(v -> startActivity(
+                new Intent(this, RootDualKernelActivity.class)));
         tunnelList = new LinearLayout(this);
         tunnelList.setOrientation(LinearLayout.VERTICAL);
         configCard.addView(tunnelList);
