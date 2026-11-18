@@ -297,6 +297,17 @@ public final class AppRoutingActivity extends Activity {
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
+        int count;
+        try {
+            count = drafts.protocolRules(app.pkg).size();
+        } catch (RuntimeException invalid) {
+            count = 0;
+        }
+        button(row, "Protocol rules · " + count + " · preview", () -> {
+            Intent intent = new Intent(this, AppProtocolRulesActivity.class);
+            intent.putExtra(AppProtocolRulesActivity.EXTRA_PACKAGE, app.pkg);
+            startActivity(intent);
+        });
     }
 
     private String plannedTunnelLabel(int category) {
@@ -373,6 +384,19 @@ public final class AppRoutingActivity extends Activity {
                 + "enable them together. Category routing and traffic-type "
                 + "rules require separate kernel/firewall/DNS validation "
                 + "and are intentionally disabled.", 12, MUTED);
+        button(tabContent, "Review app + protocol policy · read only", () -> {
+            // The review parses encrypted profiles and current package UIDs;
+            // keep this work off the UI thread. No root or network access.
+            new Thread(() -> {
+                final String report = RootAppUidReadiness.describe(this);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    new AlertDialog.Builder(this).setTitle("Routing readiness · DRY RUN")
+                            .setMessage(report)
+                            .setPositiveButton("OK", null).show();
+                });
+            }, "wonhee-uid-protocol-review").start();
+        });
     }
 
     private Spinner selector(LinearLayout parent, String[] labels) {
