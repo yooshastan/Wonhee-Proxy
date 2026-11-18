@@ -433,7 +433,8 @@ public final class AppRoutingActivity extends Activity {
         TextView presetPreview = text(popular, "", 12, MUTED);
         Runnable refreshPreset = () -> {
             RootCommonProtocolPresets.Preset p =
-                    RootCommonProtocolPresets.get(presetPicker.getSelectedItemPosition());
+                    RootCommonProtocolPresets.get(
+                            Math.max(0, presetPicker.getSelectedItemPosition()));
             presetPreview.setText(p.explanation + "\nPorts: " + p.selectorsLabel());
         };
         presetPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
