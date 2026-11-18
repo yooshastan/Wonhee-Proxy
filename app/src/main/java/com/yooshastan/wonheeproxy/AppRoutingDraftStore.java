@@ -5,8 +5,12 @@ import android.content.SharedPreferences;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -21,6 +25,7 @@ final class AppRoutingDraftStore {
     private static final String PREFS = "wonhee_app_routing_draft_v1";
     private static final String APPS = "app_category_assignments";
     private static final String TUNNELS = "category_tunnel_assignments";
+    private static final String PROTOCOLS = "app_protocol_overrides";
     private static final int MAX_APP_OVERRIDES = 512;
     private static final int MAX_STRING_BYTES = 65000;
     private final SharedPreferences prefs;
@@ -84,6 +89,109 @@ final class AppRoutingDraftStore {
         }
         if (!prefs.edit().putString(APPS, encoded).commit()) {
             throw new IllegalStateException("Could not persist app assignment.");
+        }
+    }
+
+    /** Local, explicit TCP/UDP + destination-port drafts. No packet rules. */
+    synchronized List<RootProtocolRouteDraft.Override> protocolRules(String packageName) {
+        if (!AppUseCategories.validPackageName(packageName)) {
+            throw new IllegalArgumentException("Invalid app package.");
+        }
+        JSONArray raw = read(PROTOCOLS).optJSONArray(packageName);
+        if (raw == null) return Collections.emptyList();
+        List<RootProtocolRouteDraft.Override> parsed = new ArrayList<>();
+        for (int i = 0; i < raw.length(); i++) {
+            JSONObject rule = raw.optJSONObject(i);
+            if (rule == null) {
+                throw new IllegalStateException("Saved protocol rule is invalid.");
+            }
+            parsed.add(new RootProtocolRouteDraft.Override(packageName,
+                    rule.optInt("transport", -1),
+                    rule.optInt("destinationPort", -1),
+                    rule.optString("tunnel", "")));
+        }
+        return RootProtocolRouteDraft.validateAndSort(parsed);
+    }
+
+    synchronized List<RootProtocolRouteDraft.Override> allProtocolRules() {
+        JSONObject json = read(PROTOCOLS);
+        List<RootProtocolRouteDraft.Override> all = new ArrayList<>();
+        java.util.Iterator<String> packages = json.keys();
+        while (packages.hasNext()) {
+            all.addAll(protocolRules(packages.next()));
+        }
+        return RootProtocolRouteDraft.validateAndSort(all);
+    }
+
+    synchronized void putProtocolRule(RootProtocolRouteDraft.Override override) {
+        if (override == null) {
+            throw new IllegalArgumentException("Missing transport rule.");
+        }
+        List<RootProtocolRouteDraft.Override> existing =
+                new ArrayList<>(protocolRules(override.packageName));
+        for (int i = 0; i < existing.size(); i++) {
+            RootProtocolRouteDraft.Override entry = existing.get(i);
+            if (entry.transport == override.transport
+                    && entry.destinationPort == override.destinationPort) {
+                existing.remove(i);
+                break;
+            }
+        }
+        existing.add(override);
+        saveProtocolRules(override.packageName,
+                RootProtocolRouteDraft.validateAndSort(existing));
+    }
+
+    synchronized void removeProtocolRule(String packageName, int transport, int port) {
+        List<RootProtocolRouteDraft.Override> remaining = new ArrayList<>();
+        for (RootProtocolRouteDraft.Override rule : protocolRules(packageName)) {
+            if (rule.transport != transport || rule.destinationPort != port) {
+                remaining.add(rule);
+            }
+        }
+        saveProtocolRules(packageName, remaining);
+    }
+
+    private void saveProtocolRules(String packageName,
+            List<RootProtocolRouteDraft.Override> overrides) {
+        if (!AppUseCategories.validPackageName(packageName)) {
+            throw new IllegalArgumentException("Invalid app package.");
+        }
+        JSONObject json = read(PROTOCOLS);
+        JSONArray rules = new JSONArray();
+        try {
+            for (RootProtocolRouteDraft.Override override : overrides) {
+                JSONObject row = new JSONObject();
+                row.put("transport", override.transport);
+                row.put("destinationPort", override.destinationPort);
+                row.put("tunnel", override.tunnelName);
+                rules.put(row);
+            }
+            if (rules.length() == 0) json.remove(packageName);
+            else json.put(packageName, rules);
+        } catch (JSONException invalid) {
+            throw new IllegalStateException("Unable to save protocol rule.");
+        }
+        int total = 0;
+        java.util.Iterator<String> keys = json.keys();
+        while (keys.hasNext()) {
+            String pkg = keys.next();
+            JSONArray rows = json.optJSONArray(pkg);
+            if (!AppUseCategories.validPackageName(pkg) || rows == null) {
+                throw new IllegalStateException("Saved protocol-rule group is invalid.");
+            }
+            total += rows.length();
+            if (rows.length() > RootProtocolRouteDraft.MAX_OVERRIDES_PER_APP
+                    || total > RootProtocolRouteDraft.MAX_OVERRIDES_TOTAL) {
+                throw new IllegalArgumentException("Too many saved transport rules.");
+            }
+        }
+        String encoded = json.toString();
+        if (encoded.length() > MAX_STRING_BYTES) {
+            throw new IllegalArgumentException("Transport rule storage is full.");
+        }
+        if (!prefs.edit().putString(PROTOCOLS, encoded).commit()) {
+            throw new IllegalStateException("Unable to persist transport rules.");
         }
     }
 
