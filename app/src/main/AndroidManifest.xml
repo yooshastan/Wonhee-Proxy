@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <queries>
+        <!-- Discover launchable apps for user-initiated local category setup.
+             Never request broad QUERY_ALL_PACKAGES visibility. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <package android:name="com.yooshastan.ultmessenger.foss.beta" />
         <package android:name="com.yooshastan.ultmessenger.foss" />
         <package android:name="com.yooshastan.ultmessenger" />
@@ -39,6 +45,7 @@
         <activity android:name=".VpnActivity" android:exported="true"
             android:finishOnTaskLaunch="true" />
         <activity android:name=".TunnelProfileSettingsActivity" android:exported="false" />
+        <activity android:name=".AppRoutingActivity" android:exported="false" />
         <!-- Android Always-on calls the WireGuard library's VpnService.
              WonheeApplication registers a callback to restore the last selected
              encrypted tunnel. Lockdown is controlled by Android Settings. -->
