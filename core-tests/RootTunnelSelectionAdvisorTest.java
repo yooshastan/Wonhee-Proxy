@@ -49,7 +49,7 @@ public final class RootTunnelSelectionAdvisorTest {
         refused("Only one default Internet exit", nl, us, home);
         refused("No Internet exit", home, work);
         refused("Specific destinations", nl);
-        refused("do not cover both IPv4", entry("IPv4 only",
+        refused("does not cover both IPv4", entry("IPv4 only",
                 "10.33.0.2/32", "0.0.0.0/0"), home);
         refused("overlap", nl, home, entry("Overlapping LAN",
                 "10.9.0.2/32", "10.0.0.0/25"));
