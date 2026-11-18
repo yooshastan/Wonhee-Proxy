@@ -466,10 +466,18 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         return selected;
     }
 
+    private static final String HOME_PRIMARY_KEY = "root_home_primary_exit";
+
+    private String preferredHomePrimary() {
+        return getSharedPreferences(UI_PREFS, MODE_PRIVATE)
+                .getString(HOME_PRIMARY_KEY, "");
+    }
+
     private String homeSelectionSummary() {
         try {
-            RootTunnelSelectionAdvisor.Review review =
-                    RootMultiKernelSession.reviewHomeSelection(selectedHomeProfiles());
+            RootTunnelStartSelection.Review review =
+                    RootMultiKernelSession.reviewMultiStartSelection(
+                            selectedHomeProfiles(), preferredHomePrimary());
             return review.message;
         } catch (Exception | LinkageError unavailable) {
             return "Saved routes could not be inspected. Review each tunnel's "
@@ -657,20 +665,51 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void beginHomeStartConfirmation(
             List<SecureTunnelProfileStore.Profile> chosen) {
-        // Inspect the REAL effective routes of every selected WireGuard
-        // profile, not just its category, friendly name or simple mode label.
-        // This is pure parsing/planning before any root/network mutation.
-        final RootTunnelSelectionAdvisor.Review reviewed;
+        final RootTunnelStartSelection.Review reviewed;
         try {
-            reviewed = RootMultiKernelSession.reviewHomeSelection(chosen);
+            reviewed = RootMultiKernelSession.reviewMultiStartSelection(
+                    chosen, preferredHomePrimary());
         } catch (Exception | LinkageError invalid) {
-            showSelectionNeedsAdjustment("A selected tunnel's encrypted "
-                    + "configuration or routing destinations cannot be "
-                    + "validated. Nothing was changed.");
+            showSelectionNeedsAdjustment("One of your saved tunnel configurations "
+                    + "could not be checked safely. No connection was started.");
+            return;
+        }
+        if (reviewed.needsPrimaryChoice) {
+            // The user can select several full-exit profiles, but only one
+            // can own today's global Internet default. Never silently choose
+            // which region will handle identity-sensitive traffic.
+            String[] names = reviewed.primaryChoices.toArray(new String[0]);
+            new AlertDialog.Builder(this)
+                    .setTitle("Choose your primary Internet exit")
+                    .setMessage("Additional Internet exits stay available "
+                            + "but won't connect until app-specific multi-exit "
+                            + "routing is verified. Destination-specific "
+                            + "tunnels can run alongside your primary exit.")
+                    .setItems(names, (dialog, which) -> {
+                        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                                .putString(HOME_PRIMARY_KEY, names[which]).apply();
+                        if (rootSelectionMessage != null && tab == 0) {
+                            rootSelectionMessage.setText(homeSelectionSummary());
+                        }
+                        beginHomeStartConfirmation(chosen);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
             return;
         }
         if (!reviewed.ready) {
             showSelectionNeedsAdjustment(reviewed.message);
+            return;
+        }
+        java.util.Set<String> activeNames =
+                new java.util.HashSet<>(reviewed.active);
+        ArrayList<SecureTunnelProfileStore.Profile> active = new ArrayList<>();
+        for (SecureTunnelProfileStore.Profile profile : chosen) {
+            if (activeNames.contains(profile.name)) active.add(profile);
+        }
+        if (active.size() != reviewed.active.size()) {
+            showSelectionNeedsAdjustment(
+                    "Some active profiles are no longer saved. Nothing changed.");
             return;
         }
         if (!"OFF".equals(session.guardLedgerStatus())
@@ -679,7 +718,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     + "before starting a new connection.");
             return;
         }
-        final String dnsProfile = reviewed.internetExit;
+        final String dnsProfile = reviewed.primary;
         final String protocol = "doh";
         final String endpoint = "https://cloudflare-dns.com/dns-query";
         final String bootstrap = "1.1.1.1";
@@ -696,9 +735,13 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("Start Wonhee?")
-                .setMessage(chosen.size() + " compatible tunnels will be checked and connected. "
-                        + reviewed.splitTunnelCount
-                        + " use specific destinations. Internet exit: " + dnsProfile
+                .setMessage(active.size() + " tunnel"
+                        + (active.size() == 1 ? "" : "s") + " will connect: "
+                        + String.join(", ", reviewed.active) + ". "
+                        + (reviewed.parked.isEmpty() ? "" :
+                                "NOT CONNECTED: " + String.join(", ", reviewed.parked)
+                                + " (extra unrestricted Internet exits). ")
+                        + "Primary Internet exit: " + dnsProfile
                         + ". DNS: Cloudflare encrypted DoH through that exit. "
                         + "Tracker blocking: " + (filter ? "On" : "Off") + ". "
                         + "Wonhee will verify DNS after connecting and attempt "
@@ -708,7 +751,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                         + "Keep USB ADB available during this test.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Start", (d, w) -> startHomeManagedStack(
-                        new ArrayList<>(chosen), dnsProfile, protocol,
+                        new ArrayList<>(active), dnsProfile, protocol,
                         endpoint, bootstrap, filter, custom, allow))
                 .show();
     }
