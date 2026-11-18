@@ -424,6 +424,76 @@ public final class AppRoutingActivity extends Activity {
                 + "still takes priority. These are drafts only—no traffic "
                 + "is currently routed, classified or inspected.", 12, MUTED);
 
+        LinearLayout popular = card(tabContent);
+        text(popular, "COMMON PROTOCOL PRESETS", 15, PINK);
+        text(popular, "Pick a familiar service. Wonhee will save its "
+                + "usual TCP/UDP destination ports, not inspect encrypted "
+                + "traffic. You can still create custom rules below.", 12, MUTED);
+        Spinner presetPicker = selector(popular, RootCommonProtocolPresets.labels());
+        TextView presetPreview = text(popular, "", 12, MUTED);
+        Runnable refreshPreset = () -> {
+            RootCommonProtocolPresets.Preset p =
+                    RootCommonProtocolPresets.get(
+                            Math.max(0, presetPicker.getSelectedItemPosition()));
+            presetPreview.setText(p.explanation + "\nPorts: " + p.selectorsLabel());
+        };
+        presetPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View item,
+                    int position, long id) {
+                refreshPreset.run();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        refreshPreset.run();
+        text(popular, "Use the tunnel assigned to this category", 12, MUTED);
+        Spinner presetCategory = selector(popular, AppUseCategories.LABELS);
+        button(popular, "Use these ports · save draft", () -> {
+            final RootCommonProtocolPresets.Preset chosen;
+            final java.util.List<RootCategoryProtocolRule.Rule> newRules;
+            final java.util.List<RootCategoryProtocolRule.Rule> currentRules;
+            try {
+                chosen = RootCommonProtocolPresets.get(
+                        presetPicker.getSelectedItemPosition());
+                newRules = chosen.rules(presetCategory.getSelectedItemPosition());
+                currentRules = drafts.categoryProtocolRules();
+            } catch (RuntimeException invalid) {
+                error("Unavailable preset", "The protocol rule could not be prepared.");
+                return;
+            }
+            int overlapping = 0;
+            for (RootCategoryProtocolRule.Rule fresh : newRules) {
+                for (RootCategoryProtocolRule.Rule old : currentRules) {
+                    if (fresh.transport == old.transport
+                            && fresh.destinationPort == old.destinationPort) {
+                        overlapping++;
+                        break;
+                    }
+                }
+            }
+            String explanation = chosen.label + " (" + chosen.selectorsLabel()
+                    + ") → " + AppUseCategories.label(presetCategory.getSelectedItemPosition())
+                    + ". " + (overlapping == 0 ? ""
+                        : overlapping + " existing port rule(s) will be replaced. ")
+                    + "This is a local draft only; no VPN traffic changes.";
+            new AlertDialog.Builder(this)
+                    .setTitle("Save common protocol ports?")
+                    .setMessage(explanation)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Save draft", (dialog, which) -> {
+                        try {
+                            drafts.putCategoryProtocolPreset(newRules);
+                            showGlobalProtocols();
+                        } catch (RuntimeException failed) {
+                            error("Preset not saved", "The rule set exceeds its "
+                                    + "limit or could not be saved. Existing "
+                                    + "rules remain unchanged.");
+                        }
+                    }).show();
+        });
+        text(popular, "No GPS preset: device location uses satellites, "
+                + "Wi-Fi/cell data and various online services—not one "
+                + "reliable network port.", 12, MUTED);
+
         List<RootCategoryProtocolRule.Rule> saved;
         try {
             saved = drafts.categoryProtocolRules();
@@ -460,7 +530,7 @@ public final class AppRoutingActivity extends Activity {
         }
 
         LinearLayout editor = card(tabContent);
-        text(editor, "NEW GLOBAL RULE", 15, PINK);
+        text(editor, "CUSTOM TCP / UDP RULE", 15, PINK);
         text(editor, "Transport", 12, MUTED);
         Spinner transport = selector(editor, new String[]{"TCP", "UDP"});
         text(editor, "Destination port", 12, MUTED);

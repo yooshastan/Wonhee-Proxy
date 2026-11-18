@@ -355,6 +355,27 @@ final class RootMultiKernelSession {
                 routeEntries(loadAll(profiles)), preferredPrimary);
     }
 
+    /**
+     * Friendly, read-only view of EFFECTIVE WireGuard AllowedIPs.
+     * Use this for imported profiles whose purpose label alone does not
+     * reveal whether they contain unrestricted default routes. No network
+     * mutations or profile changes; never print keys or private CIDRs.
+     */
+    static String effectiveRouteSummary(SecureTunnelProfileStore.Profile profile) {
+        try {
+            RootMultiTunnelPlan.Entry entry = load(profile).routes;
+            boolean v4 = entry.peerRoutes.contains("0.0.0.0/0");
+            boolean v6 = entry.peerRoutes.contains("::/0")
+                    || entry.peerRoutes.contains("0:0:0:0:0:0:0:0/0");
+            if (v4 && v6) return "Full Internet exit — one active default";
+            if (v4 || v6) return "Incomplete Internet exit — IPv4/IPv6 mismatch";
+            return entry.peerRoutes.isEmpty() ? "No destination routes"
+                    : "Specific destinations — can join compatible exits";
+        } catch (Exception | LinkageError invalid) {
+            return "Saved routes unavailable — check tunnel settings";
+        }
+    }
+
     private static void validate(List<Active> candidates) {
         List<RootMultiTunnelPlan.Entry> entries = new ArrayList<>();
         for (Active candidate : candidates) entries.add(candidate.routes);

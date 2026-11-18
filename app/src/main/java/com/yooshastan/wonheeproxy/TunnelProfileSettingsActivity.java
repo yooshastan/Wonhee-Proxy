@@ -119,6 +119,12 @@ public final class TunnelProfileSettingsActivity extends Activity {
                 "Internet exit (IPv4 + IPv6)"
         });
         route.setSelection(original.routeMode);
+        text(editor, "CURRENT EFFECTIVE ROUTES: "
+                + RootMultiKernelSession.effectiveRouteSummary(original), 12, MUTED);
+        text(editor, "Imported WireGuard AllowedIPs may already include "
+                + "0.0.0.0/0 and ::/0. Naming a tunnel Regional does NOT "
+                + "turn a full exit into a destination-specific tunnel.",
+                12, MUTED);
 
         text(editor, "Specific destination CIDRs (not app names)", 12, MUTED);
         privateRoutes = new EditText(this);
@@ -164,10 +170,11 @@ public final class TunnelProfileSettingsActivity extends Activity {
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
-        text(editor, "Only one full Internet exit may be active. A third "
-                + "concurrent tunnel must use explicit non-overlapping "
-                + "destination CIDRs. Per-app regional switching is not "
-                + "implemented yet.", 12, MUTED);
+        text(editor, "One primary Internet exit and compatible "
+                + "destination-specific tunnels can connect. Additional "
+                + "full Internet exits may remain selected but NOT connected. "
+                + "Protocol/category rules are still planning drafts, not "
+                + "live per-app regional switching.", 12, MUTED);
         text(editor, "Changing a profile does not test its Internet or DNS "
                 + "coverage. It does not change Android Private DNS.", 12, MUTED);
 
