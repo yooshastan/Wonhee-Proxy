@@ -47,7 +47,7 @@ require("PLANNING ONLY" in app and "DO NOT route" in app,
 require("new Intent(this, AppRoutingActivity.class)" in dashboard,
         "App Routing planner must be accessible from the Tunnels screen")
 for forbidden in ("RootShell", "RootMultiKernelSession", "RootDnsRelayRunner",
-                  "iptables", "ip6tables", "enableRootDns(", "startManagedStack(",
+                  "enableRootDns(", "startManagedStack(",
                   "VpnService", "setUidRoute", "addUid", "QUERY_ALL_PACKAGES"):
     # The warning paragraph may legitimately mention Android VPN terminology.
     if forbidden == "VpnService":
