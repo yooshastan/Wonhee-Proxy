@@ -211,7 +211,7 @@ public final class AppRoutingActivity extends Activity {
                     found.put(pkg, new AppEntry(label, pkg, icon));
                 }
             } catch (RuntimeException ignored) {
-                // Device package visibility varies; never request QUERY_ALL_PACKAGES.
+                // Android package visibility varies; do not request broad inventory.
             }
             ArrayList<AppEntry> sorted = new ArrayList<>(found.values());
             sorted.sort(Comparator.comparing(a -> a.name.toLowerCase(Locale.ROOT)));
