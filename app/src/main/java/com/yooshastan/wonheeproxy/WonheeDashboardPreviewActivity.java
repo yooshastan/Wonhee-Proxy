@@ -737,7 +737,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                             }
                             if (getSharedPreferences(ROOT_NOTIFICATION_PREFS, MODE_PRIVATE)
                                     .getBoolean("enabled", false)
-                                    && mayDisplayRootNotifications()) {
+                                    && hasNotificationPermission()) {
                                 RootMultiTrafficNotificationService.startIfPossible(this);
                             }
                             completeHomeOperation(true, "Wonhee connected.",
