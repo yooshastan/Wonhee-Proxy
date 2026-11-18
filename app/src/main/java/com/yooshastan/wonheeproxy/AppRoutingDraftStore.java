@@ -78,7 +78,11 @@ final class AppRoutingDraftStore {
         } catch (JSONException invalid) {
             throw new IllegalStateException("Could not update app assignment.");
         }
-        if (!prefs.edit().putString(APPS, data.toString()).commit()) {
+        String encoded = data.toString();
+        if (encoded.length() > MAX_STRING_BYTES) {
+            throw new IllegalArgumentException("App assignment storage is full.");
+        }
+        if (!prefs.edit().putString(APPS, encoded).commit()) {
             throw new IllegalStateException("Could not persist app assignment.");
         }
     }
@@ -101,7 +105,11 @@ final class AppRoutingDraftStore {
         } catch (JSONException invalid) {
             throw new IllegalStateException("Could not update category tunnel.");
         }
-        if (!prefs.edit().putString(TUNNELS, data.toString()).commit()) {
+        String encoded = data.toString();
+        if (encoded.length() > MAX_STRING_BYTES) {
+            throw new IllegalArgumentException("Category tunnel storage is full.");
+        }
+        if (!prefs.edit().putString(TUNNELS, encoded).commit()) {
             throw new IllegalStateException("Could not persist category tunnel.");
         }
     }
