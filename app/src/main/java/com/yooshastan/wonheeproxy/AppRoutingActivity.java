@@ -302,7 +302,7 @@ public final class AppRoutingActivity extends Activity {
     private String plannedTunnelLabel(int category) {
         try {
             String name = drafts.categoryTunnel(category);
-            if (name.isEmpty()) return "Draft destination: current privacy default";
+            if (name.isEmpty()) return "Draft destination: current Internet exit (not enforced)";
             for (SecureTunnelProfileStore.Profile profile : profiles) {
                 if (profile.name.equals(name)) {
                     return "Draft destination: " + profile.name + " · "
@@ -330,7 +330,7 @@ public final class AppRoutingActivity extends Activity {
             text(row, AppUseCategories.EXPLANATIONS[i], 12, MUTED);
             ArrayList<String> labels = new ArrayList<>();
             ArrayList<String> names = new ArrayList<>();
-            labels.add("Use current privacy default (draft)");
+            labels.add("Use current Internet exit (draft)");
             names.add("");
             String current;
             try { current = drafts.categoryTunnel(i); }
