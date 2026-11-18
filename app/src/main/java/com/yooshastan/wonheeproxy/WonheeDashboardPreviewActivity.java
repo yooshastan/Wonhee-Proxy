@@ -85,6 +85,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private static final String ROOT_STATE_WARNING_KEY = "root_state_unverified";
     private static final String TAB_KEY = "selected_tab";
     private static final String QUICK_SELECTION_KEY = "last_quick_profiles";
+    private static final String ROOT_HOME_LAST_RESULT_KEY = "root_home_last_result";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -107,6 +108,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             ui.edit().putBoolean(ROOT_MODE_KEY, rootMode).apply();
         }
         tab = Math.max(0, Math.min(4, ui.getInt(TAB_KEY, 0)));
+        rootHomeLastProblem = ui.getString(ROOT_HOME_LAST_RESULT_KEY, "");
         if (rootMode) session = RootMultiKernelSession.get(this);
         getWindow().setStatusBarColor(BACKGROUND);
         getWindow().setNavigationBarColor(BACKGROUND);
@@ -847,6 +849,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         rootHomeBusy = false;
         rootHomeProgress = "";
         rootHomeLastProblem = ok ? "" : summary;
+        // Preserve only the fixed, user-facing failure summary across a
+        // restart. Never persist raw root shell, tunnel, resolver or DNS output.
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                .putString(ROOT_HOME_LAST_RESULT_KEY, rootHomeLastProblem).apply();
         if (!isFinishing() && !isDestroyed()) {
             if (visible) refreshSnapshot();
             AlertDialog.Builder result = new AlertDialog.Builder(this)
