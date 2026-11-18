@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 101
-        versionName '0.15.54-home-start-flow'
+        versionCode 102
+        versionName '0.15.55-dns-upstream-diagnostic'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
