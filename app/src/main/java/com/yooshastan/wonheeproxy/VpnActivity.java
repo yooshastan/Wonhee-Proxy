@@ -1380,7 +1380,8 @@ public final class VpnActivity extends Activity {
             updated = new SecureTunnelProfileStore.Profile(
                     profileName.getText().toString(), selectedConfig.toWgQuickString(),
                     routingPicker.getSelectedItemPosition(), homeRoutes.getText().toString(),
-                    dnsOverrideEnabled(), chosenDnsAddresses(), selectedSavedRole());
+                    dnsOverrideEnabled(), chosenDnsAddresses(), selectedSavedRole(),
+                    existingCategoryForName(profileName.getText().toString().trim()));
         } catch (IllegalArgumentException invalid) {
             message.setText(invalid.getMessage());
             return;
@@ -1402,6 +1403,14 @@ public final class VpnActivity extends Activity {
         } else {
             persist(updated);
         }
+    }
+
+    /** Advanced editor must never erase categorization saved from Tunnels. */
+    private int existingCategoryForName(String name) {
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            if (profile.name.equalsIgnoreCase(name)) return profile.category;
+        }
+        return TunnelUseCategories.GENERAL;
     }
 
     private void persist(SecureTunnelProfileStore.Profile profile) {
@@ -1440,7 +1449,7 @@ public final class VpnActivity extends Activity {
                             routingPicker.getSelectedItemPosition(),
                             homeRoutes.getText().toString(),
                             dnsOverrideEnabled(),
-                            chosenDnsAddresses(), existing.role);
+                            chosenDnsAddresses(), existing.role, existing.category);
             profileStore.save(updated);
             profileStore.rememberSelectedIndex(index);
             profiles.set(index, updated);
