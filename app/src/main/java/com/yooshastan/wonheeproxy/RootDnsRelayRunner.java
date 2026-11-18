@@ -99,6 +99,30 @@ final class RootDnsRelayRunner {
         }
     }
 
+    /**
+     * One-shot encrypted upstream A-answer test over the selected WireGuard
+     * interface. The Go helper binds using SO_BINDTODEVICE and verifies TLS
+     * plus DNS. No alternate route or plaintext fallback is attempted.
+     * Run only after route/identity verification but before relay/firewall.
+     *
+     * Output is strictly allowlisted: never return raw shell or resolver text.
+     */
+    static String probeUpstream(Context context, RootShell shell, String device,
+            RootDnsProbePolicy policy) {
+        String command = quote(binary(context).getAbsolutePath())
+                + " --protocol " + quote(policy.protocol)
+                + " --interface " + quote(device)
+                + " --url " + quote(policy.url)
+                + " --bootstrap " + quote(policy.bootstrapAddress);
+        List<String> output = new ArrayList<>();
+        try {
+            int exit = shell.run(output, command);
+            return RootDnsUpstreamDiagnosis.classify(exit, output);
+        } catch (Exception | LinkageError unavailable) {
+            return RootDnsUpstreamDiagnosis.UNAVAILABLE;
+        }
+    }
+
     static int start(Context context, RootShell shell, String device,
                      RootDnsProbePolicy policy, RootTrackerPolicy.Config tracker) throws Exception {
         File target = binary(context);

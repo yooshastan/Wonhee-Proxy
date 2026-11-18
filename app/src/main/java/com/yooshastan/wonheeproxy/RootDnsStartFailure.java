@@ -11,7 +11,9 @@ import java.util.regex.Pattern;
 final class RootDnsStartFailure {
     private static final Pattern PHASE = Pattern.compile(
             "\\[(POLICY_PREFLIGHT|DNS_POLICY_PARSE|PROFILE_VALIDATION|TUNNEL_IDENTITY"
-            + "|UPSTREAM_ROUTE|FIREWALL_COLLISION_PREFLIGHT|RELAY_PORT_PREFLIGHT"
+            + "|UPSTREAM_ROUTE|UPSTREAM_INTERFACE_UNAVAILABLE|UPSTREAM_BIND_FAILED"
+            + "|UPSTREAM_CONNECT_TLS|UPSTREAM_HTTP_INVALID|UPSTREAM_REPLY_INVALID"
+            + "|UPSTREAM_PROBE_UNAVAILABLE|FIREWALL_COLLISION_PREFLIGHT|RELAY_PORT_PREFLIGHT"
             + "|RELAY_PREPARE|RELAY_LAUNCH|PROCESS_IDENTITY|LOCAL_LISTENER"
             + "|LOCAL_DNS_HEALTH|LOCAL_DNS_TIMEOUT|LOCAL_TRACKER_HEALTH"
             + "|LOCAL_TRACKER_TIMEOUT|OWNERSHIP_LEDGER_COMMIT|FIREWALL_INSTALL"
@@ -32,6 +34,37 @@ final class RootDnsStartFailure {
                 recommendation = "Chosen DNS bootstrap does not match the selected "
                         + "upstream tunnel's root route. Review DNS tunnel selection "
                         + "and routing without disabling the DNS safety gate.";
+                break;
+            case "UPSTREAM_INTERFACE_UNAVAILABLE":
+                recommendation = "The selected WireGuard interface was not available "
+                        + "when a strictly bound encrypted DNS probe ran. "
+                        + "Inspect tunnel identity and state before retrying.";
+                break;
+            case "UPSTREAM_BIND_FAILED":
+                recommendation = "The encrypted DNS probe could not bind its socket "
+                        + "to the selected WireGuard interface. No alternate "
+                        + "network interface or plaintext fallback was attempted.";
+                break;
+            case "UPSTREAM_CONNECT_TLS":
+                recommendation = "A one-shot encrypted DNS connection through the "
+                        + "selected tunnel could not complete TCP/TLS or the "
+                        + "upstream request. This code alone cannot distinguish "
+                        + "routing, blocking, server slowness or TLS failure.";
+                break;
+            case "UPSTREAM_HTTP_INVALID":
+                recommendation = "The selected encrypted DNS server replied, but "
+                        + "its HTTPS status or content type was not valid for DoH. "
+                        + "No different resolver was tried.";
+                break;
+            case "UPSTREAM_REPLY_INVALID":
+                recommendation = "The selected encrypted DNS upstream response was "
+                        + "too large, invalid or did not contain a verified answer. "
+                        + "No unprotected fallback was attempted.";
+                break;
+            case "UPSTREAM_PROBE_UNAVAILABLE":
+                recommendation = "The pre-relay encrypted DNS probe did not produce "
+                        + "a trusted result. Check the selected tunnel and helper "
+                        + "lifecycle before another start; no firewall was installed.";
                 break;
             case "TUNNEL_IDENTITY":
                 recommendation = "One selected WireGuard tunnel or its public identity "
