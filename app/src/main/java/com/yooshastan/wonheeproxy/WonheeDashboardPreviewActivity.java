@@ -522,9 +522,11 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             check.setOnCheckedChangeListener((view, checked) ->
                     chooseRootTunnel(profile.name, checked));
             item.addView(check);
+            String effective = profile.routeMode == VpnRouteModes.PROFILE
+                    ? RootMultiKernelSession.effectiveRouteSummary(profile)
+                    : TunnelUseCategories.routingLabel(profile.routeMode);
             text(item, TunnelUseCategories.label(profile.category) + " · "
-                    + TunnelUseCategories.routingLabel(profile.routeMode),
-                    11, MUTED);
+                    + effective, 11, MUTED);
         }
     }
 
