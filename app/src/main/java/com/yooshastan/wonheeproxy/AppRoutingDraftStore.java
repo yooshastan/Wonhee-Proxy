@@ -238,6 +238,35 @@ final class AppRoutingDraftStore {
         saveCategoryProtocolRules(RootCategoryProtocolRule.validateAndSort(chosen));
     }
 
+    /**
+     * Save a multi-port preset atomically, in one preference commit.
+     * Same-selector existing rules are replaced only after the UI explicitly
+     * requests the full preset. Any invalid selector or length-limit failure
+     * keeps the original stored rules untouched.
+     */
+    synchronized void putCategoryProtocolPreset(
+            List<RootCategoryProtocolRule.Rule> presetRules) {
+        if (presetRules == null || presetRules.isEmpty()) {
+            throw new IllegalArgumentException("No preset ports were selected.");
+        }
+        List<RootCategoryProtocolRule.Rule> additions =
+                RootCategoryProtocolRule.validateAndSort(presetRules);
+        List<RootCategoryProtocolRule.Rule> merged =
+                new ArrayList<>(categoryProtocolRules());
+        for (RootCategoryProtocolRule.Rule extra : additions) {
+            for (int i = 0; i < merged.size(); i++) {
+                RootCategoryProtocolRule.Rule original = merged.get(i);
+                if (original.transport == extra.transport
+                        && original.destinationPort == extra.destinationPort) {
+                    merged.remove(i);
+                    break;
+                }
+            }
+            merged.add(extra);
+        }
+        saveCategoryProtocolRules(RootCategoryProtocolRule.validateAndSort(merged));
+    }
+
     synchronized void removeCategoryProtocolRule(int protocol, int destinationPort) {
         List<RootCategoryProtocolRule.Rule> remaining = new ArrayList<>();
         for (RootCategoryProtocolRule.Rule rule : categoryProtocolRules()) {
