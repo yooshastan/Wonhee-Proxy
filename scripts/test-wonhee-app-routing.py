@@ -90,7 +90,7 @@ for source in (protocol_ui, protocol_model, uid_plan, uid_readiness):
 
 global_model = (java / "RootCategoryProtocolRule.java").read_text()
 home_selection = (java / "RootTunnelStartSelection.java").read_text()
-require('button(tabContent, "Save global rule · preview"' in app,
+require('button(editor, "Save global rule · preview"' in app,
         "Global Protocols tab must support explicit saving")
 require('RootCategoryProtocolRule.Rule' in app
         and 'showGlobalProtocols()' in app
