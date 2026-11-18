@@ -282,12 +282,14 @@ public final class AppRoutingActivity extends Activity {
         }
         Spinner picker = selector(row, AppUseCategories.LABELS);
         picker.setSelection(selected, false);
+        TextView planned = text(row, plannedTunnelLabel(selected), 12, MUTED);
         picker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View v, int idx, long id) {
                 try {
                     if (drafts.appCategory(app.pkg) != idx) {
                         drafts.setAppCategory(app.pkg, idx);
                     }
+                    planned.setText(plannedTunnelLabel(idx));
                 } catch (RuntimeException failed) {
                     error("Category not saved", "No network settings changed. "
                             + "The app assignment could not be saved locally.");
@@ -295,6 +297,22 @@ public final class AppRoutingActivity extends Activity {
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
+    }
+
+    private String plannedTunnelLabel(int category) {
+        try {
+            String name = drafts.categoryTunnel(category);
+            if (name.isEmpty()) return "Draft destination: current privacy default";
+            for (SecureTunnelProfileStore.Profile profile : profiles) {
+                if (profile.name.equals(name)) {
+                    return "Draft destination: " + profile.name + " · "
+                            + TunnelUseCategories.routingLabel(profile.routeMode);
+                }
+            }
+            return "Draft destination unavailable — select a saved tunnel";
+        } catch (RuntimeException unavailable) {
+            return "Draft tunnel assignment unavailable";
+        }
     }
 
     private void showCategories() {
