@@ -33,11 +33,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * First-stage consumer dashboard preview. READ-ONLY status + navigation
- * to existing, tested connection/recovery and profile-management screens.
- *
- * Never alters root/firewall/DNS/tunnels and never claims an Android VPN
- * indicator or working full-device fail-closed kill switch.
+ * Everyday consumer dashboard with explicit guarded connection actions.
+ * It reuses RootMultiKernelSession lifecycle preflight, identity validation,
+ * DNS audit and exact-owned rollback. Merely opening Home or changing selected
+ * tunnels NEVER mutates network state. No all-traffic kill switch is claimed.
  */
 public final class WonheeDashboardPreviewActivity extends Activity {
     private static final int BACKGROUND = 0xff15101e;
@@ -67,6 +66,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private String hostsFileStatus = "Checking saved lists…";
     private int hostsStatusGeneration;
     private boolean hostsImportBusy;
+    private boolean rootHomeBusy;
+    private String rootHomeProgress = "";
+    private String rootHomeLastProblem = "";
     private int relaySeenPid = -1;
     private long relaySeenBlocked = -1;
     private String relayCounterEvent = "Awaiting verified relay counters";
@@ -496,16 +498,26 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         boolean cleanIdentity = known && snapshot.presentTunnels == snapshot.verifiedTunnels;
 
         LinearLayout hero = card(content);
-        Button primary = button(hero, running ? (cleanIdentity ? "Stop" : "Review connection")
+        Button primary = button(hero, rootHomeBusy ? "Working…" :
+                running ? (cleanIdentity ? "Stop" : "Review connection")
                 : known ? "Start" : "Checking connection…",
                 running && cleanIdentity ? () -> launchRootQuickAction("stop")
                         : running ? () -> openRootTab(0)
                         : () -> launchRootQuickAction("start"));
         primary.setTextSize(20);
         primary.setMinHeight(dp(72));
-        primary.setEnabled(known);
-        secondaryButton(hero, "＋  Add tunnel", this::openTunnelImporter);
-
+        primary.setEnabled(known && !rootHomeBusy && !session.isBusy());
+        Button addTunnel = button(hero, "＋  Add tunnel", this::openTunnelImporter);
+        addTunnel.setEnabled(!rootHomeBusy);
+        addTunnel.setTextColor(WHITE);
+        addTunnel.setBackground(tint(SURFACE_ALT, 14));
+        if (!rootHomeProgress.isEmpty()) {
+            text(hero, rootHomeProgress, 13, LAVENDER);
+        }
+        if (!rootHomeLastProblem.isEmpty()) {
+            text(hero, rootHomeLastProblem, 12, PINK);
+            secondaryButton(hero, "Connection diagnostics", () -> openRootTab(0));
+        }
         text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
         showQuickTunnelPicker(hero, false);
 
@@ -544,40 +556,247 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
     }
 
+    /** Home owns its connection flow; the diagnostic Lab is not a Start screen. */
     private void launchRootQuickAction(String action) {
-        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
-        if (snapshot == null || !snapshot.rootsAvailable) {
-            new AlertDialog.Builder(this).setTitle("Connection status unavailable")
-                    .setMessage("Wonhee cannot verify your active tunnels. "
-                            + "Inspect the connection before changing it.")
-                    .setPositiveButton("Connection controls", (d, w) -> openRootTab(0))
-                    .setNegativeButton("Cancel", null).show();
+        if (rootHomeBusy || session == null || session.isBusy()) {
+            showHomeNotice("Another Wonhee connection operation is still running.");
             return;
         }
-        ArrayList<String> chosen = new ArrayList<>();
-        if ("stop".equals(action)) {
-            // Always propose stopping EVERY detected verified tunnel. Do not
-            // confuse the next-start selection with current active connections.
+        RootMultiKernelSession.RootTrafficSnapshot snapshot = lastSnapshot;
+        if (snapshot == null || !snapshot.rootsAvailable) {
+            showHomeNotice("Current rooted tunnel status is unavailable. "
+                    + "Use diagnostics before making network changes.");
+            return;
+        }
+        boolean stopping = "stop".equals(action);
+        if (snapshot.presentTunnels > 0 && !stopping) {
+            showHomeNotice("A rooted tunnel is already running. "
+                    + "Stop or inspect it before starting again.");
+            return;
+        }
+        if (stopping && (snapshot.presentTunnels == 0
+                || snapshot.verifiedTunnels != snapshot.presentTunnels)) {
+            showHomeNotice("A running tunnel could not be identity-verified. "
+                    + "Use diagnostics instead of disconnecting an unknown interface.");
+            return;
+        }
+        if (profileStoreError || profiles.isEmpty()) {
+            showHomeNotice("Add an encrypted WireGuard configuration first.");
+            return;
+        }
+        ArrayList<SecureTunnelProfileStore.Profile> chosen = new ArrayList<>();
+        if (stopping) {
             for (RootMultiKernelSession.TunnelStatus tunnel : snapshot.tunnels) {
-                if (tunnel.present && tunnel.verified) chosen.add(tunnel.name);
+                if (!tunnel.present || !tunnel.verified) continue;
+                for (SecureTunnelProfileStore.Profile profile : profiles) {
+                    if (profile.name.equals(tunnel.name)) {
+                        chosen.add(profile);
+                        break;
+                    }
+                }
             }
         } else {
-            Set<String> selected = chosenRootTunnels();
+            Set<String> names = chosenRootTunnels();
             for (SecureTunnelProfileStore.Profile profile : profiles) {
-                if (selected.contains(profile.name)) chosen.add(profile.name);
-            }
-            if (chosen.isEmpty()) {
-                new AlertDialog.Builder(this).setTitle("Choose a tunnel")
-                        .setMessage("Select at least one tunnel on Home, then press Start.")
-                        .setPositiveButton("OK", null).show();
-                return;
+                if (names.contains(profile.name)) chosen.add(profile);
             }
         }
-        Intent intent = new Intent(this, RootMultiKernelActivity.class);
-        intent.putExtra("wonhee.lab.tab", 0);
-        intent.putExtra("wonhee.quick.action", action);
-        intent.putStringArrayListExtra("wonhee.quick.profiles", chosen);
-        startActivity(intent);
+        if (chosen.size() == 0 || (stopping
+                && chosen.size() != snapshot.verifiedTunnels)) {
+            showHomeNotice(stopping ? "An active tunnel profile is unavailable. "
+                    + "Inspect it before stopping the stack."
+                    : "Choose a tunnel on Home before pressing Start.");
+            return;
+        }
+        if (stopping) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Stop Wonhee safely?")
+                    .setMessage("Stop " + chosen.size() + " verified tunnel"
+                            + (chosen.size() == 1 ? "" : "s")
+                            + ", remove only Wonhee-owned DNS and routing rules, "
+                            + "and turn off unattended recovery. Direct Wi-Fi or cellular "
+                            + "traffic may resume because the all-traffic kill switch "
+                            + "is not yet available.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Safe Stop", (d, w) -> beginHomeSafeStop(chosen))
+                    .show();
+        } else {
+            beginHomeStartConfirmation(chosen);
+        }
+    }
+
+    private void beginHomeStartConfirmation(
+            List<SecureTunnelProfileStore.Profile> chosen) {
+        // Keep Home intentionally simple: use a named, validated privacy DNS
+        // default. Custom encrypted upstreams still require explicit Advanced
+        // DNS configuration; never silently interpret unsupported fields.
+        SecureTunnelProfileStore.Profile internet = null;
+        boolean privateDestinationPresent = false;
+        for (SecureTunnelProfileStore.Profile p : chosen) {
+            if (p.routeMode == VpnRouteModes.ALL) {
+                if (internet != null) {
+                    showHomeNotice("Choose only one Internet exit, then press Start.");
+                    return;
+                }
+                internet = p;
+            }
+            if (p.routeMode == VpnRouteModes.HOME) privateDestinationPresent = true;
+        }
+        if (internet == null || !privateDestinationPresent) {
+            showHomeNotice("For complete-stack Start, select one Internet exit "
+                    + "and at least one private-destination tunnel.");
+            return;
+        }
+        if (!"OFF".equals(session.guardLedgerStatus())
+                || !"OFF".equals(session.dnsLedgerStatus())) {
+            showHomeNotice("Previous firewall or DNS ownership needs review "
+                    + "before starting a new connection.");
+            return;
+        }
+        final String dnsProfile = internet.name;
+        final String protocol = "doh";
+        final String endpoint = "https://cloudflare-dns.com/dns-query";
+        final String bootstrap = "1.1.1.1";
+        final SharedPreferences options = getSharedPreferences(
+                "wonhee_local_tracker_options", MODE_PRIVATE);
+        final boolean filter = options.getBoolean("enabled", false);
+        final String custom = options.getString("custom", "");
+        final String allow = options.getString("allow", "");
+        try {
+            RootDnsProbePolicy.parse(protocol, endpoint, bootstrap);
+        } catch (Exception invalid) {
+            showHomeNotice("Encrypted DNS configuration could not be validated.");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Start Wonhee?")
+                .setMessage(chosen.size() + " selected tunnels will be checked and connected. "
+                        + "Internet exit: " + dnsProfile
+                        + ". DNS: Cloudflare encrypted DoH through that exit. "
+                        + "Tracker blocking: " + (filter ? "On" : "Off") + ". "
+                        + "Wonhee will verify DNS after connecting and attempt "
+                        + "exact-owned rollback if a stage fails. "
+                        + "No all-traffic kill switch is enabled; normal data "
+                        + "may resume if the connection fails. "
+                        + "Keep USB ADB available during this test.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Start", (d, w) -> startHomeManagedStack(
+                        new ArrayList<>(chosen), dnsProfile, protocol,
+                        endpoint, bootstrap, filter, custom, allow))
+                .show();
+    }
+
+    private void beginHomeSafeStop(List<SecureTunnelProfileStore.Profile> chosen) {
+        if (rootHomeBusy || session.isBusy()) return;
+        rootHomeBusy = true;
+        rootHomeLastProblem = "";
+        updateHomeProgress("Stopping · checking owned DNS and routes…");
+        session.stopManagedStack(new ArrayList<>(chosen), (ok, report) -> {
+            if (ok) RootMultiTrafficNotificationService.stop(this);
+            completeHomeOperation(ok, ok ? "Wonhee stopped safely."
+                    : "Safe Stop incomplete; network ownership needs review.", report);
+        });
+    }
+
+    private void startHomeManagedStack(List<SecureTunnelProfileStore.Profile> chosen,
+            String dnsProfile, String protocol, String endpoint, String bootstrap,
+            boolean filter, String custom, String allow) {
+        if (rootHomeBusy || session.isBusy()) return;
+        rootHomeBusy = true;
+        rootHomeLastProblem = "";
+        updateHomeProgress("Starting · checking safe network state…");
+        session.preflightManagedStart(chosen, (ready, report) -> {
+            if (!ready) {
+                completeHomeOperation(false, "Start refused before any changes.", report);
+                return;
+            }
+            updateHomeProgress("Starting · connecting VPN tunnels (1/4)…");
+            session.connect(chosen, (ok, detail) -> {
+                if (!ok) {
+                    completeHomeOperation(false, "Tunnel connection failed.", detail);
+                    return;
+                }
+                updateHomeProgress("Starting · setting private routes (2/4)…");
+                session.applyRouting(chosen, (routesOk, routesReport) -> {
+                    if (!routesOk) {
+                        rollbackHomeFailedStart(chosen, "routing", routesReport);
+                        return;
+                    }
+                    updateHomeProgress("Starting · enabling encrypted DNS (3/4)…");
+                    session.enableRootDns(chosen, dnsProfile, protocol, endpoint,
+                            bootstrap, filter, custom, allow, (dnsOk, dnsDetail) -> {
+                        if (!dnsOk) {
+                            rollbackHomeFailedStart(chosen, "DNS", dnsDetail);
+                            return;
+                        }
+                        updateHomeProgress("Starting · verifying DNS (4/4)…");
+                        session.auditRootDns(chosen, (auditOk, auditReport) -> {
+                            if (!auditOk) {
+                                rollbackHomeFailedStart(chosen, "DNS audit", auditReport);
+                                return;
+                            }
+                            if (getSharedPreferences(ROOT_NOTIFICATION_PREFS, MODE_PRIVATE)
+                                    .getBoolean("enabled", false)
+                                    && mayDisplayRootNotifications()) {
+                                RootMultiTrafficNotificationService.startIfPossible(this);
+                            }
+                            completeHomeOperation(true, "Wonhee connected.",
+                                    "Tunnels, owned private routing and encrypted DNS "
+                                            + "were verified. This is not proof of "
+                                            + "an all-traffic kill switch.");
+                        });
+                    });
+                });
+            });
+        });
+    }
+
+    private void rollbackHomeFailedStart(
+            List<SecureTunnelProfileStore.Profile> chosen,
+            String stage, String detail) {
+        updateHomeProgress("Connection failed · verifying safety rollback…");
+        final String explanation = "DNS".equals(stage)
+                ? RootDnsStartFailure.summary(detail)
+                : "Review diagnostics before retrying.";
+        session.stopManagedStack(chosen, (rolledBack, report) ->
+                completeHomeOperation(false,
+                        "Could not finish " + stage
+                                + (rolledBack ? "; rollback completed."
+                                        : "; rollback needs attention."),
+                        explanation + "\\n" + report));
+    }
+
+    private void updateHomeProgress(String progress) {
+        rootHomeProgress = progress;
+        if (visible && tab == 0 && !isFinishing() && !isDestroyed()) render();
+    }
+
+    private void completeHomeOperation(boolean ok, String summary, String report) {
+        rootHomeBusy = false;
+        rootHomeProgress = "";
+        rootHomeLastProblem = ok ? "" : summary;
+        if (!isFinishing() && !isDestroyed()) {
+            if (visible) refreshSnapshot();
+            AlertDialog.Builder result = new AlertDialog.Builder(this)
+                    .setTitle(ok ? "Connection updated" : "Connection needs attention")
+                    .setMessage(summary + "\\n\\n" + limitedReport(report))
+                    .setPositiveButton("OK", null);
+            if (!ok) result.setNeutralButton("Diagnostics", (d, w) -> openRootTab(0));
+            result.show();
+        }
+    }
+
+    private static String limitedReport(String report) {
+        if (report == null || report.isEmpty()) return "No additional diagnostic available.";
+        return report.length() > 2400 ? report.substring(0, 2400)
+                + "… (open diagnostics for further details)" : report;
+    }
+
+    private void showHomeNotice(String message) {
+        new AlertDialog.Builder(this).setTitle("Wonhee")
+                .setMessage(message)
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Diagnostics", (d, w) -> openRootTab(0)).show();
     }
 
     private void openTunnelImporter() {
