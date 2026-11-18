@@ -26,6 +26,7 @@ final class AppRoutingDraftStore {
     private static final String APPS = "app_category_assignments";
     private static final String TUNNELS = "category_tunnel_assignments";
     private static final String PROTOCOLS = "app_protocol_overrides";
+    private static final String CATEGORY_PROTOCOLS = "global_category_protocol_overrides";
     private static final int MAX_APP_OVERRIDES = 512;
     private static final int MAX_STRING_BYTES = 65000;
     private final SharedPreferences prefs;
@@ -192,6 +193,82 @@ final class AppRoutingDraftStore {
         }
         if (!prefs.edit().putString(PROTOCOLS, encoded).commit()) {
             throw new IllegalStateException("Unable to persist transport rules.");
+        }
+    }
+
+    /** Global transport selectors → category, stored as app-private drafts. */
+    synchronized List<RootCategoryProtocolRule.Rule> categoryProtocolRules() {
+        JSONObject storage = read(CATEGORY_PROTOCOLS);
+        JSONArray rows = storage.optJSONArray("rules");
+        if (rows == null) {
+            if (storage.has("rules")) {
+                throw new IllegalStateException("Saved category protocol rules are invalid.");
+            }
+            return Collections.emptyList();
+        }
+        List<RootCategoryProtocolRule.Rule> out = new ArrayList<>();
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject entry = rows.optJSONObject(i);
+            if (entry == null) {
+                throw new IllegalStateException("Saved global protocol selector is invalid.");
+            }
+            out.add(new RootCategoryProtocolRule.Rule(
+                    entry.optInt("transport", -1),
+                    entry.optInt("destinationPort", -1),
+                    entry.optInt("category", -1)));
+        }
+        return RootCategoryProtocolRule.validateAndSort(out);
+    }
+
+    synchronized void putCategoryProtocolRule(RootCategoryProtocolRule.Rule rule) {
+        if (rule == null) {
+            throw new IllegalArgumentException("Missing category protocol selector.");
+        }
+        List<RootCategoryProtocolRule.Rule> chosen =
+                new ArrayList<>(categoryProtocolRules());
+        for (int i = 0; i < chosen.size(); i++) {
+            RootCategoryProtocolRule.Rule previous = chosen.get(i);
+            if (previous.transport == rule.transport
+                    && previous.destinationPort == rule.destinationPort) {
+                chosen.remove(i);
+                break;
+            }
+        }
+        chosen.add(rule);
+        saveCategoryProtocolRules(RootCategoryProtocolRule.validateAndSort(chosen));
+    }
+
+    synchronized void removeCategoryProtocolRule(int protocol, int destinationPort) {
+        List<RootCategoryProtocolRule.Rule> remaining = new ArrayList<>();
+        for (RootCategoryProtocolRule.Rule rule : categoryProtocolRules()) {
+            if (rule.transport != protocol || rule.destinationPort != destinationPort) {
+                remaining.add(rule);
+            }
+        }
+        saveCategoryProtocolRules(remaining);
+    }
+
+    private void saveCategoryProtocolRules(List<RootCategoryProtocolRule.Rule> rules) {
+        List<RootCategoryProtocolRule.Rule> reviewed =
+                RootCategoryProtocolRule.validateAndSort(rules);
+        JSONArray values = new JSONArray();
+        JSONObject document = new JSONObject();
+        try {
+            for (RootCategoryProtocolRule.Rule rule : reviewed) {
+                JSONObject row = new JSONObject();
+                row.put("transport", rule.transport);
+                row.put("destinationPort", rule.destinationPort);
+                row.put("category", rule.category);
+                values.put(row);
+            }
+            document.put("rules", values);
+        } catch (JSONException invalid) {
+            throw new IllegalStateException("Unable to encode category protocol policy.");
+        }
+        String encoded = document.toString();
+        if (encoded.length() > MAX_STRING_BYTES ||
+                !prefs.edit().putString(CATEGORY_PROTOCOLS, encoded).commit()) {
+            throw new IllegalStateException("Unable to persist category protocol policy.");
         }
     }
 
