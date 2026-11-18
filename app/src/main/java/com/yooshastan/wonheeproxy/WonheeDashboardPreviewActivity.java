@@ -883,6 +883,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         button(group, "＋  Add tunnel", this::openTunnelImporter);
         text(group, "Choose which tunnels to start on Home. "
                 + "Manage each saved tunnel here.", 12, MUTED);
+        secondaryButton(group, "Set up app categories · preview", () ->
+                startActivity(new Intent(this, AppRoutingActivity.class)));
+        text(group, "Category routing is a saved plan only; it does not "
+                + "change how any app connects yet.", 12, MUTED);
         showManagedProfiles(group);
     }
 
