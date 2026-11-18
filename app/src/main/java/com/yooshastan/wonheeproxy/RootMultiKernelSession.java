@@ -334,6 +334,15 @@ final class RootMultiKernelSession {
         return RootTunnelSelectionAdvisor.review(routeEntries(loadAll(profiles)));
     }
 
+    /**
+     * Decode effective numeric routes for a READ-ONLY multi-exit UID policy
+     * preview. Does not call the kernel or relax live root Start validation.
+     */
+    static List<RootMultiTunnelPlan.Entry> previewAppUidRoutes(
+            List<SecureTunnelProfileStore.Profile> profiles) throws Exception {
+        return routeEntries(loadAll(profiles));
+    }
+
     private static void validate(List<Active> candidates) {
         List<RootMultiTunnelPlan.Entry> entries = new ArrayList<>();
         for (Active candidate : candidates) entries.add(candidate.routes);
