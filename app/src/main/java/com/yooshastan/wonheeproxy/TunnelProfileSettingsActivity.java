@@ -48,6 +48,7 @@ public final class TunnelProfileSettingsActivity extends Activity {
     private SecureTunnelProfileStore store;
     private SecureTunnelProfileStore.Profile original;
     private Spinner route;
+    private Spinner category;
     private EditText privateRoutes;
     private Spinner dns;
     private EditText customDns;
@@ -106,15 +107,20 @@ public final class TunnelProfileSettingsActivity extends Activity {
         text(page, "Settings for this tunnel only. Selection and Start/Stop "
                 + "stay on Home.", 13, MUTED);
         LinearLayout editor = card(page);
+        text(editor, "WHAT IS THIS TUNNEL FOR?", 13, PINK);
+        category = select(editor, TunnelUseCategories.LABELS);
+        category.setSelection(original.category);
+        text(editor, "Categories organize saved tunnels. They do not change "
+                + "routing, country, GPS, app traffic or DNS.", 12, MUTED);
         text(editor, "WHERE SHOULD IT CONNECT?", 13, PINK);
         route = select(editor, new String[]{
                 "Use original WireGuard routes",
-                "Private destinations (split routing)",
+                "Specific destinations (private, work, or regional)",
                 "Internet exit (IPv4 + IPv6)"
         });
         route.setSelection(original.routeMode);
 
-        text(editor, "Private network destinations", 12, MUTED);
+        text(editor, "Specific destination CIDRs (not app names)", 12, MUTED);
         privateRoutes = new EditText(this);
         privateRoutes.setTextColor(WHITE);
         privateRoutes.setHintTextColor(MUTED);
@@ -158,6 +164,10 @@ public final class TunnelProfileSettingsActivity extends Activity {
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
+        text(editor, "Only one full Internet exit may be active. A third "
+                + "concurrent tunnel must use explicit non-overlapping "
+                + "destination CIDRs. Per-app regional switching is not "
+                + "implemented yet.", 12, MUTED);
         text(editor, "Changing a profile does not test its Internet or DNS "
                 + "coverage. It does not change Android Private DNS.", 12, MUTED);
 
@@ -281,7 +291,7 @@ public final class TunnelProfileSettingsActivity extends Activity {
             SecureTunnelProfileStore.Profile updated =
                     new SecureTunnelProfileStore.Profile(original.name,
                             original.configuration, mode, routes,
-                            override, addresses, role);
+                            override, addresses, role, category.getSelectedItemPosition());
             store.save(updated);
             finish();
         } catch (Exception | LinkageError invalid) {
@@ -322,6 +332,7 @@ public final class TunnelProfileSettingsActivity extends Activity {
         return a != null && b != null && a.name.equals(b.name)
                 && a.configuration.equals(b.configuration)
                 && a.routeMode == b.routeMode && a.role == b.role
+                && a.category == b.category
                 && a.homeRoutes.equals(b.homeRoutes)
                 && a.homeDnsEnabled == b.homeDnsEnabled
                 && a.homeDnsServer.equals(b.homeDnsServer);
