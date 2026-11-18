@@ -48,6 +48,7 @@ final class SecureTunnelProfileStore {
         final boolean homeDnsEnabled;
         final String homeDnsServer;
         final int role;
+        final int category;
 
         Profile(String name, String configuration) {
             this(name, configuration, VpnRouteModes.PROFILE, "");
@@ -65,6 +66,13 @@ final class SecureTunnelProfileStore {
 
         Profile(String name, String configuration, int routeMode, String homeRoutes,
                 boolean homeDnsEnabled, String homeDnsServer, int role) {
+            this(name, configuration, routeMode, homeRoutes,
+                    homeDnsEnabled, homeDnsServer, role,
+                    TunnelUseCategories.migratedCategory(role));
+        }
+
+        Profile(String name, String configuration, int routeMode, String homeRoutes,
+                boolean homeDnsEnabled, String homeDnsServer, int role, int category) {
             this.name = name == null ? "" : name.trim();
             this.configuration = configuration == null ? "" : configuration;
             this.routeMode = routeMode;
@@ -75,6 +83,10 @@ final class SecureTunnelProfileStore {
                 throw new IllegalArgumentException("Invalid tunnel role.");
             }
             this.role = role;
+            if (!TunnelUseCategories.valid(category)) {
+                throw new IllegalArgumentException("Invalid tunnel category.");
+            }
+            this.category = category;
             if (this.homeDnsServer.length() > 120) {
                 throw new IllegalArgumentException("DNS addresses exceed 120 characters.");
             }
@@ -103,17 +115,23 @@ final class SecureTunnelProfileStore {
             result.put("homeDnsEnabled", homeDnsEnabled);
             result.put("homeDnsServer", homeDnsServer);
             result.put("role", role);
+            result.put("category", category);
             return result;
         }
 
         static Profile fromJson(JSONObject value) throws Exception {
-            // Alpha 0.5 profiles contain only name + config; migrate safely in place.
+            // Existing encrypted documents remain version 1. Older profiles do
+            // not contain category; preserve keys/routes and add safe metadata
+            // only on explicit Save. Never infer geographic location.
+            int role = value.optInt("role", ROLE_OTHER);
+            int category = value.has("category")
+                    ? value.getInt("category")
+                    : TunnelUseCategories.migratedCategory(role);
             return new Profile(value.getString("name"), value.getString("configuration"),
                     value.optInt("routeMode", VpnRouteModes.PROFILE),
                     value.optString("homeRoutes", ""),
                     value.optBoolean("homeDnsEnabled", false),
-                    value.optString("homeDnsServer", ""),
-                    value.optInt("role", ROLE_OTHER));
+                    value.optString("homeDnsServer", ""), role, category);
         }
     }
 
