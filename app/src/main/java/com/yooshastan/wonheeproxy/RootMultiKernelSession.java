@@ -1263,6 +1263,20 @@ final class RootMultiKernelSession {
                 RootDnsRelayRunner.requireLoopbackPortFree(shell);
                 stage = "RELAY_PREPARE";
                 RootDnsRelayRunner.prepare(appContext);
+                // Test the actual encrypted upstream through the exact selected
+                // WireGuard interface BEFORE starting the local relay. This
+                // isolates TLS/connect/bind/DNS-response failures from local
+                // loopback timeouts. No firewall, DNS ledger, or fallback path
+                // is installed by the one-shot probe.
+                stage = RootDnsUpstreamDiagnosis.UNAVAILABLE;
+                String upstreamStage = RootDnsRelayRunner.probeUpstream(
+                        appContext, shell, chosen.device, policy);
+                if (!RootDnsUpstreamDiagnosis.VERIFIED.equals(upstreamStage)) {
+                    stage = upstreamStage;
+                    throw new IllegalStateException(
+                            "Selected tunnel's encrypted DNS upstream was not verified");
+                }
+                stage = "RELAY_PREPARE";
                 RootDnsRelayRunner.prepareTrackerPolicy(appContext, tracker);
                 stage = "RELAY_LAUNCH";
                 spawned = RootDnsRelayRunner.start(appContext, shell, chosen.device, policy, tracker);
