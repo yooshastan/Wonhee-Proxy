@@ -72,9 +72,11 @@ final class RootPerAppUidPolicyPlan {
         final int table;
         final int lookupPriority;
         final int blockPriority;
+        final int transport; // 0 = any TCP/UDP; otherwise IPPROTO_TCP/UDP
+        final int destinationPort; // 0 = any; only meaningful with transport
 
         PerAppRule(int uid, String pkg, String tunnel, String device, int table,
-                int lookup, int block) {
+                int lookup, int block, int transport, int destinationPort) {
             this.uid = uid;
             this.packageName = pkg;
             this.tunnelName = tunnel;
@@ -82,10 +84,16 @@ final class RootPerAppUidPolicyPlan {
             this.table = table;
             this.lookupPriority = lookup;
             this.blockPriority = block;
+            this.transport = transport;
+            this.destinationPort = destinationPort;
         }
 
         String preview() {
-            return packageName + " (UID " + uid + ") → " + tunnelName
+            String selector = transport == 0 ? "all app traffic"
+                    : (transport == RootProtocolRouteDraft.TCP ? "TCP" : "UDP")
+                    + (destinationPort == RootProtocolRouteDraft.ANY_PORT
+                        ? " all ports" : " port " + destinationPort);
+            return packageName + " (UID " + uid + " · " + selector + ") → " + tunnelName
                     + " [" + device + "] · IPv4+IPv6 lookup pref "
                     + lookupPriority + " followed by unreachable pref "
                     + blockPriority + " if its table has no route";
@@ -105,6 +113,7 @@ final class RootPerAppUidPolicyPlan {
             this.blockers = Collections.unmodifiableList(java.util.Arrays.asList(
                     "Application DNS requests cannot yet be attributed to their exit.",
                     "Android protectedFromVpn fwmarks and private DNS bypasses are unverified.",
+                    "TCP/UDP destination-port matching is not proven on real Android sockets.",
                     "A tunnel-down firewall and exact-owned rollback ledger are missing.",
                     "A verified root multi-exit lifecycle and packet-leak test are pending."));
         }
@@ -128,6 +137,22 @@ final class RootPerAppUidPolicyPlan {
 
     static Plan prepare(String defaultExitName, List<RootMultiTunnelPlan.Entry> tunnels,
             List<App> requestedApps) {
+        return prepare(defaultExitName, tunnels, requestedApps, Collections.emptyList());
+    }
+
+    /**
+     * READ-ONLY app UID + TCP/UDP + destination-port rule planner.
+     * Exact-port rules are proposed ahead of transport-wide rules, and both
+     * precede the category's app fallback. Each matching lookup is followed
+     * by a terminal block in case the selected exit has no route, preventing
+     * fallback to Android's ordinary default in the hypothetical policy.
+     *
+     * No command executor calls this method; no live enforcement exists.
+     */
+    static Plan prepare(String defaultExitName, List<RootMultiTunnelPlan.Entry> tunnels,
+            List<App> requestedApps, List<RootProtocolRouteDraft.Override> overrides) {
+        List<RootProtocolRouteDraft.Override> validatedOverrides =
+                RootProtocolRouteDraft.validateAndSort(overrides);
         if (tunnels == null || tunnels.isEmpty()
                 || tunnels.size() > RootMultiTunnelPlan.MAX_TUNNELS) {
             throw new IllegalArgumentException("Select 1–8 saved WireGuard tunnels.");
@@ -196,12 +221,48 @@ final class RootPerAppUidPolicyPlan {
             if (target == null) {
                 throw new IllegalArgumentException("An assigned tunnel is missing.");
             }
+            if (!fullDualStack(target)) {
+                throw new IllegalArgumentException("Per-app default tunnel must "
+                        + "have IPv4 and IPv6 Internet routes. A Home/private "
+                        + "split tunnel requires destination-specific rules, "
+                        + "not all-traffic UID routing.");
+            }
+
+            // A packet's exact destination port rule takes precedence over a
+            // generic TCP/UDP rule, then the app's category default. No
+            // protocol/port means "any traffic from this package UID".
+            for (RootProtocolRouteDraft.Override override : validatedOverrides) {
+                if (!app.packageName.equals(override.packageName)) continue;
+                RootMultiTunnelPlan.Entry protocolTarget = byName.get(override.tunnelName);
+                if (protocolTarget == null || !fullDualStack(protocolTarget)) {
+                    throw new IllegalArgumentException("Protocol override target "
+                            + "needs a saved dual-stack Internet tunnel. "
+                            + "Home/private destinations require explicit "
+                            + "destination routing instead.");
+                }
+                if (appRules.size() >= (LAST_PRIORITY - FIRST_PRIORITY + 1) / 2) {
+                    throw new IllegalArgumentException("Too many routing selectors "
+                            + "for the reserved kernel priority range.");
+                }
+                int pref = FIRST_PRIORITY + 2 * appRules.size();
+                appRules.add(new PerAppRule(app.uid, app.packageName,
+                        protocolTarget.name, protocolTarget.device,
+                        tables.get(protocolTarget.name), pref, pref + 1,
+                        override.transport, override.destinationPort));
+            }
             if (appRules.size() >= (LAST_PRIORITY - FIRST_PRIORITY + 1) / 2) {
-                throw new IllegalArgumentException("Too many per-app routing rules.");
+                throw new IllegalArgumentException("Too many routing selectors "
+                        + "for the reserved kernel priority range.");
             }
             int pref = FIRST_PRIORITY + 2 * appRules.size();
             appRules.add(new PerAppRule(app.uid, app.packageName, target.name,
-                    target.device, tables.get(target.name), pref, pref + 1));
+                    target.device, tables.get(target.name), pref, pref + 1, 0, 0));
+        }
+        for (RootProtocolRouteDraft.Override rule : validatedOverrides) {
+            if (!usedPackages.contains(rule.packageName)) {
+                throw new IllegalArgumentException("Protocol override references "
+                        + "an app that has no explicit category assignment.");
+            }
         }
         return new Plan(defaultExitName, plannedRoutes, appRules);
     }
