@@ -343,6 +343,18 @@ final class RootMultiKernelSession {
         return routeEntries(loadAll(profiles));
     }
 
+    /**
+     * Safe read-only multi-select resolution. Only the selected PRIMARY
+     * Internet exit and nonoverlapping split destinations may reach the
+     * current live kernel Start workflow. Additional full exits stay parked.
+     */
+    static RootTunnelStartSelection.Review reviewMultiStartSelection(
+            List<SecureTunnelProfileStore.Profile> profiles,
+            String preferredPrimary) throws Exception {
+        return RootTunnelStartSelection.review(
+                routeEntries(loadAll(profiles)), preferredPrimary);
+    }
+
     private static void validate(List<Active> candidates) {
         List<RootMultiTunnelPlan.Entry> entries = new ArrayList<>();
         for (Active candidate : candidates) entries.add(candidate.routes);

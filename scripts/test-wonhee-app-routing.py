@@ -88,5 +88,35 @@ for source in (protocol_ui, protocol_model, uid_plan, uid_readiness):
         require(dangerous not in source,
                 "Dry-run protocol planner must not alter networking: " + dangerous)
 
+global_model = (java / "RootCategoryProtocolRule.java").read_text()
+home_selection = (java / "RootTunnelStartSelection.java").read_text()
+require('button(editor, "Save global rule · preview"' in app,
+        "Global Protocols tab must support explicit saving")
+require('RootCategoryProtocolRule.Rule' in app
+        and 'showGlobalProtocols()' in app
+        and 'switchTab(2)' in app,
+        "Protocols & Ports must be visible and category-targeted")
+require('drafts.putCategoryProtocolRule' in app
+        and 'drafts.removeCategoryProtocolRule' in app,
+        "Global selectors need add and remove controls")
+require('prefs.edit().putString(CATEGORY_PROTOCOLS' in draft,
+        "Global port-to-category overrides must persist only as local drafts")
+require('RootCategoryProtocolRule.validateAndSort' in uid_plan
+        and 'categoryExits.get(global.category)' in uid_plan,
+        "Global port rules must resolve a category and never silently fall back")
+require('RootMultiKernelSession.reviewMultiStartSelection' in dashboard
+        and 'reviewed.parked' in dashboard
+        and 'new ArrayList<>(active)' in dashboard,
+        "Home must start only explicit primary and compatible private tunnels")
+require('RootTunnelSelectionAdvisor.review(activeEntries)' in home_selection,
+        "Multi-select may not bypass existing route conflict validator")
+require('activationAllowed() { return false; }' in uid_plan,
+        "No draft policy may activate live per-app/transport enforcement")
+for source in (global_model, home_selection):
+    for dangerous in ('new RootShell(', 'shell.run(', 'ip rule add',
+                      'iptables -w', 'startManagedStack(', 'enableRootDns('):
+        require(dangerous not in source,
+                "Selection and port models must never mutate the kernel: " + dangerous)
+
 print("PASS: eight app categories, scoped app discovery, private draft persistence, "
       "UI visibility and no route/DNS/kernel enforcement from planner")

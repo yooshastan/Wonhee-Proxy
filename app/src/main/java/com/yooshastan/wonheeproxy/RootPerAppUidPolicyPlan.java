@@ -114,6 +114,7 @@ final class RootPerAppUidPolicyPlan {
                     "Application DNS requests cannot yet be attributed to their exit.",
                     "Android protectedFromVpn fwmarks and private DNS bypasses are unverified.",
                     "TCP/UDP destination-port matching is not proven on real Android sockets.",
+                    "Global transport rules cannot be safely attributed to all apps/system UIDs yet.",
                     "A tunnel-down firewall and exact-owned rollback ledger are missing.",
                     "A verified root multi-exit lifecycle and packet-leak test are pending."));
         }
@@ -151,8 +152,29 @@ final class RootPerAppUidPolicyPlan {
      */
     static Plan prepare(String defaultExitName, List<RootMultiTunnelPlan.Entry> tunnels,
             List<App> requestedApps, List<RootProtocolRouteDraft.Override> overrides) {
+        return prepare(defaultExitName, tunnels, requestedApps, overrides,
+                Collections.emptyList(), Collections.emptyMap());
+    }
+
+    /**
+     * Protocol routing precedence in this proposed policy:
+     *   explicit app transport + port / app transport-wide
+     *   > global protocol/port → app-use category
+     *   > ordinary category assigned to this app.
+     * Every global category MUST resolve to a configured dual-stack Internet
+     * exit (never silently fall back). Still a non-enforcing draft.
+     */
+    static Plan prepare(String defaultExitName, List<RootMultiTunnelPlan.Entry> tunnels,
+            List<App> requestedApps, List<RootProtocolRouteDraft.Override> overrides,
+            List<RootCategoryProtocolRule.Rule> globalRules,
+            Map<Integer, String> categoryExits) {
         List<RootProtocolRouteDraft.Override> validatedOverrides =
                 RootProtocolRouteDraft.validateAndSort(overrides);
+        List<RootCategoryProtocolRule.Rule> validatedGlobal =
+                RootCategoryProtocolRule.validateAndSort(globalRules);
+        if (categoryExits == null) {
+            throw new IllegalArgumentException("Category target mapping missing.");
+        }
         if (tunnels == null || tunnels.isEmpty()
                 || tunnels.size() > RootMultiTunnelPlan.MAX_TUNNELS) {
             throw new IllegalArgumentException("Select 1–8 saved WireGuard tunnels.");
@@ -249,6 +271,28 @@ final class RootPerAppUidPolicyPlan {
                         protocolTarget.name, protocolTarget.device,
                         tables.get(protocolTarget.name), pref, pref + 1,
                         override.transport, override.destinationPort));
+            }
+            // Global transport/port selectors override the app's ordinary
+            // category, but not the app's explicit transport overrides.
+            for (RootCategoryProtocolRule.Rule global : validatedGlobal) {
+                String globalExitName = categoryExits.get(global.category);
+                if (globalExitName == null || globalExitName.isEmpty()) {
+                    throw new IllegalArgumentException("A global protocol "
+                            + "category has no configured tunnel.");
+                }
+                RootMultiTunnelPlan.Entry globalExit = byName.get(globalExitName);
+                if (globalExit == null || !fullDualStack(globalExit)) {
+                    throw new IllegalArgumentException("Global protocol category "
+                            + "must resolve to a saved dual-stack Internet exit.");
+                }
+                if (appRules.size() >= (LAST_PRIORITY - FIRST_PRIORITY + 1) / 2) {
+                    throw new IllegalArgumentException("Too many routing selectors.");
+                }
+                int pref = FIRST_PRIORITY + 2 * appRules.size();
+                appRules.add(new PerAppRule(app.uid, app.packageName,
+                        globalExit.name, globalExit.device,
+                        tables.get(globalExit.name), pref, pref + 1,
+                        global.transport, global.destinationPort));
             }
             if (appRules.size() >= (LAST_PRIORITY - FIRST_PRIORITY + 1) / 2) {
                 throw new IllegalArgumentException("Too many routing selectors "
