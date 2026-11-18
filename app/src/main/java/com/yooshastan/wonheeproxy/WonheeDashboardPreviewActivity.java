@@ -69,6 +69,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
     private boolean rootHomeBusy;
     private String rootHomeProgress = "";
     private String rootHomeLastProblem = "";
+    private TextView rootSelectionMessage;
     private int relaySeenPid = -1;
     private long relaySeenBlocked = -1;
     private String relayCounterEvent = "Awaiting verified relay counters";
@@ -450,7 +451,38 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         else chosen.remove(name);
         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
                 .putStringSet(QUICK_SELECTION_KEY, chosen).apply();
-        // No network operations. Leave the current scroll and checkbox state alone.
+        // No network operations, and do not rerender/scroll-to-top on a tap.
+        if (rootSelectionMessage != null && tab == 0) {
+            rootSelectionMessage.setText(homeSelectionSummary());
+        }
+    }
+
+    private ArrayList<SecureTunnelProfileStore.Profile> selectedHomeProfiles() {
+        ArrayList<SecureTunnelProfileStore.Profile> selected = new ArrayList<>();
+        Set<String> names = chosenRootTunnels();
+        for (SecureTunnelProfileStore.Profile profile : profiles) {
+            if (names.contains(profile.name)) selected.add(profile);
+        }
+        return selected;
+    }
+
+    private String homeSelectionSummary() {
+        try {
+            RootTunnelSelectionAdvisor.Review review =
+                    RootMultiKernelSession.reviewHomeSelection(selectedHomeProfiles());
+            return review.message;
+        } catch (Exception | LinkageError unavailable) {
+            return "Saved routes could not be inspected. Review each tunnel's "
+                    + "routing settings before starting.";
+        }
+    }
+
+    private void showSelectionNeedsAdjustment(String message) {
+        new AlertDialog.Builder(this).setTitle("Adjust selected tunnels")
+                .setMessage(message)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Edit tunnels", (d, w) -> selectTab(1))
+                .show();
     }
 
     /** Selection belongs on Home rather than in the advanced connection laboratory. */
@@ -482,12 +514,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             check.setOnCheckedChangeListener((view, checked) ->
                     chooseRootTunnel(profile.name, checked));
             item.addView(check);
-            if (includeStatus) {
-                String purpose = profile.routeMode == VpnRouteModes.ALL
-                        ? "Internet exit" : profile.routeMode == VpnRouteModes.HOME
-                        ? "Private destinations" : "Custom routes";
-                text(item, purpose, 11, MUTED);
-            }
+            text(item, TunnelUseCategories.label(profile.category) + " · "
+                    + TunnelUseCategories.routingLabel(profile.routeMode),
+                    11, MUTED);
         }
     }
 
@@ -520,6 +549,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
         showQuickTunnelPicker(hero, false);
+        rootSelectionMessage = text(hero, homeSelectionSummary(), 12, MUTED);
 
         String status = "Checking your connection…";
         if (known && snapshot.presentTunnels == 0) {
@@ -627,24 +657,20 @@ public final class WonheeDashboardPreviewActivity extends Activity {
 
     private void beginHomeStartConfirmation(
             List<SecureTunnelProfileStore.Profile> chosen) {
-        // Keep Home intentionally simple: use a named, validated privacy DNS
-        // default. Custom encrypted upstreams still require explicit Advanced
-        // DNS configuration; never silently interpret unsupported fields.
-        SecureTunnelProfileStore.Profile internet = null;
-        boolean privateDestinationPresent = false;
-        for (SecureTunnelProfileStore.Profile p : chosen) {
-            if (p.routeMode == VpnRouteModes.ALL) {
-                if (internet != null) {
-                    showHomeNotice("Choose only one Internet exit, then press Start.");
-                    return;
-                }
-                internet = p;
-            }
-            if (p.routeMode == VpnRouteModes.HOME) privateDestinationPresent = true;
+        // Inspect the REAL effective routes of every selected WireGuard
+        // profile, not just its category, friendly name or simple mode label.
+        // This is pure parsing/planning before any root/network mutation.
+        final RootTunnelSelectionAdvisor.Review reviewed;
+        try {
+            reviewed = RootMultiKernelSession.reviewHomeSelection(chosen);
+        } catch (Exception | LinkageError invalid) {
+            showSelectionNeedsAdjustment("A selected tunnel's encrypted "
+                    + "configuration or routing destinations cannot be "
+                    + "validated. Nothing was changed.");
+            return;
         }
-        if (internet == null || !privateDestinationPresent) {
-            showHomeNotice("For complete-stack Start, select one Internet exit "
-                    + "and at least one private-destination tunnel.");
+        if (!reviewed.ready) {
+            showSelectionNeedsAdjustment(reviewed.message);
             return;
         }
         if (!"OFF".equals(session.guardLedgerStatus())
@@ -653,7 +679,7 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     + "before starting a new connection.");
             return;
         }
-        final String dnsProfile = internet.name;
+        final String dnsProfile = reviewed.internetExit;
         final String protocol = "doh";
         final String endpoint = "https://cloudflare-dns.com/dns-query";
         final String bootstrap = "1.1.1.1";
@@ -670,8 +696,9 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("Start Wonhee?")
-                .setMessage(chosen.size() + " selected tunnels will be checked and connected. "
-                        + "Internet exit: " + dnsProfile
+                .setMessage(chosen.size() + " compatible tunnels will be checked and connected. "
+                        + reviewed.splitTunnelCount
+                        + " use specific destinations. Internet exit: " + dnsProfile
                         + ". DNS: Cloudflare encrypted DoH through that exit. "
                         + "Tracker blocking: " + (filter ? "On" : "Off") + ". "
                         + "Wonhee will verify DNS after connecting and attempt "
@@ -870,29 +897,37 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                     13, MUTED);
             return;
         }
-        for (SecureTunnelProfileStore.Profile profile : profiles) {
-            LinearLayout item = card(group);
-            text(item, profile.name, 16, WHITE);
-            String purpose = profile.routeMode == VpnRouteModes.ALL
-                    ? "Internet exit" : profile.routeMode == VpnRouteModes.HOME
-                    ? "Private destinations" : "Imported routes";
-            text(item, purpose, 12, MUTED);
-            if (rootMode && lastSnapshot != null && lastSnapshot.rootsAvailable) {
-                boolean found = false;
-                for (RootMultiKernelSession.TunnelStatus tunnel : lastSnapshot.tunnels) {
-                    if (profile.name.equals(tunnel.name)) {
-                        found = true;
-                        text(item, !tunnel.present ? "Stopped"
-                                : tunnel.verified ? "Interface running"
-                                : "Identity needs verification", 12,
-                                tunnel.present && !tunnel.verified ? PINK : MUTED);
-                        break;
-                    }
+        text(group, "Categories are labels, not automatic country, "
+                + "app or IP routing. Use Edit settings to configure exact "
+                + "destination routes.", 12, MUTED);
+        for (int category = 0; category < TunnelUseCategories.LABELS.length; category++) {
+            boolean headingShown = false;
+            for (SecureTunnelProfileStore.Profile profile : profiles) {
+                if (profile.category != category) continue;
+                if (!headingShown) {
+                    text(group, TunnelUseCategories.label(category), 14, PINK);
+                    headingShown = true;
                 }
-                if (!found) text(item, "Status not available", 12, MUTED);
+                LinearLayout item = card(group);
+                text(item, profile.name, 16, WHITE);
+                text(item, TunnelUseCategories.routingLabel(profile.routeMode),
+                        12, MUTED);
+                if (rootMode && lastSnapshot != null && lastSnapshot.rootsAvailable) {
+                    boolean found = false;
+                    for (RootMultiKernelSession.TunnelStatus tunnel : lastSnapshot.tunnels) {
+                        if (profile.name.equals(tunnel.name)) {
+                            found = true;
+                            text(item, !tunnel.present ? "Stopped"
+                                    : tunnel.verified ? "Interface running"
+                                    : "Identity needs verification", 12,
+                                    tunnel.present && !tunnel.verified ? PINK : MUTED);
+                            break;
+                        }
+                    }
+                    if (!found) text(item, "Status not available", 12, MUTED);
+                }
+                secondaryButton(item, "Edit settings", () -> openTunnelEditor(profile.name));
             }
-            secondaryButton(item, "Edit " + profile.name,
-                    () -> openTunnelEditor(profile.name));
         }
     }
 
