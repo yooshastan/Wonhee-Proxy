@@ -70,6 +70,29 @@ require("showQuickTunnelPicker(hero, false)" in dashboard,
 require("showStandardTunnelPicker(hero," in dashboard,
         "Standard Home selection missing")
 
+# Start and Safe Stop must remain on the consumer Home. The Root Lab is
+# deliberate diagnostic navigation, never the automatic destination of Start.
+begin = dashboard.index("    private void launchRootQuickAction(String action) {")
+end = dashboard.index("    private void openTunnelImporter() {", begin)
+root_quick = dashboard[begin:end]
+require("new Intent(this, RootMultiKernelActivity.class)" not in root_quick,
+        "Home Start must not launch the entire Root Multi-Tunnel Lab")
+require("startHomeManagedStack(" in root_quick
+        and "beginHomeSafeStop(" in root_quick,
+        "Home must handle guarded Start and Safe Stop directly")
+require("session.preflightManagedStart" in root_quick
+        and "session.connect" in root_quick
+        and "session.applyRouting" in root_quick
+        and "session.enableRootDns" in root_quick
+        and "session.auditRootDns" in root_quick
+        and "session.stopManagedStack" in root_quick,
+        "Home lifecycle must preserve preflight, DNS audit and safe rollback")
+require("new AlertDialog.Builder(this)" in root_quick
+        and 'setTitle("Start Wonhee?")' in root_quick,
+        "Home must explicitly confirm before root network mutation")
+require("RootGuardSafetyGate.activationPaused()" in dashboard,
+        "Everyday UI must keep kill-switch state honest")
+
 # Tunnels is not a second selection screen. Every profile has one direct
 # editor; advanced diagnostics do not masquerade as profile management.
 dashboard = (JAVA / "WonheeDashboardPreviewActivity.java").read_text(
