@@ -32,6 +32,8 @@ jobs:
           fi
       - name: Verify everyday Home entry points
         run: python3 scripts/test-wonhee-home-entrypoints.py
+      - name: Verify App Routing draft privacy and safety contract
+        run: python3 scripts/test-wonhee-app-routing.py
       - name: Verify permanent release-signing setup script syntax
         run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh
       - name: Prove safe installer refuses unsafe live/root states
@@ -77,6 +79,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootDualRoutePolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMultiTunnelPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTunnelSelectionAdvisor.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/AppUseCategories.java \
             app/src/main/java/com/yooshastan/wonheeproxy/TunnelUseCategories.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootProtectionPolicy.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootSplitRouteRules.java \
@@ -140,6 +143,7 @@ jobs:
             core-tests/RootDualRoutePolicyTest.java \
             core-tests/RootMultiTunnelPlanTest.java \
             core-tests/RootTunnelSelectionAdvisorTest.java \
+            core-tests/AppUseCategoriesTest.java \
             core-tests/RootProtectionPolicyTest.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootLifecycleRecoveryPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootOrphanDnsPolicy.java \
@@ -206,6 +210,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDualRoutePolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiTunnelPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTunnelSelectionAdvisorTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.AppUseCategoriesTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootProtectionPolicyTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootSplitRouteRulesTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootLifecycleRecoveryPlanTest
