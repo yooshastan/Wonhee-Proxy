@@ -325,6 +325,15 @@ final class RootMultiKernelSession {
         return candidates;
     }
 
+    /**
+     * Pure, read-only Home selection review using effective WireGuard routes.
+     * No root shell, DNS socket, tunnel mutation or firewall operation occurs.
+     */
+    static RootTunnelSelectionAdvisor.Review reviewHomeSelection(
+            List<SecureTunnelProfileStore.Profile> profiles) throws Exception {
+        return RootTunnelSelectionAdvisor.review(routeEntries(loadAll(profiles)));
+    }
+
     private static void validate(List<Active> candidates) {
         List<RootMultiTunnelPlan.Entry> entries = new ArrayList<>();
         for (Active candidate : candidates) entries.add(candidate.routes);
