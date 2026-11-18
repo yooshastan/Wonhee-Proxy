@@ -55,5 +55,38 @@ for forbidden in ("RootShell", "RootMultiKernelSession", "RootDnsRelayRunner",
     require(forbidden not in app and forbidden not in draft,
             "Draft screen/store must never change networking: " + forbidden)
 
+protocol_ui = (java / "AppProtocolRulesActivity.java").read_text()
+protocol_model = (java / "RootProtocolRouteDraft.java").read_text()
+uid_plan = (java / "RootPerAppUidPolicyPlan.java").read_text()
+uid_readiness = (java / "RootAppUidReadiness.java").read_text()
+require('android:name=".AppProtocolRulesActivity" android:exported="false"' in
+        manifest_text, "Protocol editor must be private to Wonhee")
+require('new Intent(this, AppProtocolRulesActivity.class)' in app,
+        "App list must reach the advanced protocol editor")
+require('"PLANNING ONLY · NOT ACTIVE"' in protocol_ui,
+        "Protocol configuration must be clearly labeled inactive")
+require('RootProtocolRouteDraft.TCP' in protocol_ui
+        and 'RootProtocolRouteDraft.UDP' in protocol_ui
+        and 'RootProtocolRouteDraft.ANY_PORT' in protocol_ui,
+        "Editor must accept explicit TCP/UDP and optional port")
+require('drafts.putProtocolRule' in protocol_ui
+        and 'drafts.removeProtocolRule' in protocol_ui,
+        "User needs add/remove protocol draft rules")
+require('prefs.edit().putString(PROTOCOLS' in draft,
+        "Transport policy drafts must be stored locally")
+require('RootProtocolRouteDraft.validateAndSort' in uid_plan
+        and 'activationAllowed() { return false; }' in uid_plan,
+        "UID + transport model must deny live activation")
+require('previewAppUidRoutes' in uid_readiness
+        and 'getPackagesForUid' in uid_readiness
+        and 'getPackageUid' in uid_readiness,
+        "Readiness must use actual installed UID ownership")
+for source in (protocol_ui, protocol_model, uid_plan, uid_readiness):
+    for dangerous in ('new RootShell(', 'shell.run(', 'iptables -w',
+                      'ip rule add', 'ip rule del', 'enableRootDns(',
+                      'startManagedStack('):
+        require(dangerous not in source,
+                "Dry-run protocol planner must not alter networking: " + dangerous)
+
 print("PASS: eight app categories, scoped app discovery, private draft persistence, "
       "UI visibility and no route/DNS/kernel enforcement from planner")
