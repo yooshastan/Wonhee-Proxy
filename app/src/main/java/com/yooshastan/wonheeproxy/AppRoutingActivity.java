@@ -56,7 +56,7 @@ public final class AppRoutingActivity extends Activity {
     private LinearLayout tabContent;
     private LinearLayout appRows;
     private TextView listStatus;
-    private boolean categoriesTab;
+    private int activeTab; // 0 Apps, 1 Categories, 2 Protocols & Ports
     private boolean loadedApps;
     private String search = "";
     private int visibleLimit = PAGE_LIMIT;
@@ -117,15 +117,20 @@ public final class AppRoutingActivity extends Activity {
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         page.addView(tabs, new LinearLayout.LayoutParams(-1, -2));
-        Button apps = button(tabs, "Apps", () -> switchTab(false));
-        Button categories = button(tabs, "Category tunnels", () -> switchTab(true));
+        Button apps = button(tabs, "Apps", () -> switchTab(0));
+        Button categories = button(tabs, "Categories", () -> switchTab(1));
+        Button protocols = button(tabs, "Protocols", () -> switchTab(2));
+        apps.setTextSize(12);
+        categories.setTextSize(12);
+        protocols.setTextSize(12);
         apps.setLayoutParams(new LinearLayout.LayoutParams(0, dp(52), 1f));
         categories.setLayoutParams(new LinearLayout.LayoutParams(0, dp(52), 1f));
+        protocols.setLayoutParams(new LinearLayout.LayoutParams(0, dp(52), 1f));
 
         tabContent = new LinearLayout(this);
         tabContent.setOrientation(LinearLayout.VERTICAL);
         page.addView(tabContent);
-        switchTab(false);
+        switchTab(0);
         loadInstalledApps();
     }
 
@@ -133,7 +138,8 @@ public final class AppRoutingActivity extends Activity {
         super.onResume();
         if (drafts != null) {
             refreshSavedProfiles();
-            if (tabContent != null && categoriesTab) showCategories();
+            if (tabContent != null && activeTab == 1) showCategories();
+            if (tabContent != null && activeTab == 2) showGlobalProtocols();
         }
     }
 
@@ -146,9 +152,10 @@ public final class AppRoutingActivity extends Activity {
         }
     }
 
-    private void switchTab(boolean categories) {
-        categoriesTab = categories;
-        if (categories) showCategories();
+    private void switchTab(int next) {
+        activeTab = next;
+        if (next == 1) showCategories();
+        else if (next == 2) showGlobalProtocols();
         else showApps();
     }
 
@@ -220,13 +227,13 @@ public final class AppRoutingActivity extends Activity {
                 launchableApps.clear();
                 launchableApps.addAll(sorted);
                 loadedApps = true;
-                if (!categoriesTab) renderAppRows();
+                if (activeTab == 0) renderAppRows();
             });
         }, "wonhee-visible-app-categories").start();
     }
 
     private void renderAppRows() {
-        if (appRows == null || listStatus == null || categoriesTab) return;
+        if (appRows == null || listStatus == null || activeTab != 0) return;
         appRows.removeAllViews();
         if (!loadedApps) {
             listStatus.setText("Finding launchable apps…");
@@ -397,6 +404,110 @@ public final class AppRoutingActivity extends Activity {
                 });
             }, "wonhee-uid-protocol-review").start();
         });
+    }
+
+    /**
+     * Global L4 traffic selectors: choose a CATEGORY first, not an app.
+     * Every selector is only a saved draft until a separate, fail-closed
+     * root policy engine proves multi-exit DNS, UID and firewall ownership.
+     */
+    private void showGlobalProtocols() {
+        tabContent.removeAllViews();
+        text(tabContent, "Protocols & Ports", 18, WHITE);
+        LinearLayout summary = card(tabContent);
+        text(summary, "GLOBAL RULES · PLANNING ONLY", 15, PINK);
+        text(summary, "A rule here takes precedence over an app's ordinary "
+                + "category. Example: UDP destination port 443 → Private. "
+                + "The Private category then specifies the preferred tunnel.",
+                13, WHITE);
+        text(summary, "A more specific rule you set for an individual app "
+                + "still takes priority. These are drafts only—no traffic "
+                + "is currently routed, classified or inspected.", 12, MUTED);
+
+        List<RootCategoryProtocolRule.Rule> saved;
+        try {
+            saved = drafts.categoryProtocolRules();
+        } catch (RuntimeException invalid) {
+            text(tabContent, "Protocol draft storage cannot be read; no changes "
+                    + "have been made.", 13, PINK);
+            return;
+        }
+        LinearLayout existing = card(tabContent);
+        text(existing, "YOUR GLOBAL RULES · " + saved.size(), 15, PINK);
+        if (saved.isEmpty()) {
+            text(existing, "No rules. Apps follow their selected categories.",
+                    13, MUTED);
+        }
+        for (RootCategoryProtocolRule.Rule rule : saved) {
+            LinearLayout item = card(existing);
+            text(item, rule.summary(), 14, WHITE);
+            button(item, "Remove rule", () -> {
+                new AlertDialog.Builder(this)
+                        .setTitle("Remove global protocol rule?")
+                        .setMessage("Only the locally saved rule is removed. "
+                                + "No active connection is changed.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Remove", (dialog, index) -> {
+                            try {
+                                drafts.removeCategoryProtocolRule(
+                                        rule.transport, rule.destinationPort);
+                                showGlobalProtocols();
+                            } catch (RuntimeException invalid) {
+                                error("Could not save", "The rule was not removed.");
+                            }
+                        }).show();
+            });
+        }
+
+        LinearLayout editor = card(tabContent);
+        text(editor, "NEW GLOBAL RULE", 15, PINK);
+        text(editor, "Transport", 12, MUTED);
+        Spinner transport = selector(editor, new String[]{"TCP", "UDP"});
+        text(editor, "Destination port", 12, MUTED);
+        EditText port = new EditText(this);
+        port.setTextSize(14);
+        port.setTextColor(WHITE);
+        port.setHintTextColor(MUTED);
+        port.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        port.setSingleLine(true);
+        port.setHint("Blank = all ports for this transport");
+        editor.addView(port, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        text(editor, "Override app category with", 12, MUTED);
+        Spinner category = selector(editor, AppUseCategories.LABELS);
+        text(editor, "Set that category's tunnel under Categories. "
+                + "An unset or incompatible target must be refused by "
+                + "future enforcement, never silently use another exit.",
+                12, MUTED);
+        button(editor, "Save global rule · preview", () -> {
+            int protocol = transport.getSelectedItemPosition() == 0
+                    ? RootProtocolRouteDraft.TCP : RootProtocolRouteDraft.UDP;
+            String typed = port.getText().toString().trim();
+            final int dest;
+            try {
+                dest = typed.isEmpty() ? RootProtocolRouteDraft.ANY_PORT
+                        : Integer.parseInt(typed);
+                if (!typed.isEmpty() && dest == 0) {
+                    error("Invalid port", "Enter 1–65535 or leave the port blank.");
+                    return;
+                }
+                RootCategoryProtocolRule.Rule rule =
+                        new RootCategoryProtocolRule.Rule(protocol, dest,
+                                category.getSelectedItemPosition());
+                drafts.putCategoryProtocolRule(rule);
+                showGlobalProtocols();
+            } catch (NumberFormatException invalid) {
+                error("Invalid port", "Enter 1–65535 or leave the port blank.");
+            } catch (RuntimeException invalid) {
+                error("Rule not saved", "The selected protocol, category or "
+                        + "rule limit is invalid. Existing drafts were kept.");
+            }
+        });
+        text(tabContent, "Precedence for future implementation: individual "
+                + "app protocol rule → global protocol/port rule → app "
+                + "category → device default. TCP and UDP ports cannot "
+                + "reliably identify HTTPS, QUIC, financial or media traffic. "
+                + "This screen makes no live kernel changes.", 12, MUTED);
     }
 
     private Spinner selector(LinearLayout parent, String[] labels) {
