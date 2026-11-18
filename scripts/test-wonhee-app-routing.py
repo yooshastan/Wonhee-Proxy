@@ -118,5 +118,33 @@ for source in (global_model, home_selection):
         require(dangerous not in source,
                 "Selection and port models must never mutate the kernel: " + dangerous)
 
+presets = (java / "RootCommonProtocolPresets.java").read_text()
+root_session = (java / "RootMultiKernelSession.java").read_text()
+tunnel_editor = (java / "TunnelProfileSettingsActivity.java").read_text()
+require('RootCommonProtocolPresets.labels()' in app
+        and 'RootCommonProtocolPresets.get(' in app,
+        "Global protocol editor must offer readable service presets")
+require('drafts.putCategoryProtocolPreset(newRules)' in app
+        and 'Existing port rule(s)' not in app,
+        "Global port preset must be saved in a single atomic batch")
+require('synchronized void putCategoryProtocolPreset(' in draft
+        and 'saveCategoryProtocolRules(RootCategoryProtocolRule.validateAndSort(merged))'
+            in draft,
+        "Preset persistence must have validated atomic replacement semantics")
+require('GPS' in app and 'Wi-Fi/cell data' in app,
+        "Location must not be misrepresented as a universal network port")
+require('static String effectiveRouteSummary(' in root_session
+        and 'RootMultiKernelSession.effectiveRouteSummary(profile)' in dashboard
+        and 'RootMultiKernelSession.effectiveRouteSummary(original)' in tunnel_editor,
+        "Imported WireGuard profiles must truthfully disclose effective full exits")
+require('ROOT_HOME_LAST_RESULT_KEY' in dashboard
+        and 'rootHomeLastProblem = ui.getString(ROOT_HOME_LAST_RESULT_KEY' in dashboard,
+        "Sanitized connection failure summary must survive restarting Home")
+for source in (presets,):
+    for dangerous in ('new RootShell(', 'shell.run(', 'iptables', 'ip rule add',
+                      'startManagedStack(', 'enableRootDns('):
+        require(dangerous not in source,
+                "Protocol presets are metadata and cannot install rules: " + dangerous)
+
 print("PASS: eight app categories, scoped app discovery, private draft persistence, "
       "UI visibility and no route/DNS/kernel enforcement from planner")
