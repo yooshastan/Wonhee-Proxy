@@ -170,15 +170,16 @@ public final class MainActivity extends Activity {
         importButton.setOnClickListener(v -> openInUltgram());
 
         root.addView(space(16));
-        root.addView(text("WireGuard VPN dashboard · Alpha 0.5", 16, PINK));
-        root.addView(text("The VPN dashboard is now the main screen. Saved encrypted tunnel "
-                + "profiles and WireGuard handshake statistics live there. "
-                + "DNS filtering and leak protection are still experimental.", 13, FOREGROUND));
-        Button vpnButton = button(root, "Return to VPN dashboard");
+        root.addView(text("Wonhee Home", 16, PINK));
+        root.addView(text("Return to the simple Wonhee dashboard for "
+                + "tunnel selection, Start/Stop, and protection status.", 13, FOREGROUND));
+        Button vpnButton = button(root, "Back to Wonhee Home");
         vpnButton.setOnClickListener(v -> {
-            Intent vpn = new Intent(this, VpnActivity.class);
-            vpn.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            startActivity(vpn);
+            Intent home = new Intent(this, WonheeDashboardPreviewActivity.class);
+            home.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(home);
+            finish();
         });
 
         root.addView(space(16));

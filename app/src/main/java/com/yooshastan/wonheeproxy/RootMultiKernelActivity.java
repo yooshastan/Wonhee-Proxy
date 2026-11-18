@@ -26,6 +26,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Collections;
 
 /** Small opt-in UI for generalizing root tunnel controls without regressing the pair. */
 public final class RootMultiKernelActivity extends Activity {
@@ -42,6 +45,8 @@ public final class RootMultiKernelActivity extends Activity {
     private final List<Button> labTabButtons = new ArrayList<>();
     private ScrollView labScroll;
     private int activeLabTab = 0;
+    private boolean quickActionConsumed;
+    private boolean quickFlowFromHome;
 
     private SecureTunnelProfileStore store;
     private RootMultiKernelSession session;
@@ -194,7 +199,11 @@ public final class RootMultiKernelActivity extends Activity {
         profileRows.setOrientation(LinearLayout.VERTICAL);
         configs.addView(profileRows);
         Button manage = button(configs, "Import / edit encrypted profiles");
-        manage.setOnClickListener(v -> startActivity(new Intent(this, VpnActivity.class)));
+        manage.setOnClickListener(v -> {
+            Intent advanced = new Intent(this, VpnActivity.class);
+            advanced.putExtra("wonhee.explicit.advanced", true);
+            startActivity(advanced);
+        });
         preview = button(configs, "Preview selected routes · read only");
         preview.setOnClickListener(v -> run("Preview routes", false, session::preview));
 
@@ -1093,7 +1102,10 @@ public final class RootMultiKernelActivity extends Activity {
         appendAdvancedMenu(statusPage, advancedGroup,
                 "Advanced Connection Controls");
         updateButtons();
-        showLabTab(activeLabTab);
+        // Open the relevant advanced section from the everyday dashboard.
+        // This changes only the visible tab, never runs an audit or action.
+        int requestedTab = getIntent().getIntExtra("wonhee.lab.tab", activeLabTab);
+        showLabTab(Math.max(0, Math.min(3, requestedTab)));
     }
 
     private void moveAdvancedCard(LinearLayout card, LinearLayout destination) {
@@ -1137,6 +1149,128 @@ public final class RootMultiKernelActivity extends Activity {
         if (dnsEnforcementStatus != null) {
             dnsEnforcementStatus.setText("DNS POLICY LEDGER: " + session.dnsLedgerStatus());
         }
+        if (!quickActionConsumed) {
+            String quick = getIntent().getStringExtra("wonhee.quick.action");
+            quickActionConsumed = true;
+            if ("start".equals(quick) || "stop".equals(quick)) {
+                quickFlowFromHome = true;
+                // Home tap is an intentional request to enter the EXISTING guarded
+                // full-stack action. It never executes a mutating operation on entry.
+                ArrayList<String> active =
+                        getIntent().getStringArrayListExtra("wonhee.quick.profiles");
+                getIntent().removeExtra("wonhee.quick.action");
+                getIntent().removeExtra("wonhee.quick.profiles");
+                showLabTab(0);
+                labScroll.post(() -> showQuickSelection(quick, active));
+            }
+        }
+    }
+
+    private void showQuickSelection(String action, List<String> activeNames) {
+        if (isFinishing() || isDestroyed() || session.isBusy() || lifecycleBusy) return;
+        if (saved.isEmpty()) {
+            output.setText("Add a WireGuard tunnel first, then press Start.");
+            new AlertDialog.Builder(this).setTitle("No saved tunnels")
+                    .setMessage("Add a WireGuard configuration before using "
+                            + "the complete-stack connection controls.")
+                    .setPositiveButton("Add tunnel", (dialog, which) -> {
+                        Intent intent = new Intent(this, VpnActivity.class);
+                        intent.putExtra("wonhee.quick.action", "import");
+                        startActivity(intent);
+                    })
+                    .setNegativeButton("Close", null).show();
+            return;
+        }
+        final boolean stopping = "stop".equals(action);
+        if (activeNames != null) {
+            // Selection came from Home. Do not make the user select the same
+            // tunnels AGAIN in the laboratory. Preserve the existing preflight,
+            // final confirmation, and identity-verified Safe Stop.
+            Set<String> names = new HashSet<>(activeNames);
+            Set<String> accepted = new HashSet<>();
+            int dns = -1;
+            int fallback = -1;
+            for (int i = 0; i < saved.size(); i++) {
+                SecureTunnelProfileStore.Profile profile = saved.get(i);
+                CheckBox checkbox = selection.get(profile.name);
+                boolean chosen = names.contains(profile.name);
+                if (checkbox != null) checkbox.setChecked(chosen);
+                if (chosen) {
+                    accepted.add(profile.name);
+                    if (fallback < 0) fallback = i;
+                    if (profile.routeMode == VpnRouteModes.ALL) dns = i;
+                }
+            }
+            if (accepted.isEmpty() || accepted.size() != names.size()) {
+                new AlertDialog.Builder(this).setTitle("Tunnel selection changed")
+                        .setMessage("One or more selected tunnels were removed or "
+                                + "cannot be read. Return Home and check your selection.")
+                        .setPositiveButton("Back to Home", (d, w) -> finish())
+                        .show();
+                return;
+            }
+            if (!stopping && dohTunnel != null) {
+                dohTunnel.setSelection(dns >= 0 ? dns : fallback);
+            }
+            updateButtons();
+            if (stopping) stopManagedStack();
+            else startManagedStack();
+            return;
+        }
+        Set<String> previous = new HashSet<>(getSharedPreferences(
+                "wonhee_everyday_ui_v1", MODE_PRIVATE)
+                .getStringSet("last_quick_profiles", Collections.emptySet()));
+        String[] names = new String[saved.size()];
+        boolean[] checked = new boolean[saved.size()];
+        for (int i = 0; i < saved.size(); i++) {
+            names[i] = saved.get(i).name;
+            checked[i] = stopping
+                    ? activeNames != null && activeNames.contains(names[i])
+                    : previous.contains(names[i]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(stopping ? "Which tunnels should Safe Stop close?"
+                        : "Choose tunnels to start")
+                .setMessage(stopping
+                        ? "Select every active Wonhee tunnel. Safe Stop will verify "
+                                + "identities and owned DNS/routing rules before disconnecting."
+                        : "Select your Internet tunnel and any private-network tunnels. "
+                                + "Wonhee will check routing and DNS before starting. "
+                                + "Nothing changes until you approve the next confirmation.")
+                .setMultiChoiceItems(names, checked,
+                        (dialog, which, selected) -> checked[which] = selected)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Continue", (dialog, which) -> {
+                    int selectedCount = 0;
+                    int preferredDns = -1;
+                    int fallbackDns = -1;
+                    Set<String> selectedNames = new HashSet<>();
+                    for (int i = 0; i < names.length; i++) {
+                        CheckBox box = selection.get(names[i]);
+                        if (box != null) box.setChecked(checked[i]);
+                        if (!checked[i]) continue;
+                        selectedCount++;
+                        selectedNames.add(names[i]);
+                        if (fallbackDns < 0) fallbackDns = i;
+                        if (saved.get(i).routeMode == VpnRouteModes.ALL) {
+                            preferredDns = i;
+                        }
+                    }
+                    if (selectedCount == 0) {
+                        output.setText("Choose at least one tunnel; nothing changed.");
+                        return;
+                    }
+                    if (!stopping) {
+                        getSharedPreferences("wonhee_everyday_ui_v1", MODE_PRIVATE)
+                                .edit().putStringSet("last_quick_profiles", selectedNames)
+                                .apply();
+                        if (dohTunnel != null) dohTunnel.setSelection(
+                                preferredDns >= 0 ? preferredDns : fallbackDns);
+                    }
+                    updateButtons();
+                    if (stopping) stopManagedStack();
+                    else startManagedStack();
+                }).show();
     }
 
     @Override protected void onPause() {
@@ -1578,6 +1712,7 @@ public final class RootMultiKernelActivity extends Activity {
         journal.record("RESULT", "Batch H.1 managed lifecycle "
                 + (ok ? "verified complete" : "requires user audit"));
         updateButtons();
+        if (ok && quickFlowFromHome) finish();
     }
 
     private void rollbackFailedStart(List<SecureTunnelProfileStore.Profile> chosen,
@@ -1647,7 +1782,9 @@ public final class RootMultiKernelActivity extends Activity {
                         + "Normal Wi-Fi/cellular traffic may then resume: this is NOT "
                         + "a zero-leak kill switch. Set Android Private DNS OFF, "
                         + "disable Batch C auto-recovery, and keep USB ADB available.")
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", (d, w) -> {
+                    if (quickFlowFromHome) finish();
+                })
                 .setPositiveButton("Start full stack", (dialog, which) -> {
                     saveTrackerOptions();
                     lifecycleBusy = true;
@@ -1767,7 +1904,9 @@ public final class RootMultiKernelActivity extends Activity {
                         + "Incomplete or foreign ownership makes it stop safely "
                         + "without flushing unrelated firewall rules. "
                         + "Normal Wi-Fi/cellular traffic may resume; keep USB ADB available.")
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", (d, w) -> {
+                    if (quickFlowFromHome) finish();
+                })
                 .setPositiveButton("Safe stop", (dialog, which) -> {
                     lifecycleBusy = true;
                     updateButtons();

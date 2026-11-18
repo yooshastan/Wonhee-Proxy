@@ -160,8 +160,10 @@ public final class VpnTrafficNotificationService extends Service {
     }
 
     private Notification makeNotification(String speed, String detail) {
-        Intent launch = new Intent(this, VpnActivity.class);
-        launch.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent launch = new Intent(this, WonheeDashboardPreviewActivity.class);
+        launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent open = PendingIntent.getActivity(this, 0, launch,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL_ID)
