@@ -57,6 +57,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootDashboardTelemetry.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootInternetIncidentEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootDnsStartFailure.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootDnsUpstreamDiagnosis.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootUidRouteAudit.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootLiveSocketMarkEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootLivePeerRouteAudit.java \
@@ -118,6 +119,7 @@ jobs:
             core-tests/RootDashboardTelemetryTest.java \
             core-tests/RootInternetIncidentEvidenceTest.java \
             core-tests/RootDnsStartFailureTest.java \
+            core-tests/RootDnsUpstreamDiagnosisTest.java \
             core-tests/RootUidRouteAuditTest.java \
             core-tests/RootLiveSocketMarkEvidenceTest.java \
             core-tests/RootLivePeerRouteAuditTest.java \
@@ -182,6 +184,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDashboardTelemetryTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootInternetIncidentEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsStartFailureTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootDnsUpstreamDiagnosisTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootUidRouteAuditTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootLiveSocketMarkEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootLivePeerRouteAuditTest
