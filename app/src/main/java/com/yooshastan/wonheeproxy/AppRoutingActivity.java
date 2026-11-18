@@ -434,7 +434,7 @@ public final class AppRoutingActivity extends Activity {
         Runnable refreshPreset = () -> {
             RootCommonProtocolPresets.Preset p =
                     RootCommonProtocolPresets.get(presetPicker.getSelectedItemPosition());
-            presetPreview.setText(p.explanation + "\\nPorts: " + p.selectorsLabel());
+            presetPreview.setText(p.explanation + "\nPorts: " + p.selectorsLabel());
         };
         presetPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View item,
