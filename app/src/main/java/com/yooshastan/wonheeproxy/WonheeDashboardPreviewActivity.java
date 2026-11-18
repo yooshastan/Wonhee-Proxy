@@ -883,18 +883,11 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         button(group, "＋  Add tunnel", this::openTunnelImporter);
         text(group, "Choose which tunnels to start on Home. "
                 + "Manage each saved tunnel here.", 12, MUTED);
-        showManagedProfiles(group);
-
-        LinearLayout apps = card(content);
-        text(apps, "APP ROUTING", 16, PINK);
-        text(apps, "Organize your installed apps into Everyday, Private, "
-                + "Regional, Finance, Home, Work, Media and System categories.",
-                12, WHITE);
-        secondaryButton(apps, "Set up app categories", () ->
+        secondaryButton(group, "Set up app categories · preview", () ->
                 startActivity(new Intent(this, AppRoutingActivity.class)));
-        text(apps, "Planning only: category-to-tunnel assignments are saved "
-                + "locally but do not yet route traffic or change the active VPN.",
-                12, MUTED);
+        text(group, "Category routing is a saved plan only; it does not "
+                + "change how any app connects yet.", 12, MUTED);
+        showManagedProfiles(group);
     }
 
     /** Tunnels is a library, not a second connection-selection screen. */
