@@ -30,7 +30,7 @@ final class RootDnsUpstreamDiagnosis {
         if (exitCode == 0 && line.matches("VERIFIED A_COUNT=[1-9][0-9]{0,2}")) {
             return VERIFIED;
         }
-        if (exitCode == 0 || !line.matches("REFUSED [A-Z_]{3,40}")) {
+        if (exitCode == 0 || !line.matches("REFUSED [A-Z0-9_]{3,40}")) {
             return UNAVAILABLE;
         }
         switch (line.substring("REFUSED ".length())) {
