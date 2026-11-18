@@ -34,6 +34,19 @@ final class RootAppUidReadiness {
             Map<String, Integer> assignments = drafts.appCategories();
             List<RootProtocolRouteDraft.Override> overrides =
                     drafts.allProtocolRules();
+            List<RootCategoryProtocolRule.Rule> globalRules =
+                    drafts.categoryProtocolRules();
+            Map<Integer, String> categoryExits = new HashMap<>();
+            for (RootCategoryProtocolRule.Rule global : globalRules) {
+                // Never infer a fallback for a category-wide override.
+                String target = drafts.categoryTunnel(global.category);
+                if (target.isEmpty()) {
+                    return "READ-ONLY UID CHECK\nA global transport category "
+                            + "does not have a selected tunnel. Set its "
+                            + "category destination first.";
+                }
+                categoryExits.put(global.category, target);
+            }
             Set<String> packages = new HashSet<>(assignments.keySet());
             for (RootProtocolRouteDraft.Override rule : overrides) {
                 packages.add(rule.packageName);
@@ -81,6 +94,7 @@ final class RootAppUidReadiness {
             for (RootProtocolRouteDraft.Override rule : overrides) {
                 selectedNames.add(rule.tunnelName);
             }
+            selectedNames.addAll(categoryExits.values());
             List<SecureTunnelProfileStore.Profile> selected = new ArrayList<>();
             for (String name : selectedNames) {
                 SecureTunnelProfileStore.Profile profile = byName.get(name);
@@ -93,8 +107,12 @@ final class RootAppUidReadiness {
             RootPerAppUidPolicyPlan.Plan plan =
                     RootPerAppUidPolicyPlan.prepare(defaultName,
                             RootMultiKernelSession.previewAppUidRoutes(selected),
-                            resolved, overrides);
-            return plan.summary();
+                            resolved, overrides, globalRules, categoryExits);
+            return plan.summary()
+                    + "\nGLOBAL RULE SCOPE: This read-only proposal only "
+                    + "checks explicitly assigned, launcher-visible apps. "
+                    + "It does not enumerate or enforce every Android "
+                    + "system/background UID. No traffic changed.";
         } catch (Exception | LinkageError invalid) {
             // Never leak raw encrypted profiles, WireGuard keys, DNS URLs,
             // app package inventories or private shell error text.
