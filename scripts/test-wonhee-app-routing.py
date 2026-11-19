@@ -87,6 +87,12 @@ require('RootMultiExitKernelPlan.compile(plan)' in uid_readiness,
 require('activationAllowed() { return false; }' in kernel_plan
         and 'private RootMultiExitKernelPlan()' in kernel_plan,
         "Multi-exit compiler must remain non-activating")
+netfilter_help = (java / "RootNetfilterHelpCapabilities.java").read_text()
+require('activationAllowed() { return false; }' in netfilter_help,
+        "Legacy netfilter help cannot activate live packet classification")
+require('RootNetfilterHelpCapabilitiesTest.java' in
+        (root / ".github/workflows/build.yml").read_text(),
+        "Pixel 8a legacy netfilter help tests must run in CI")
 for dangerous in ('new RootShell(', 'shell.run(', 'startManagedStack(',
                   'enableRootDns(', 'Runtime.getRuntime().exec(', 'ProcessBuilder('):
     require(dangerous not in kernel_plan,
