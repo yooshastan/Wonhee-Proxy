@@ -79,7 +79,7 @@ final class RootIsolatedWireGuardKernelAdapter
         shell.start();
         tools.ensureToolsAvailable();
         if (shell.run(null, "wg --version >/dev/null 2>&1") != 0
-                || shell.run(null, "wg-quick --help >/dev/null 2>&1") != 0) {
+                || shell.run(null, "command -v wg-quick >/dev/null 2>&1") != 0) {
             throw new IllegalStateException("WireGuard kernel tools not available.");
         }
         List<String> links = read("ip -o link show");
