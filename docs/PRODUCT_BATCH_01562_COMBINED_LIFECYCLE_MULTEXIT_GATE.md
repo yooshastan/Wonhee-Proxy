@@ -380,6 +380,47 @@ and protected UDP underlay; working Start/Safe Stop integration and
 protocol/port selector support. This code cannot be called the signed
 0.15.62 release. Private DNS must remain OFF on the Pixel 8a.
 
+## Pixel 8a RootLab compatibility and first two-peer functional smoke path
+
+The user ran the 0.15.62 RootLab readiness APK on the rooted Pixel 8a
+(Android 16 / kernel 6.1.145). Device results:
+
+- `ToolsInstaller.ensureToolsAvailable()` succeeds inside the app-private
+  RootLab environment. `wg --version` succeeds with
+  `wireguard-tools v1.0.20250521`. `wg-quick` resolves in
+  `/data/user/0/com.yooshastan.wonheeproxy.rootlab01562/code_cache/bin/`.
+- `wg show interfaces` is empty. Both families' `ip rule` help list
+  `uidrange` and `fwmark`, **not** `ipproto`/`dport`.
+  Both families' `ip route` help list `unreachable` route types.
+  This command prints help with status 255; that is not a route failure.
+- No reserved 12500-12999 policy rules, private 51000-51007 routes, or
+  WireGuard interfaces were seen. Existing mangle OUTPUT chains contain
+  `-A OUTPUT -j connmark_mangle_OUTPUT`; these are Android-owned and must
+  not be flushed or rewritten. Private DNS stays **off**.
+- The isolated journal reports are for the **separately installed RootLab
+  package**, not the official Wonhee package. Earlier phone ADB also
+  showed no private-table routing residue.
+
+**Implemented after the device report:** `RootIsolatedTwoPeerLinkPlan`
+compiles an exactly **two-peer**, rootless link-only smoke sequence. It
+does not rely on a fake per-app UID assignment. Each selected WG peer
+would get its own named kernel link and private table (51000/51001);
+interface local addresses require /32 or /128, and each peer must permit
+an IPv4 default AllowedIPs route (optional IPv6 default). Extra split
+destinations and overlapping local addresses are refused. The emitted
+commands contain **no Android IP rules, new fwmarks, mangle changes,
+system/main routes or DNS changes**. `RootIsolatedTwoPeerHandshakeAudit`
+compares read-only peer handshakes and transfer counters against their
+expected public keys but exports only redacted verification, age and
+byte counts. Tests cover stale/mismatched peers and independent tables.
+
+**This is the next *functional* test architecture, not a live button yet.**
+Actual activation still depends on encrypted profile import/selection,
+persistently signed pilot packaging, a verified endpoint-underlay
+safety gate, exact post-crash journal ownership and explicit Safe Stop.
+Only after two peer handshakes are proven should app UID routing and
+leak testing be turned on. Keep the released 0.15.61 package untouched.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
