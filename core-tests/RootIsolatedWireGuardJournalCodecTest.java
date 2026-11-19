@@ -91,9 +91,7 @@ public final class RootIsolatedWireGuardJournalCodecTest {
                 modified.get(modified.size() - 1);
         modified.set(modified.size() - 1,
                 new RootIsolatedWireGuardBootstrapPlan.Step(prev.kind,
-                        prev.install.replace("table 51000", "table 51007"),
-                        prev.inverse.replace("table 51000", "table 51007"),
-                        prev.device));
+                        prev.install + " ", prev.inverse + " ", prev.device));
         RootIsolatedWireGuardJournalCodec changed =
                 new RootIsolatedWireGuardJournalCodec(
                         new RootIsolatedWireGuardBootstrapPlan.Plan(modified,
