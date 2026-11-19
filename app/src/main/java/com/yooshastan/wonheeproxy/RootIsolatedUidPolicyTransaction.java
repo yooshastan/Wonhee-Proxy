@@ -77,8 +77,8 @@ final class RootIsolatedUidPolicyTransaction {
                 throw new IllegalArgumentException("Unexpected UID policy command.");
             }
             if ("TERMINAL_ROUTE".equals(step.kind)) {
-                if (blockers != blockersSoFar(steps, blockers)) {
-                    throw new IllegalArgumentException("Invalid block order.");
+                if (blockers >= plan.blockers.size()) {
+                    throw new IllegalArgumentException("Terminal block after UID selector.");
                 }
                 blockers++;
             } else if (blockers != plan.blockers.size()) {
@@ -171,9 +171,4 @@ final class RootIsolatedUidPolicyTransaction {
         return false;
     }
 
-    private static int blockersSoFar(
-            List<RootIsolatedUidOnlyPolicyPlan.Step> ignored, int prior) {
-        // No mutable state; avoids a second counter drifting from preflight.
-        return prior;
-    }
 }
