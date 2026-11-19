@@ -64,6 +64,8 @@ public final class RootIsolatedUidPolicyJournalCodecTest {
                 "Restart restores journal identity and per-step states.");
 
         final String snapshot = partial;
+        reject(() -> reopened.decode(snapshot.replace("0A,1P", "0P,1A")),
+                "Earlier uncommitted operation before a later stage rejected.");
         reject(() -> reopened.decode(snapshot.replace("1P", "2P")),
                 "Out-of-order index rejected.");
         reject(() -> reopened.decode(snapshot + ",1P"),
