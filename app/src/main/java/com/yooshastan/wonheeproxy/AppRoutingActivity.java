@@ -447,7 +447,8 @@ public final class AppRoutingActivity extends Activity {
         refreshPreset.run();
         text(popular, "Use the tunnel assigned to this category", 12, MUTED);
         Spinner presetCategory = selector(popular, AppUseCategories.LABELS);
-        button(popular, "Use these ports · save draft", () -> {
+        Spinner presetTunnel = chooseProtocolTarget(popular, presetCategory);
+        button(popular, "Save service + tunnel · planned", () -> {
             final RootCommonProtocolPresets.Preset chosen;
             final java.util.List<RootCategoryProtocolRule.Rule> newRules;
             final java.util.List<RootCategoryProtocolRule.Rule> currentRules;
@@ -460,6 +461,9 @@ public final class AppRoutingActivity extends Activity {
                 error("Unavailable preset", "The protocol rule could not be prepared.");
                 return;
             }
+            SecureTunnelProfileStore.Profile chosenTunnel =
+                    verifiedProtocolTarget(presetTunnel);
+            if (chosenTunnel == null) return;
             int overlapping = 0;
             for (RootCategoryProtocolRule.Rule fresh : newRules) {
                 for (RootCategoryProtocolRule.Rule old : currentRules) {
@@ -472,16 +476,21 @@ public final class AppRoutingActivity extends Activity {
             }
             String explanation = chosen.label + " (" + chosen.selectorsLabel()
                     + ") → " + AppUseCategories.label(presetCategory.getSelectedItemPosition())
-                    + ". " + (overlapping == 0 ? ""
+                    + " → " + chosenTunnel.name + ". "
+                    + (overlapping == 0 ? ""
                         : overlapping + " existing port rule(s) will be replaced. ")
-                    + "This is a local draft only; no VPN traffic changes.";
+                    + "This also updates the chosen category's tunnel for all "
+                    + "apps assigned to that category. Saved as a plan only; "
+                    + "VPN traffic is not changed.";
             new AlertDialog.Builder(this)
                     .setTitle("Save common protocol ports?")
                     .setMessage(explanation)
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Save draft", (dialog, which) -> {
                         try {
-                            drafts.putCategoryProtocolPreset(newRules);
+                            drafts.putCategoryProtocolPresetAndTarget(newRules,
+                                    presetCategory.getSelectedItemPosition(),
+                                    chosenTunnel.name);
                             showGlobalProtocols();
                         } catch (RuntimeException failed) {
                             error("Preset not saved", "The rule set exceeds its "
@@ -545,10 +554,10 @@ public final class AppRoutingActivity extends Activity {
 
         text(editor, "Override app category with", 12, MUTED);
         Spinner category = selector(editor, AppUseCategories.LABELS);
-        text(editor, "Set that category's tunnel under Categories. "
-                + "An unset or incompatible target must be refused by "
-                + "future enforcement, never silently use another exit.",
-                12, MUTED);
+        Spinner chosenTunnel = chooseProtocolTarget(editor, category);
+        text(editor, "Saving updates the category's preferred tunnel, "
+                + "along with this TCP/UDP rule. It will not activate packet "
+                + "routing in this version.", 12, MUTED);
         button(editor, "Save global rule · preview", () -> {
             int protocol = transport.getSelectedItemPosition() == 0
                     ? RootProtocolRouteDraft.TCP : RootProtocolRouteDraft.UDP;
@@ -561,10 +570,15 @@ public final class AppRoutingActivity extends Activity {
                     error("Invalid port", "Enter 1–65535 or leave the port blank.");
                     return;
                 }
+                SecureTunnelProfileStore.Profile target =
+                        verifiedProtocolTarget(chosenTunnel);
+                if (target == null) return;
                 RootCategoryProtocolRule.Rule rule =
                         new RootCategoryProtocolRule.Rule(protocol, dest,
                                 category.getSelectedItemPosition());
-                drafts.putCategoryProtocolRule(rule);
+                drafts.putCategoryProtocolPresetAndTarget(
+                        java.util.Collections.singletonList(rule),
+                        category.getSelectedItemPosition(), target.name);
                 showGlobalProtocols();
             } catch (NumberFormatException invalid) {
                 error("Invalid port", "Enter 1–65535 or leave the port blank.");
@@ -578,6 +592,83 @@ public final class AppRoutingActivity extends Activity {
                 + "category → device default. TCP and UDP ports cannot "
                 + "reliably identify HTTPS, QUIC, financial or media traffic. "
                 + "This screen makes no live kernel changes.", 12, MUTED);
+    }
+
+    /**
+     * One place to select BOTH the app-use category and its tunnel. This
+     * avoids the previous confusing workflow where saving a protocol rule
+     * required another visit to Categories before its target was known.
+     * Only dual-stack Internet exits can be a global port default.
+     */
+    private Spinner chooseProtocolTarget(LinearLayout parent, Spinner category) {
+        text(parent, "Tunnel used by this category", 12, MUTED);
+        String[] names = new String[profiles.size() + 1];
+        names[0] = "Select a full Internet tunnel";
+        for (int i = 0; i < profiles.size(); i++) {
+            names[i + 1] = profiles.get(i).name;
+        }
+        Spinner tunnels = selector(parent, names);
+        TextView description = text(parent, "Select a saved tunnel.", 12, MUTED);
+        Runnable refresh = () -> {
+            int index = tunnels.getSelectedItemPosition() - 1;
+            if (index < 0 || index >= profiles.size()) {
+                description.setText("Choose a tunnel that can reach the whole "
+                        + "Internet. A private Home tunnel cannot be used as "
+                        + "a blanket TCP/UDP port destination.");
+            } else {
+                SecureTunnelProfileStore.Profile profile = profiles.get(index);
+                String role = RootMultiKernelSession.effectiveRouteSummary(profile);
+                description.setText(role + (RootMultiKernelSession.isFullInternetExit(profile)
+                        ? " · eligible for a planned global port rule"
+                        : " · not eligible for an all-Internet port rule"));
+            }
+        };
+        tunnels.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view,
+                    int position, long id) { refresh.run(); }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        category.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view,
+                    int position, long id) {
+                String selected;
+                try {
+                    selected = drafts.categoryTunnel(position);
+                } catch (RuntimeException invalid) {
+                    selected = "";
+                }
+                int found = 0;
+                for (int i = 0; i < profiles.size(); i++) {
+                    if (profiles.get(i).name.equals(selected)) {
+                        found = i + 1;
+                        break;
+                    }
+                }
+                tunnels.setSelection(found);
+                refresh.run();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        return tunnels;
+    }
+
+    private SecureTunnelProfileStore.Profile verifiedProtocolTarget(Spinner picker) {
+        int index = picker.getSelectedItemPosition() - 1;
+        if (index < 0 || index >= profiles.size()) {
+            error("Choose a tunnel", "Select an Internet VPN for this "
+                    + "protocol/category assignment.");
+            return null;
+        }
+        SecureTunnelProfileStore.Profile profile = profiles.get(index);
+        if (!RootMultiKernelSession.isFullInternetExit(profile)) {
+            error("This tunnel handles specific destinations",
+                    "The selected tunnel does not provide a complete "
+                    + "IPv4 and IPv6 Internet exit. Choose a full Internet "
+                    + "VPN for a blanket protocol rule. Home services "
+                    + "can still use destination-specific routes.");
+            return null;
+        }
+        return profile;
     }
 
     private Spinner selector(LinearLayout parent, String[] labels) {
