@@ -22,6 +22,18 @@ case "$1" in
         [[ -z "${WN_MOCK_LINK:-}" ]] || echo "$WN_MOCK_LINK" ;;
       "su -c 'ip -4 rule show'") echo "${WN_MOCK_RULE:-0: from all lookup local}" ;;
       "su -c 'ip -6 rule show'") echo '0: from all lookup local' ;;
+      "su -c 'ip -4 route show table all'") echo "${WN_MOCK_PRIVATE_ROUTE:-}" ;;
+      "su -c 'ip -6 route show table all'") echo '' ;;
+      "su -c 'if [ -f /data/user/0/com.yooshastan.wonheeproxy/shared_prefs/wonhee_isolated_bootstrap_ownership_v1.xml ]; then echo exists; else echo absent; fi'")
+        [[ -z "${WN_MOCK_JOURNAL_XML:-}" ]] && echo absent || echo exists ;;
+      "su -c 'cat /data/user/0/com.yooshastan.wonheeproxy/shared_prefs/wonhee_isolated_bootstrap_ownership_v1.xml'")
+        if [[ -f "${WN_MOCK_JOURNAL_XML:-}" ]]; then
+          cat "$WN_MOCK_JOURNAL_XML"
+        else
+          echo 'missing journal' >&2
+          exit 1
+        fi ;;
+
       "su -c 'iptables-save'") echo "${WN_MOCK_FIREWALL:-*filter}" ;;
       "su -c 'ip6tables-save'") echo '*filter' ;;
       "su -c 'cat /proc/net/udp'")
@@ -73,6 +85,17 @@ testcase "kernel tunnel still exists" WN_MOCK_LINK='5: wnma292ddb4b6da: <POINTOP
 testcase "Reserved Wonhee routing rule" WN_MOCK_RULE='12500: from all lookup 201'
 testcase "Wonhee firewall signatures remain" WN_MOCK_FIREWALL='-A OUTPUT -m comment --comment WN_DNS_TEST -j RETURN'
 testcase "DNS relay port 53535 remains bound" WN_MOCK_DNS_SOCKET=1
+testcase "Private multi-exit routing table 51000-51007 is not empty" \
+  WN_MOCK_PRIVATE_ROUTE='unreachable default table 51000 metric 9999'
+printf '<map><string name="pending_or_installed_steps_v1">WNI1|fake|0P</string></map>' > "$work/pending.xml"
+testcase "Isolated multi-exit ownership is pending or unknown" \
+  WN_MOCK_JOURNAL_XML="$work/pending.xml"
+printf '<map><string name="pending_or_installed_steps_v1"></string></map>' > "$work/clean.xml"
+testcase "interactive confirmation required" WN_MOCK_JOURNAL_XML="$work/clean.xml"
+printf '<map><string name="pending_or_installed_steps_v1">broken' > "$work/corrupt.xml"
+testcase "Isolated multi-exit ownership is pending or unknown" \
+  WN_MOCK_JOURNAL_XML="$work/corrupt.xml"
+
 testcase "Root inventory unavailable" WN_MOCK_ROOT=2000
 testcase "interactive confirmation required"
 testcase "Safe Stop bypass not supported" WONHEE_SKIP_SAFE_STOP=1
