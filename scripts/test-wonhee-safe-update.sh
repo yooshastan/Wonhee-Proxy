@@ -83,6 +83,7 @@ testcase() {
 }
 testcase "kernel tunnel still exists" WN_MOCK_LINK='5: wnma292ddb4b6da: <POINTOPOINT,UP>'
 testcase "Reserved Wonhee routing rule" WN_MOCK_RULE='12500: from all lookup 201'
+testcase "Reserved Wonhee routing rule" WN_MOCK_RULE='12800: from all iif lo uidrange 10341-10341 lookup 51000'
 testcase "Wonhee firewall signatures remain" WN_MOCK_FIREWALL='-A OUTPUT -m comment --comment WN_DNS_TEST -j RETURN'
 testcase "DNS relay port 53535 remains bound" WN_MOCK_DNS_SOCKET=1
 testcase "Private multi-exit routing table 51000-51007 is not empty" \
