@@ -188,6 +188,37 @@ activated until mark ownership, selected-exit blocking, DNS attribution,
 WireGuard protected transport sockets, and exact Safe Stop ownership
 are demonstrably preserved. Android Private DNS stays OFF.
 
+## Next two-exit controlled pilot — preflight, not activation
+
+- Existing `RootMultiKernelSession.connect` calls `WgQuickBackend` or
+  `wg-quick` for each selected profile, and
+  `RootMultiTunnelPlan.validate` explicitly rejects two overlapping
+  Internet default routes. Those routines must **not** simply have their
+  conflict guard removed: `wg-quick` can mutate the device's ordinary
+  routing and existing Android netd policy.
+- Added `RootMultiTunnelPlan.validateIndependentInterfaceAddresses`
+  and invoked it from `RootPerAppUidPolicyPlan.prepare`, so separate
+  IPv4/IPv6 routing tables cannot mask overlapping WireGuard local
+  interface addresses. Tests cover duplicate IPv4 host addresses,
+  overlapping IPv4 subnets and IPv6 address collisions.
+- A useful first **live** milestone will require a new independently
+  owned tunnel bootstrap that does not install conflicting default
+  routes, followed by UID-only selection of one test app per exit.
+  Build it behind a separate opt-in gate with an exact ledger, physical
+  underlay for WireGuard UDP, verified dual-stack no-fallback policy,
+  tunnel identity checks, DNS isolation and scripted reversal.
+- The device's stock `ip rule` advertises UID matching, but no
+  `unreachable` action. A terminal no-fallback route mechanism needs
+  an independent capability proof: the existing
+  `32000: from all unreachable` RPDB rule is not enough.
+- Protocol/port-specific mark routing is **not** in the first pilot:
+  observed Android masks span all 32 mark bits, and no Wonhee mark
+  ownership has been established. Run the UID-only experiment on a
+  recoverable test environment before touching the daily phone.
+- The current source **does not start more than one full Internet exit**.
+  The pilot and its fail-closed implementation are not complete until
+  tested and explicitly reported as such.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
