@@ -79,6 +79,11 @@ final class RootIsolatedUidPolicyJournalCodec {
             if (!states[i].equals(i + "P") && !states[i].equals(i + "A")) {
                 throw new IllegalStateException("UID policy journal sequence corrupt.");
             }
+            // Only the final in-flight stage may be PENDING. All earlier
+            // stages must have committed; otherwise the record is corrupt.
+            if (i + 1 < states.length && states[i].endsWith("P")) {
+                throw new IllegalStateException("Earlier UID policy journal stage uncommitted.");
+            }
             out.add(new Entry(i, states[i].endsWith("A"), steps.get(i)));
         }
         return Collections.unmodifiableList(out);
