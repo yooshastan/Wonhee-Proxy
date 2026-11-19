@@ -38,8 +38,8 @@ android {
         applicationId 'com.yooshastan.wonheeproxy'
         minSdk 26
         targetSdk 35
-        versionCode 108
-        versionName '0.15.61-connection-setup'
+        versionCode 109
+        versionName '0.15.62-safe-stop-host-cidr'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
