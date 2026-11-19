@@ -124,8 +124,17 @@ final class RootAppUidReadiness {
                         + "route-table identities require correction. Do not "
                         + "edit imported profiles just to satisfy a dry run.";
             }
+            String uidOnly;
+            try {
+                uidOnly = RootIsolatedUidOnlyPolicyPlan.compile(plan).summary();
+            } catch (IllegalArgumentException hasProtocolRules) {
+                uidOnly = "UID-ONLY PILOT — NOT APPLICABLE: the selected apps "
+                        + "include transport or port overrides that are "
+                        + "not supported by the Pixel 8a ip rule command. "
+                        + "Overrides remain saved, but are NOT applied.";
+            }
             return plan.summary() + "\n" + kernel.summary()
-                    + "\n" + bootstrap
+                    + "\n" + bootstrap + "\n" + uidOnly
                     + "\nGLOBAL RULE SCOPE: This read-only proposal only "
                     + "checks explicitly assigned, launcher-visible apps. "
                     + "It does not enumerate or enforce every Android "
