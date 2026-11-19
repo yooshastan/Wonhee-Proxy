@@ -87,6 +87,19 @@ require('RootMultiExitKernelPlan.compile(plan)' in uid_readiness,
 require('activationAllowed() { return false; }' in kernel_plan
         and 'private RootMultiExitKernelPlan()' in kernel_plan,
         "Multi-exit compiler must remain non-activating")
+isolated_bootstrap = (java / "RootIsolatedWireGuardBootstrapPlan.java").read_text()
+require('activationAllowed() { return false; }' in isolated_bootstrap
+        and 'RootMultiTunnelPlan.validateIndependentInterfaceAddresses' in isolated_bootstrap
+        and '"PEER_CONFIG", "", ""' in isolated_bootstrap,
+        "Independent WireGuard bootstrap must be non-executing and keep secrets off shell")
+require('RootIsolatedWireGuardBootstrapPlanTest.java' in
+        (root / ".github/workflows/build.yml").read_text(),
+        "Two-exit isolated link bootstrap tests must be executed by CI")
+for forbidden in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
+                  'Runtime.getRuntime().exec(', 'backend.setState(',
+                  'wg-quick up', 'ip link add dev " + dev'):
+    require(forbidden not in isolated_bootstrap,
+            "Independent bootstrap must never mutate live networking: " + forbidden)
 netfilter_help = (java / "RootNetfilterHelpCapabilities.java").read_text()
 require('activationAllowed() { return false; }' in netfilter_help,
         "Legacy netfilter help cannot activate live packet classification")
