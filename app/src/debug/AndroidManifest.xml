@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- Disable the ordinary Connect/Start dashboard in this diagnostic
+             variant. This is NOT the live multi-exit beta yet. -->
+        <activity
+            android:name=".WonheeDashboardPreviewActivity"
+            android:enabled="false" />
         <!-- RootLab-only separate launcher icon. The official release
              does not include this activity or any new root capability. -->
         <activity
