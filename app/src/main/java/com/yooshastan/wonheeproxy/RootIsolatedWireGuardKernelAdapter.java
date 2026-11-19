@@ -104,7 +104,9 @@ final class RootIsolatedWireGuardKernelAdapter
         RootIsolatedWireGuardKernelListing.Match link =
                 RootIsolatedWireGuardKernelListing.interfaceKind(
                         linkReadback(step.device), step.device);
-        if (link == RootIsolatedWireGuardKernelListing.Match.FOREIGN_OR_CHANGED) {
+        if (link == RootIsolatedWireGuardKernelListing.Match.FOREIGN_OR_CHANGED
+                || (createdThisProcess.contains(step.device)
+                    && !sameNewKernelLink(step.device))) {
             return RootIsolatedWireGuardTransaction.Presence.FOREIGN_OR_CHANGED;
         }
         if (step.kind.equals("LINK_CREATE")) {
@@ -226,7 +228,7 @@ final class RootIsolatedWireGuardKernelAdapter
         if (!createdThisProcess.contains(device)) return false;
         try {
             return createdIfindices.get(device).equals(exactIfindex(device));
-        } catch (Exception | NullPointerException changed) {
+        } catch (Exception changed) {
             return false;
         }
     }
