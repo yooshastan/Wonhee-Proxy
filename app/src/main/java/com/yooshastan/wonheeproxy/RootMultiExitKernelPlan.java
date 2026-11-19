@@ -80,7 +80,11 @@ final class RootMultiExitKernelPlan {
                     + routes.size() + " route additions and "
                     + policy.size() + " lookup/block policy additions. "
                     + "No WireGuard interfaces, routes, firewall rules or DNS "
-                    + "policies were changed.";
+                    + "policies were changed. COMMAND COMPATIBILITY NOT VERIFIED: "
+                    + "Android's built-in ip rule may not accept ipproto, dport "
+                    + "or unreachable. These hypothetical commands must NEVER "
+                    + "be executed without independent Android CLI/kernel, "
+                    + "DNS and fail-closed verification.";
         }
     }
 
