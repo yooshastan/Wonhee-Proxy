@@ -4667,6 +4667,11 @@ final class RootMultiKernelSession {
             String result;
             StringBuilder completed = new StringBuilder();
             try {
+                if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)) {
+                    throw new IllegalStateException("Isolated multi-exit kernel journal "
+                            + "requires its exact-owned recovery. Legacy Safe Stop "
+                            + "will not delete or adopt those resources.");
+                }
                 if (guardRecord() != null && !guardRecord().isEmpty()) {
                     throw new IllegalStateException("Batch F guard is owned: disable and audit separately.");
                 }
