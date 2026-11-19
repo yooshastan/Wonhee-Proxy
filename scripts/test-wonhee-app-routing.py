@@ -131,6 +131,7 @@ uid_policy_tx = (java / "RootIsolatedUidPolicyTransaction.java").read_text()
 uid_policy_codec = (java / "RootIsolatedUidPolicyJournalCodec.java").read_text()
 uid_policy_prefs = (java / "RootIsolatedUidPolicyPreferencesJournal.java").read_text()
 uid_policy_listing = (java / "RootIsolatedUidPolicyListing.java").read_text()
+uid_policy_kernel_adapter = (java / "RootIsolatedUidPolicyKernelAdapter.java").read_text()
 require('kernel.requireFailClosedPreflight();' in uid_policy_tx
         and 'journal.recordIntent(step);' in uid_policy_tx
         and uid_policy_tx.index('journal.recordIntent(step);')
@@ -152,6 +153,14 @@ for required in ('RootIsolatedUidPolicyTransactionTest.java',
                  'RootIsolatedUidPolicyListingTest.java'):
     require(required in (root / ".github/workflows/build.yml").read_text(),
             "UID policy rollback and ownership tests must run: " + required)
+require('interface SafetyGate' in uid_policy_kernel_adapter
+        and 'proveConnectedExitsDnsAndFailClosed' in uid_policy_kernel_adapter
+        and 'RootIsolatedUidPolicyTransaction.safeStep(step)' in uid_policy_kernel_adapter
+        and 'RootIsolatedUidPolicyListing.selector(' in uid_policy_kernel_adapter
+        and 'RootIsolatedUidPolicyListing.terminalDefault(' in uid_policy_kernel_adapter,
+        "Root UID adapter requires external device proof and exact kernel readback")
+require('new RootIsolatedUidPolicyKernelAdapter(' not in kernel_session,
+        "Unverified UID policy kernel executor must not connect to production Start")
 require('RootIsolatedUidPolicyTransaction.start(' not in kernel_session
         and 'new RootIsolatedUidPolicyPreferencesJournal(' not in kernel_session,
         "UID routing must stay disabled until real on-device DNS/fail-closed proof")
