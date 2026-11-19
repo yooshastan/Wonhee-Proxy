@@ -88,6 +88,9 @@ final class RootIsolatedWireGuardJournalCodec {
             if (!tokens[i].equals(i + "P") && !tokens[i].equals(i + "A")) {
                 throw new IllegalStateException("Bootstrap journal sequence corrupt.");
             }
+            if (i + 1 < tokens.length && tokens[i].endsWith("P")) {
+                throw new IllegalStateException("Earlier WireGuard startup stage uncommitted.");
+            }
             entries.add(new Entry(steps.get(i), i, tokens[i].endsWith("A")));
         }
         return Collections.unmodifiableList(entries);
