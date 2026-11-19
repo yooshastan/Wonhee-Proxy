@@ -84,6 +84,13 @@ final class RootIsolatedWireGuardTransaction {
             return new Outcome(false, false, journal.snapshot().size(),
                     "EXISTING_RECOVERY_JOURNAL");
         }
+        // Validate the ENTIRE plan before root preflight. A malformed late
+        // step must never cause an earlier legitimate interface to start.
+        for (RootIsolatedWireGuardBootstrapPlan.Step step : plan.steps) {
+            if (!safeStep(step)) {
+                throw new IllegalArgumentException("Invalid isolated bootstrap operation.");
+            }
+        }
         // This gate must run before ANY journal entry or kernel mutation.
         // A candidate has no authority to relax this requirement.
         kernel.requireActivationPreflight();
@@ -156,9 +163,27 @@ final class RootIsolatedWireGuardTransaction {
         }
         if (s.install == null || s.inverse == null
                 || s.install.isEmpty() || s.inverse.isEmpty()) return false;
-        return "LINK_CREATE".equals(s.kind)
-                || "HOST_ADDRESS".equals(s.kind)
-                || "LINK_UP".equals(s.kind)
-                || "PRIVATE_ROUTE".equals(s.kind);
+        String dev = s.device;
+        if ("LINK_CREATE".equals(s.kind)) {
+            return s.install.equals("ip link add dev " + dev + " type wireguard")
+                    && s.inverse.equals("ip link del dev " + dev);
+        }
+        if ("LINK_UP".equals(s.kind)) {
+            return s.install.equals("ip link set dev " + dev + " up")
+                    && s.inverse.equals("ip link set dev " + dev + " down");
+        }
+        if ("HOST_ADDRESS".equals(s.kind)) {
+            return (s.install.matches("ip -4 addr add [0-9.]+/32 dev " + dev)
+                    || s.install.matches("ip -6 addr add [0-9a-fA-F:]+/128 dev " + dev))
+                    && s.inverse.equals(s.install.replace(" addr add ", " addr del "));
+        }
+        if ("PRIVATE_ROUTE".equals(s.kind)) {
+            return (s.install.matches(
+                        "ip -4 route add table 5100[0-7] [0-9.]+/[0-9]{1,2} dev " + dev)
+                    || s.install.matches(
+                        "ip -6 route add table 5100[0-7] [0-9a-fA-F:]+/[0-9]{1,3} dev " + dev))
+                    && s.inverse.equals(s.install.replace(" route add ", " route del "));
+        }
+        return false;
     }
 }
