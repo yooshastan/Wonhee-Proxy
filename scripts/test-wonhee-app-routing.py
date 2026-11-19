@@ -95,6 +95,39 @@ require('activationAllowed() { return false; }' in isolated_bootstrap
 require('RootIsolatedWireGuardBootstrapPlanTest.java' in
         (root / ".github/workflows/build.yml").read_text(),
         "Two-exit isolated link bootstrap tests must be executed by CI")
+transaction = (java / "RootIsolatedWireGuardTransaction.java").read_text()
+journal_codec = (java / "RootIsolatedWireGuardJournalCodec.java").read_text()
+prefs_journal = (java / "RootIsolatedWireGuardPreferencesJournal.java").read_text()
+require('kernel.requireActivationPreflight();' in transaction
+        and 'journal.beforeMutation(step);' in transaction
+        and transaction.index('journal.beforeMutation(step);')
+            < transaction.index('kernel.apply(step);')
+        and 'Presence.FOREIGN_OR_CHANGED' in transaction
+        and 'activationAllowed()' not in transaction,
+        "Isolated WireGuard kernel transaction requires preflight + write-ahead intent")
+require('boolean activationAllowed() { return false; }' in isolated_bootstrap,
+        "Isolated bootstrap planner may never authorize its own activation")
+require('private final String fingerprint;' in journal_codec
+        and 'STEP' not in journal_codec
+        and 'step.install' in journal_codec
+        and 'step.inverse' in journal_codec
+        and 'step.kind' in journal_codec,
+        "Durable journal fingerprint must bind the complete planned step identity")
+require('MODE_PRIVATE' in prefs_journal
+        and '.commit()' in prefs_journal
+        and 'codec.decode(' in prefs_journal
+        and 'new RootIsolatedWireGuardJournalCodec(plan)' in prefs_journal,
+        "Persistent journal must use exact-plan-validated synchronous app-private writes")
+require('RootIsolatedWireGuardTransactionTest.java' in
+        (root / ".github/workflows/build.yml").read_text()
+        and 'RootIsolatedWireGuardJournalCodecTest.java' in
+        (root / ".github/workflows/build.yml").read_text(),
+        "Start/rollback fault injection and crash journal tests must run in CI")
+for forbidden in ('new RootShell(', 'shell.run(', 'Runtime.getRuntime().exec(',
+                  'ProcessBuilder(', 'wg-quick up', 'backend.setState('):
+    require(forbidden not in transaction and forbidden not in journal_codec
+            and forbidden not in prefs_journal,
+            "Isolated bootstrap recovery must have no live root adapter yet: " + forbidden)
 require('RootIsolatedWireGuardBootstrapPlan' in uid_readiness
         and 'compile(effectiveRoutes, plan).summary()' in uid_readiness,
         "Home App Routing readiness must report isolated two-exit bootstrap blockers")
