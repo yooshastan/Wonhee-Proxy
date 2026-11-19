@@ -98,6 +98,8 @@ public final class RootIsolatedWireGuardJournalCodecTest {
                                 plan.devices, plan.privateRoutes));
         rejects(() -> changed.decode(partial),
                 "Changed routes must not adopt old owned kernel objects");
+        rejects(() -> codec.decode(partial.replace("0A,1P", "0P,1A")),
+                "Crash ledger cannot commit a step after an earlier pending stage");
         rejects(() -> codec.decode(partial.replace("0A,1P", "0A,2P")),
                 "Skipped index corrupts journal");
         rejects(() -> codec.decode(partial.replace("WNI1", "WNI2")),
