@@ -22,6 +22,30 @@ The imported WireGuard profiles' keys, endpoints and AllowedIPs are immutable un
 2. Add tests reproducing the exact interrupted 2026-11-19 device state: saved 12500 /32 and 12501 /24, only 12500 live. Verify rollback preflight accepts the one exact remaining host and also accepts both already absent.
 3. Show the primary exit picker directly on Home. Avoid Android dialog configurations in which a message obscures the option list. Do **not** misrepresent the parked full-exit profiles as running.
 
+## Rootless multi-exit backend groundwork (2026-11-19)
+
+- `RootMultiExitKernelPlan` now compiles an existing validated, dry-run
+  `RootPerAppUidPolicyPlan` into **independent IPv4/IPv6 private-table route
+  steps** and **per-UID TCP/UDP destination-port selection steps**. For each
+  selected UID/protocol selector it produces a lookup-priority rule and an
+  adjacent unreachable-priority rule in BOTH address families.
+- Each proposed kernel operation has a precise inverse and a reverse-order
+  rollback preview (remove selectors first, private table routes last).
+- Compiler rejects incomplete IPv4/IPv6 Internet exits for assigned apps,
+  duplicate/mismatched route ownership, duplicate default routes,
+  system UIDs, collisions in reserved priorities, bad CIDRs and invalid
+  port/transport selectors. No plan changes the installed profiles.
+- The existing App Routing **read-only UID check** now reports the compiled
+  policy counts alongside its visible blockers. Android CI includes Java
+  tests and source checks confirming there is no shell execution.
+- Linux iproute2 documents `uidrange`, `ipproto`, `dport`,
+  `lookup` and `unreachable` selectors/actions. Actual **Android**
+  tool/kernel compatibility, socket L4 classification and netd/mark behavior
+  are not established by Linux documentation or a successful core test.
+- Crucially: `activationAllowed()` remains `false` in BOTH planners.
+  Do not call any generated install or rollback commands on a real phone.
+  This is the preflight/compiler layer, **not live policy routing**.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
