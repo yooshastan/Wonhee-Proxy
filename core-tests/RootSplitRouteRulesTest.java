@@ -48,9 +48,9 @@ public final class RootSplitRouteRulesTest {
         // have been deleted by a previous partial Safe Stop.
         String fedoraDevice = "wnmcbaad0ec81a0";
         String hostLedger = "4|12500|10.0.0.169/32|" + fedoraDevice
-                + "|10.0.0.169|0x0/0x20000\\n"
+                + "|10.0.0.169|0x0/0x20000\n"
                 + "4|12501|10.77.0.0/24|" + fedoraDevice
-                + "|10.77.0.1|0x0/0x20000\\n";
+                + "|10.77.0.1|0x0/0x20000\n";
         List<RootSplitRouteRules.Rule> savedHostRoutes =
                 RootSplitRouteRules.decode(hostLedger);
         String observedBareHost = "12500:  from all to 10.0.0.169 "
