@@ -149,6 +149,45 @@ Read-only ADB output from the current Android 16 Pixel 8a:
   locally generated TCP/UDP traffic without breaking WireGuard
   endpoint sockets. Do not select a Wonhee mark mask yet.
 
+## Pixel 8a Android network mark collision analysis (2026-11-19)
+
+Read-only observation from `connmark_mangle_OUTPUT`, the full mark-affecting
+mangle rule inventory and the v4/v6 Android `ip rule` tables:
+
+- Both IPv4 and IPv6 have a pre-existing
+  `connmark_mangle_OUTPUT` rule that selects **connmark
+  `0x0/0xfffff`**, then saves **nfmark low 20 bits** into the connmark
+  with `--nfmask 0xfffff --ctmask 0xfffff`. This is stateful mark
+  propagation and is not Wonhee-owned.
+- Existing `routectrl_mangle_INPUT` rules use
+  `MARK --set-xmark <value>/0x7fefffff`. That write/clear mask spans
+  many bits beyond the Android netId range.
+- Existing `bw_mangle_POSTROUTING` clears bit `0x100000`.
+- Wakeup monitoring matches bit `0x80000000`. This is a *read*
+  dependency, not evidence the logger sets that bit.
+- Union of `0x7fefffff | 0x100000 | 0x80000000` is
+  **`0xffffffff`**, spanning all 32 mark bits in both families.
+  This union is **conservative mask coverage**, NOT proof that each bit
+  is semantically allocated to a distinct subsystem or always written.
+  We cannot infer even one safely available Wonhee bit from these
+  snapshots. Prior live RPDB masks (`0xffff`, `0x1ffff`,
+  `0xdffff`, `0xcffff` etc.) further demonstrate Android-owned
+  network and protection identities.
+- Added `RootAndroidMarkCollisionAudit` and a rootless test. The
+  model extracts existing rule marks, mark write/clear masks and
+  connmark transfer masks, detects complete bit coverage and **always
+  refuses to allocate a packet mark**. No new `iptables`,
+  `ip6tables`, `ip rule` or WireGuard command is issued.
+
+**Architecture decision:** Do NOT hardcode a new `MARK --set-xmark`
+selector or assume the prior proposed UID/port policy is runnable.
+Investigate safe UID-only per-app routing as an incremental validation
+step, and separately investigate netlink `fib_rule` L4 capabilities or a
+kernel classifier integration that cooperates with netd. Neither may be
+activated until mark ownership, selected-exit blocking, DNS attribution,
+WireGuard protected transport sockets, and exact Safe Stop ownership
+are demonstrably preserved. Android Private DNS stays OFF.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
