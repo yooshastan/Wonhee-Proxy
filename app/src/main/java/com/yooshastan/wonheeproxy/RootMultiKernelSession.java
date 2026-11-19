@@ -440,7 +440,8 @@ final class RootMultiKernelSession {
     private String dnsRecord() { return dnsLedger.getString(DNS_LEDGER_KEY, ""); }
 
     private void requireDnsDisabledForTunnelMutation() throws Exception {
-        if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)) {
+        if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
             throw new IllegalStateException("Isolated multi-exit ownership journal "
                     + "still pending or unreadable. Do not use legacy tunnel operations.");
         }
@@ -4389,7 +4390,8 @@ final class RootMultiKernelSession {
      * DNS listener, foreign tags, or unknown reserved routing priorities.
      */
     private RootLifecycleRecoveryPlan inspectLifecycleRecoveryState() throws Exception {
-        if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)) {
+        if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
             throw new IllegalStateException("Isolated multi-exit kernel journal still "
                     + "owns or may own links and routes. Update and legacy Safe Stop "
                     + "are blocked pending exact isolated recovery.");
@@ -4618,7 +4620,8 @@ final class RootMultiKernelSession {
             boolean success = false;
             String result;
             try {
-                if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)) {
+                if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
                     throw new IllegalStateException("Isolated multi-exit ownership is "
                             + "pending. Legacy Start cannot adopt isolated links.");
                 }
@@ -4701,7 +4704,8 @@ final class RootMultiKernelSession {
             String result;
             StringBuilder completed = new StringBuilder();
             try {
-                if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)) {
+                if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
                     throw new IllegalStateException("Isolated multi-exit kernel journal "
                             + "requires its exact-owned recovery. Legacy Safe Stop "
                             + "will not delete or adopt those resources.");
