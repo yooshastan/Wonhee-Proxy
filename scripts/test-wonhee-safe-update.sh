@@ -34,6 +34,15 @@ case "$1" in
           exit 1
         fi ;;
 
+      "su -c 'if [ -f /data/user/0/com.yooshastan.wonheeproxy/shared_prefs/wonhee_isolated_uid_ownership_v1.xml ]; then echo exists; else echo absent; fi'")
+        [[ -z "${WN_MOCK_UID_JOURNAL_XML:-}" ]] && echo absent || echo exists ;;
+      "su -c 'cat /data/user/0/com.yooshastan.wonheeproxy/shared_prefs/wonhee_isolated_uid_ownership_v1.xml'")
+        if [[ -f "${WN_MOCK_UID_JOURNAL_XML:-}" ]]; then
+          cat "$WN_MOCK_UID_JOURNAL_XML"
+        else
+          echo 'missing uid journal' >&2
+          exit 1
+        fi ;;
       "su -c 'iptables-save'") echo "${WN_MOCK_FIREWALL:-*filter}" ;;
       "su -c 'ip6tables-save'") echo '*filter' ;;
       "su -c 'cat /proc/net/udp'")
@@ -96,6 +105,16 @@ testcase "interactive confirmation required" WN_MOCK_JOURNAL_XML="$work/clean.xm
 printf '<map><string name="pending_or_installed_steps_v1">broken' > "$work/corrupt.xml"
 testcase "Isolated multi-exit ownership is pending or unknown" \
   WN_MOCK_JOURNAL_XML="$work/corrupt.xml"
+printf '<map><string name="pending_or_installed_uid_rules_v1">WNUP1|fake|0A</string></map>' > "$work/uid_pending.xml"
+testcase "Isolated UID policy ownership is pending or unknown" \
+  WN_MOCK_UID_JOURNAL_XML="$work/uid_pending.xml"
+printf '<map><string name="pending_or_installed_uid_rules_v1"></string></map>' > "$work/uid_clean.xml"
+testcase "interactive confirmation required" \
+  WN_MOCK_UID_JOURNAL_XML="$work/uid_clean.xml"
+printf '<map><string name="pending_or_installed_uid_rules_v1">broken' > "$work/uid_corrupt.xml"
+testcase "Isolated UID policy ownership is pending or unknown" \
+  WN_MOCK_UID_JOURNAL_XML="$work/uid_corrupt.xml"
+
 
 testcase "Root inventory unavailable" WN_MOCK_ROOT=2000
 testcase "interactive confirmation required"
