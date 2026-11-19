@@ -355,6 +355,18 @@ final class RootMultiKernelSession {
                 routeEntries(loadAll(profiles)), preferredPrimary);
     }
 
+    /** Read-only selection gate for one category's unrestricted Internet exit. */
+    static boolean isFullInternetExit(SecureTunnelProfileStore.Profile profile) {
+        try {
+            RootMultiTunnelPlan.Entry entry = load(profile).routes;
+            return entry.peerRoutes.contains("0.0.0.0/0")
+                    && (entry.peerRoutes.contains("::/0")
+                        || entry.peerRoutes.contains("0:0:0:0:0:0:0:0/0"));
+        } catch (Exception | LinkageError invalid) {
+            return false; // Fail closed; don't infer from a friendly category.
+        }
+    }
+
     /**
      * Friendly, read-only view of EFFECTIVE WireGuard AllowedIPs.
      * Use this for imported profiles whose purpose label alone does not

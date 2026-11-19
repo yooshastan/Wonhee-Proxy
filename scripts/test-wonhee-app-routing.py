@@ -46,7 +46,7 @@ require("PLANNING ONLY" in app and "DO NOT route" in app,
         "Do not present drafts as active network protection")
 require("new Intent(this, AppRoutingActivity.class)" in dashboard,
         "App Routing planner must be accessible from the Tunnels screen")
-for forbidden in ("RootShell", "RootMultiKernelSession", "RootDnsRelayRunner",
+for forbidden in ("RootShell", "RootDnsRelayRunner",
                   "enableRootDns(", "startManagedStack(",
                   "VpnService", "setUidRoute", "addUid", "QUERY_ALL_PACKAGES"):
     # The warning paragraph may legitimately mention Android VPN terminology.
@@ -96,9 +96,9 @@ require('RootCategoryProtocolRule.Rule' in app
         and 'showGlobalProtocols()' in app
         and 'switchTab(2)' in app,
         "Protocols & Ports must be visible and category-targeted")
-require('drafts.putCategoryProtocolRule' in app
+require('drafts.putCategoryProtocolPresetAndTarget' in app
         and 'drafts.removeCategoryProtocolRule' in app,
-        "Global selectors need add and remove controls")
+        "Global selectors need atomic category + tunnel saving and removal")
 require('prefs.edit().putString(CATEGORY_PROTOCOLS' in draft,
         "Global port-to-category overrides must persist only as local drafts")
 require('RootCategoryProtocolRule.validateAndSort' in uid_plan
@@ -124,9 +124,9 @@ tunnel_editor = (java / "TunnelProfileSettingsActivity.java").read_text()
 require('RootCommonProtocolPresets.labels()' in app
         and 'RootCommonProtocolPresets.get(' in app,
         "Global protocol editor must offer readable service presets")
-require('drafts.putCategoryProtocolPreset(newRules)' in app
+require('drafts.putCategoryProtocolPresetAndTarget(newRules' in app
         and 'Existing port rule(s)' not in app,
-        "Global port preset must be saved in a single atomic batch")
+        "Global port preset and chosen target must save in one atomic batch")
 require('synchronized void putCategoryProtocolPreset(' in draft
         and 'saveCategoryProtocolRules(RootCategoryProtocolRule.validateAndSort(merged))'
             in draft,
@@ -145,6 +145,28 @@ for source in (presets,):
                       'startManagedStack(', 'enableRootDns('):
         require(dangerous not in source,
                 "Protocol presets are metadata and cannot install rules: " + dangerous)
+
+require('static boolean isFullInternetExit(' in root_session
+        and 'RootMultiKernelSession.isFullInternetExit(profile)' in app,
+        "Global TCP/UDP rules must refuse non-Internet WireGuard destinations")
+require('private Spinner chooseProtocolTarget(' in app
+        and 'private SecureTunnelProfileStore.Profile verifiedProtocolTarget(' in app,
+        "Global protocol setup must choose category and actual tunnel together")
+require('putString(CATEGORY_PROTOCOLS, encodedRules)' in draft
+        and 'putString(TUNNELS, encodedTargets).commit()' in draft,
+        "Category protocol and target must commit as one private transaction")
+require('secondaryButton(hero, "Check setup · no connection changes"' in dashboard
+        and 'session.preflightManagedStart(active,' in dashboard,
+        "Root Home must expose a read-only check of the actual active subset")
+readiness_guide = (java / "RootStartReadinessGuide.java").read_text()
+require('No connection or routing change was requested' in readiness_guide
+        and 'independent H.2a' in readiness_guide,
+        "Root preflight guidance must preserve safe-stop and no-change contract")
+for source in (readiness_guide,):
+    for dangerous in ('new RootShell(', 'shell.run(', 'iptables',
+                      'ip rule add', 'startManagedStack(', 'enableRootDns('):
+        require(dangerous not in source,
+                "Read-only root setup advice must never mutate networking")
 
 print("PASS: eight app categories, scoped app discovery, private draft persistence, "
       "UI visibility and no route/DNS/kernel enforcement from planner")

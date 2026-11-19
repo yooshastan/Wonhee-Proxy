@@ -562,6 +562,8 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
         showQuickTunnelPicker(hero, false);
         rootSelectionMessage = text(hero, homeSelectionSummary(), 12, MUTED);
+        secondaryButton(hero, "Check setup · no connection changes",
+                this::checkRootHomeSetup);
 
         String status = "Checking your connection…";
         if (known && snapshot.presentTunnels == 0) {
@@ -665,6 +667,84 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         } else {
             beginHomeStartConfirmation(chosen);
         }
+    }
+
+    /**
+     * Read-only check of EXACTLY the active subset Home would try to start.
+     * A parked full Internet exit is never passed to the root preflight.
+     * The real preflight verifies root state, route compatibility, DNS/guard
+     * ownership and stale interfaces without bringing anything up.
+     */
+    private void checkRootHomeSetup() {
+        if (!rootMode || session == null || rootHomeBusy || session.isBusy()) {
+            showHomeNotice("Finish the current connection check first.");
+            return;
+        }
+        if (profileStoreError || profiles.isEmpty()) {
+            showHomeNotice("Import a WireGuard tunnel to begin.");
+            return;
+        }
+        ArrayList<SecureTunnelProfileStore.Profile> chosen = selectedHomeProfiles();
+        final RootTunnelStartSelection.Review review;
+        try {
+            review = RootMultiKernelSession.reviewMultiStartSelection(
+                    chosen, preferredHomePrimary());
+        } catch (Exception | LinkageError invalid) {
+            showSelectionNeedsAdjustment("A selected saved tunnel has invalid "
+                    + "or unreadable WireGuard routes. No connection changed.");
+            return;
+        }
+        if (review.needsPrimaryChoice) {
+            String[] names = review.primaryChoices.toArray(new String[0]);
+            new AlertDialog.Builder(this)
+                    .setTitle("Choose the Internet tunnel")
+                    .setMessage("Only this tunnel will carry ordinary Internet "
+                            + "traffic. Compatible private destinations can "
+                            + "connect alongside it. Other unrestricted exits "
+                            + "stay saved, not active.")
+                    .setItems(names, (dialog, which) -> {
+                        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                                .putString(HOME_PRIMARY_KEY, names[which]).apply();
+                        checkRootHomeSetup();
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            return;
+        }
+        if (!review.ready) {
+            showSelectionNeedsAdjustment(review.message);
+            return;
+        }
+        java.util.Set<String> activeNames =
+                new java.util.HashSet<>(review.active);
+        ArrayList<SecureTunnelProfileStore.Profile> active = new ArrayList<>();
+        for (SecureTunnelProfileStore.Profile profile : chosen) {
+            if (activeNames.contains(profile.name)) active.add(profile);
+        }
+        if (active.size() != review.active.size()) {
+            showSelectionNeedsAdjustment("One of the selected profiles is missing. "
+                    + "No check was started.");
+            return;
+        }
+        rootHomeBusy = true;
+        updateHomeProgress("Checking root tunnel setup · no connection changes…");
+        session.preflightManagedStart(active, (ready, detail) -> {
+            rootHomeBusy = false;
+            rootHomeProgress = "";
+            if (isFinishing() || isDestroyed()) return;
+            if (visible && tab == 0) render();
+            String explanation = RootStartReadinessGuide.message(
+                    ready, detail, active.size(), review.parked);
+            AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                    .setTitle(ready ? "Setup check passed" : "Setup needs attention")
+                    .setMessage(explanation)
+                    .setPositiveButton("OK", null);
+            if (!ready) {
+                dialog.setNeutralButton("Advanced diagnostics",
+                        (d, w) -> openRootTab(0));
+            }
+            dialog.show();
+        });
     }
 
     private void beginHomeStartConfirmation(
