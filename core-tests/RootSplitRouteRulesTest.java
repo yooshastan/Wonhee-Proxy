@@ -43,6 +43,58 @@ public final class RootSplitRouteRulesTest {
                 + "iif lo uidrange 0-99999 lookup " + home.device;
         check(rules.get(0).matchesListing(kernelLine), "Owned rule must match exact listing");
 
+        // Pixel 8a / Android 16 reproduced incident: the kernel hides /32
+        // for a single host, and the second ledger-owned route may already
+        // have been deleted by a previous partial Safe Stop.
+        String fedoraDevice = "wnmcbaad0ec81a0";
+        String hostLedger = "4|12500|10.0.0.169/32|" + fedoraDevice
+                + "|10.0.0.169|0x0/0x20000\n"
+                + "4|12501|10.77.0.0/24|" + fedoraDevice
+                + "|10.77.0.1|0x0/0x20000\n";
+        List<RootSplitRouteRules.Rule> savedHostRoutes =
+                RootSplitRouteRules.decode(hostLedger);
+        String observedBareHost = "12500:  from all to 10.0.0.169 "
+                + "fwmark 0x0/0x20000 iif lo uidrange 0-99999 lookup " + fedoraDevice;
+        check(savedHostRoutes.get(0).matchesListing(observedBareHost),
+                "Prefixless IPv4 /32 host must match its exact saved ownership");
+        check(RootSplitRouteRules.verifyRollbackCandidates(savedHostRoutes,
+                        Collections.singletonList(observedBareHost), Collections.emptyList()) == 1,
+                "Safe Stop preflight must accept one live bare host with one already removed rule");
+        check(RootSplitRouteRules.verifyRollbackCandidates(savedHostRoutes,
+                        Collections.emptyList(), Collections.emptyList()) == 0,
+                "Safe Stop preflight must accept fully removed live rules with a retained ledger");
+        check(!savedHostRoutes.get(0).matchesListing(
+                        observedBareHost.replace("10.0.0.169", "10.0.0.170")),
+                "A different prefixless host must NEVER be adopted as owned");
+        check(!savedHostRoutes.get(0).matchesListing(
+                        observedBareHost.replace("fwmark 0x0/0x20000", "fwmark 0x0/0x2ffff")),
+                "A changed firewall mark must still refuse rollback");
+        check(!savedHostRoutes.get(0).matchesListing(
+                        observedBareHost.replace(fedoraDevice, "wnm68fe81200daa")),
+                "A changed tunnel table must still refuse rollback");
+        check(!savedHostRoutes.get(0).matchesListing(
+                        observedBareHost.replace("uidrange 0-99999", "uidrange 0-99998")),
+                "A changed UID selector must still refuse rollback");
+        check(!savedHostRoutes.get(0).matchesListing(
+                        observedBareHost.replace("12500:", "12501:")),
+                "A changed priority must still refuse rollback");
+        check(!rules.get(0).matchesListing(
+                        kernelLine.replace("10.0.0.0/24", "10.0.0.0")),
+                "Do not treat a prefixless host as a broader /24 network");
+        RootSplitRouteRules.Rule ipv6Host = new RootSplitRouteRules.Rule(
+                6, 12500, "fd00:1234::2/128", fedoraDevice, "fd00:1234::2");
+        String ipv6BareHost = "12500: from all to fd00:1234::2 fwmark 0x0/0x20000 "
+                + "iif lo uidrange 0-99999 lookup " + fedoraDevice;
+        check(ipv6Host.matchesListing(ipv6BareHost),
+                "Prefixless IPv6 /128 host must match exact saved ownership");
+        check(!ipv6Host.matchesListing(ipv6BareHost.replace("fd00:1234::2", "fd00:1234::3")),
+                "A different IPv6 host must still refuse rollback");
+        check(RootSplitRouteRules.verifyRollbackCandidates(
+                        Collections.singletonList(ipv6Host), Collections.emptyList(),
+                        Collections.singletonList(ipv6BareHost)) == 1,
+                "IPv6 host-only kernel formatting must pass exact Safe Stop preflight");
+
+
         String homeDevice = home.device;
         String k12500 = "12500:\tfrom all to 10.0.0.0/24 fwmark 0x0/0x20000 "
                 + "iif lo uidrange 0-99999 lookup " + homeDevice + " ";
