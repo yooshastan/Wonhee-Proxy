@@ -126,6 +126,7 @@ require('RootIsolatedWireGuardKernelListingTest.java' in
         (root / ".github/workflows/build.yml").read_text()
         and 'interfaceKind' in kernel_listing,
         "Android CI must exercise exact-owned link/route readback")
+kernel_session = (java / "RootMultiKernelSession.java").read_text()
 uid_policy_tx = (java / "RootIsolatedUidPolicyTransaction.java").read_text()
 uid_policy_codec = (java / "RootIsolatedUidPolicyJournalCodec.java").read_text()
 uid_policy_prefs = (java / "RootIsolatedUidPolicyPreferencesJournal.java").read_text()
@@ -161,7 +162,6 @@ for forbidden in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
             and forbidden not in uid_policy_prefs
             and forbidden not in uid_policy_listing,
             "UID policy transaction model must not execute root commands: " + forbidden)
-kernel_session = (java / "RootMultiKernelSession.java").read_text()
 require('new RootIsolatedWireGuardKernelAdapter(' not in kernel_session
         and 'RootIsolatedWireGuardTransaction.start(' not in kernel_session,
         "Kernel adapter may NOT be integrated into live Start without device DNS/fail-closed proof")
