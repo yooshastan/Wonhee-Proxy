@@ -25,7 +25,7 @@ assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" 
 assert "selector().withBuildType('debug')" in gradle
 assert "output.versionCode.set(109)" in gradle
 assert "output.versionName.set('0.15.62-rootlab-readiness')" in gradle
-assert "applicationIdSuffix '.rootlab'" in gradle
+assert "applicationIdSuffix '.rootlab01562'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
 assert "Private DNS" in source and "READ-ONLY" in source
