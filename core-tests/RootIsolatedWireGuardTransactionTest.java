@@ -153,6 +153,29 @@ public final class RootIsolatedWireGuardTransactionTest {
                         && kernel.applyCalls == 2,
                 "Cannot execute a step without first durably writing its intent");
 
+        // A corrupted late stage MUST be rejected before the first device
+        // change, even if its inverse appears plausible to the caller.
+        List<RootIsolatedWireGuardBootstrapPlan.Step> tampered =
+                new ArrayList<>(plan.steps);
+        RootIsolatedWireGuardBootstrapPlan.Step target =
+                tampered.get(tampered.size() - 1);
+        tampered.set(tampered.size() - 1,
+                new RootIsolatedWireGuardBootstrapPlan.Step(
+                        "PRIVATE_ROUTE", "ip -4 route add default dev wlan0",
+                        "ip -4 route del default dev wlan0", target.device));
+        RootIsolatedWireGuardBootstrapPlan.Plan corruptPlan =
+                new RootIsolatedWireGuardBootstrapPlan.Plan(
+                        tampered, plan.devices, plan.privateRoutes);
+        kernel = new MemoryKernel();
+        journal = new MemoryJournal();
+        boolean rejectedPlan = false;
+        try {
+            RootIsolatedWireGuardTransaction.start(corruptPlan, kernel, journal);
+        } catch (IllegalArgumentException expected) { rejectedPlan = true; }
+        check(rejectedPlan && journal.empty() && kernel.preflightCalls == 0
+                        && kernel.applyCalls == 0,
+                "All command shapes must validate before any root work");
+
         // The caller's live preflight is mandatory and cannot be bypassed.
         kernel = new MemoryKernel();
         journal = new MemoryJournal();
