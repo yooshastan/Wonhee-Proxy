@@ -80,6 +80,19 @@ audit_clean() {
     elif [[ "$ledger_probe" != absent ]]; then
         fail "Cannot verify isolated bootstrap ownership journal state."
     fi
+    local uid_ledger_file uid_ledger_probe
+    uid_ledger_file="/data/user/0/$pkg/shared_prefs/wonhee_isolated_uid_ownership_v1.xml"
+    uid_ledger_probe="$(root_read "if [ -f $uid_ledger_file ]; then echo exists; else echo absent; fi")" ||
+        fail "Cannot check isolated UID policy journal."
+    if [[ "$uid_ledger_probe" == exists ]]; then
+        root_read "cat $uid_ledger_file" > "$tmp/isolated_uid_ownership.xml" ||
+            fail "Cannot inspect isolated UID policy journal."
+        python3 "$(dirname "$0")/check-wonhee-isolated-ledger.py" \
+            "$tmp/isolated_uid_ownership.xml" pending_or_installed_uid_rules_v1 ||
+            fail "Isolated UID policy ownership is pending or unknown."
+    elif [[ "$uid_ledger_probe" != absent ]]; then
+        fail "Cannot verify isolated UID policy journal state."
+    fi
     # Refuse abandoned private-table routes even if the interface vanished.
     for net_family in 4 6; do
         all_routes="$(root_read "ip -$net_family route show table all")" ||
