@@ -99,6 +99,18 @@ require('activationAllowed() { return false; }' in kernel_inventory
         and 'RootNetfilterKernelInventoryTest.java' in
         (root / ".github/workflows/build.yml").read_text(),
         "Registered kernel modules and foreign OUTPUT chains cannot activate routing")
+mark_audit = (java / "RootAndroidMarkCollisionAudit.java").read_text()
+require('candidateVerifiedFree(long mask) { return false; }' in mark_audit
+        and 'activationAllowed() { return false; }' in mark_audit,
+        "Observed Android netd masks cannot certify new fwmark ownership")
+require('RootAndroidMarkCollisionAuditTest.java' in
+        (root / ".github/workflows/build.yml").read_text(),
+        "Device mark-mask collision regressions must run in CI")
+for unsafe in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
+               'Runtime.getRuntime().exec(', 'iptables -t mangle -A',
+               'ip rule add'):
+    require(unsafe not in mark_audit,
+            "Mark-mask interpreter must remain non-executing: " + unsafe)
 for dangerous in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
                   'Runtime.getRuntime().exec(', 'iptables -t mangle -A',
                   'iptables -t mangle -F'):
