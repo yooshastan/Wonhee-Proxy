@@ -532,10 +532,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                         rootSelectionMessage.setText(homeSelectionSummary());
                     }
                 })
-                .setMessage("This changes the planned primary only. Other selected "
-                        + "Internet exits remain NOT CONNECTED until verified "
-                        + "per-app multi-exit routing is available. Destination "
-                        + "tunnels can connect alongside the primary.")
                 .setNegativeButton("Cancel", null)
                 .show();
     }
@@ -757,10 +753,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             String[] names = review.primaryChoices.toArray(new String[0]);
             new AlertDialog.Builder(this)
                     .setTitle("Choose the Internet tunnel")
-                    .setMessage("Only this tunnel will carry ordinary Internet "
-                            + "traffic. Compatible private destinations can "
-                            + "connect alongside it. Other unrestricted exits "
-                            + "stay saved, not active.")
                     .setItems(names, (dialog, which) -> {
                         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
                                 .putString(HOME_PRIMARY_KEY, names[which]).apply();
@@ -824,10 +816,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             String[] names = reviewed.primaryChoices.toArray(new String[0]);
             new AlertDialog.Builder(this)
                     .setTitle("Choose your primary Internet exit")
-                    .setMessage("Additional Internet exits stay available "
-                            + "but won't connect until app-specific multi-exit "
-                            + "routing is verified. Destination-specific "
-                            + "tunnels can run alongside your primary exit.")
                     .setItems(names, (dialog, which) -> {
                         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
                                 .putString(HOME_PRIMARY_KEY, names[which]).apply();
