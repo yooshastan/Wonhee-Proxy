@@ -18,6 +18,10 @@ manifest = debug_manifest.read_text()
 source = debug_activity.read_text()
 assert 'RootlabReadinessActivity' in manifest
 assert 'android:label="Wonhee Multi-Exit Readiness"' in manifest
+assert 'android:name=".WonheeDashboardPreviewActivity"' in manifest
+assert 'android:enabled="false"' in manifest, (
+    "The diagnostic APK cannot expose the normal Start dashboard"
+)
 assert 'RootlabReadinessActivity' not in production_manifest, (
     "Lab screen must never appear in official app"
 )
