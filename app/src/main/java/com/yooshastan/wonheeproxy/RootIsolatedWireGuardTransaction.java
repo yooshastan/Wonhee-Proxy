@@ -155,11 +155,12 @@ final class RootIsolatedWireGuardTransaction {
         return journal.empty();
     }
 
-    private static boolean safeStep(RootIsolatedWireGuardBootstrapPlan.Step s) {
+    static boolean safeStep(RootIsolatedWireGuardBootstrapPlan.Step s) {
         if (s == null || s.device == null
                 || !s.device.matches("wnm[0-9a-f]{12}")) return false;
         if ("PEER_CONFIG".equals(s.kind)) {
-            return s.install.isEmpty() && s.inverse.isEmpty();
+            return s.install != null && s.inverse != null
+                    && s.install.isEmpty() && s.inverse.isEmpty();
         }
         if (s.install == null || s.inverse == null
                 || s.install.isEmpty() || s.inverse.isEmpty()) return false;
