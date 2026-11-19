@@ -339,6 +339,47 @@ journal transaction in Start/Stop. Do NOT promote an Android CI build
 to the signed release or advertise real three-exit routing until the
 active path passes physical-device packet capture and Safe Stop tests.
 
+## UID-only fail-closed policy transaction and separate recovery ledger
+
+Added `RootIsolatedUidPolicyTransaction` for the first UID-only phase.
+It is deliberately separate from the existing isolated WireGuard bootstrap
+transaction: selected tunnel links/routes must be established and verified
+before any UID rules are considered.
+
+- Installs the per-table high-metric unreachable default proposal **before**
+  any app UID lookup selector; on Safe Stop, removes UID rules **before**
+  deleting the blocking routes. This is exact-reverse recovery only.
+- Every mutation requires a durable write-ahead record, exact post-mutation
+  kernel readback, and an injected `requireFailClosedPreflight()` that must
+  prove DNS identity, protected physical WG transport and IPv4/IPv6
+  no-fallback behavior. If any check or mutation fails, only exact-owned
+  objects may be undone, and incomplete records are retained.
+- `RootIsolatedUidPolicyJournalCodec` and
+  `RootIsolatedUidPolicyPreferencesJournal` provide a separate
+  fingerprint-bound app-private journal. The codec rejects changed UIDs,
+  invalid/crashed sequences and uncommitted earlier steps. Neither stored
+  shell commands nor WireGuard keys appear in the persistent record.
+- `RootIsolatedUidPolicyListing` parses exact Android reserved-priority
+  UID selectors and high-metric terminal routes without adopting adjacent
+  foreign rules; `RootIsolatedUidPolicyKernelAdapter` provides a **dormant**
+  Android root adapter with strict command whitelisting and an external,
+  unimplemented proof-of-safety gate. It is **not wired** to Home Start.
+- Legacy Safe Stop and update preflight block on either outstanding
+  bootstrap or UID journals, and the official installer inspects both
+  protected XML records and both families' reserved priorities/tables.
+  Mock installer and rootless transaction, codec, and readback regressions
+  cover interrupted installs, foreign resources and replays.
+- Both policy and bootstrap journal decoders reject a pending earlier stage
+  followed by a later stage. This prevents silently treating a damaged
+  persisted log as a valid recovery plan.
+
+**Still blocked:** real phone-side proof that UID range routing and a
+private-table `unreachable default` cannot escape to Android's normal
+Wi-Fi/cellular path; DNS/DoQ/DoH ownership; real WG endpoint handshakes
+and protected UDP underlay; working Start/Safe Stop integration and
+protocol/port selector support. This code cannot be called the signed
+0.15.62 release. Private DNS must remain OFF on the Pixel 8a.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
