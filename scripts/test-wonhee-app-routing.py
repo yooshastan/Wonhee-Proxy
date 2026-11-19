@@ -105,6 +105,13 @@ require('interface SafetyGate' in root_kernel_adapter
         and 'proveIsolatedUnderlayDnsAndFailClosed' in root_kernel_adapter
         and 'createdIfindices' in root_kernel_adapter,
         "New kernel adapter must require external full protection proof and ifindex identity")
+require('new ToolsInstaller(this.context, shell)' in root_kernel_adapter
+        and 'tools.ensureToolsAvailable();' in root_kernel_adapter
+        and root_kernel_adapter.index('tools.ensureToolsAvailable();')
+            < root_kernel_adapter.index('wg --version')
+        and 'tools.install()' not in root_kernel_adapter,
+        "Android root PATH lacks wg: isolated adapter must extract app-bundled tools "
+        "before probing binaries, without modifying system partitions")
 require('RootIsolatedWireGuardTransaction.safeStep(step)' in root_kernel_adapter
         and 'RootIsolatedWireGuardConfigHandoff.apply(' in root_kernel_adapter,
         "Only prevalidated steps and secure peer-config handoff may be executed")
