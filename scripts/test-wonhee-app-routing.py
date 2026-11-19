@@ -98,6 +98,32 @@ require('RootIsolatedWireGuardBootstrapPlanTest.java' in
 transaction = (java / "RootIsolatedWireGuardTransaction.java").read_text()
 journal_codec = (java / "RootIsolatedWireGuardJournalCodec.java").read_text()
 prefs_journal = (java / "RootIsolatedWireGuardPreferencesJournal.java").read_text()
+root_kernel_adapter = (java / "RootIsolatedWireGuardKernelAdapter.java").read_text()
+config_handoff = (java / "RootIsolatedWireGuardConfigHandoff.java").read_text()
+kernel_listing = (java / "RootIsolatedWireGuardKernelListing.java").read_text()
+require('interface SafetyGate' in root_kernel_adapter
+        and 'proveIsolatedUnderlayDnsAndFailClosed' in root_kernel_adapter
+        and 'createdIfindices' in root_kernel_adapter,
+        "New kernel adapter must require external full protection proof and ifindex identity")
+require('RootIsolatedWireGuardTransaction.safeStep(step)' in root_kernel_adapter
+        and 'RootIsolatedWireGuardConfigHandoff.apply(' in root_kernel_adapter,
+        "Only prevalidated steps and secure peer-config handoff may be executed")
+require('wg-quick strip' in config_handoff
+        and 'wg setconf' in config_handoff
+        and 'wg-quick up' not in config_handoff
+        and 'wg-quick down' not in config_handoff
+        and "FileOutputStream" in config_handoff
+        and "Arrays.fill(clear" in config_handoff,
+        "Isolated peer configuration must avoid wg-quick route/dns mutations and clear byte arrays")
+require('RootIsolatedWireGuardKernelListingTest.java' in
+        (root / ".github/workflows/build.yml").read_text()
+        and 'interfaceKind' in kernel_listing,
+        "Android CI must exercise exact-owned link/route readback")
+kernel_session = (java / "RootMultiKernelSession.java").read_text()
+require('new RootIsolatedWireGuardKernelAdapter(' not in kernel_session
+        and 'RootIsolatedWireGuardTransaction.start(' not in kernel_session,
+        "Kernel adapter may NOT be integrated into live Start without device DNS/fail-closed proof")
+
 require('kernel.requireActivationPreflight();' in transaction
         and 'journal.beforeMutation(step);' in transaction
         and transaction.index('journal.beforeMutation(step);')
