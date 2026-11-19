@@ -267,6 +267,84 @@ final class AppRoutingDraftStore {
         saveCategoryProtocolRules(RootCategoryProtocolRule.validateAndSort(merged));
     }
 
+    /**
+     * Save a global service template AND its chosen category-to-tunnel target
+     * in one app-private SharedPreferences transaction. A missing/invalid
+     * target or a rule limit failure leaves both existing mappings unchanged.
+     *
+     * The UI verifies the selected saved tunnel's effective dual-stack
+     * full-Internet routing before calling this. This method does not
+     * activate networking and never stores a WireGuard configuration.
+     */
+    synchronized void putCategoryProtocolPresetAndTarget(
+            List<RootCategoryProtocolRule.Rule> newRules,
+            int category, String tunnelName) {
+        if (!AppUseCategories.valid(category)
+                || tunnelName == null || tunnelName.isEmpty()
+                || tunnelName.length() > 64) {
+            throw new IllegalArgumentException("Choose an app category and a tunnel.");
+        }
+        if (newRules == null || newRules.isEmpty()) {
+            throw new IllegalArgumentException("No protocol ports selected.");
+        }
+        for (RootCategoryProtocolRule.Rule rule : newRules) {
+            if (rule == null || rule.category != category) {
+                throw new IllegalArgumentException("Protocol rule category mismatch.");
+            }
+        }
+        List<RootCategoryProtocolRule.Rule> merged =
+                new ArrayList<>(categoryProtocolRules());
+        for (RootCategoryProtocolRule.Rule extra :
+                RootCategoryProtocolRule.validateAndSort(newRules)) {
+            for (int i = 0; i < merged.size(); i++) {
+                RootCategoryProtocolRule.Rule old = merged.get(i);
+                if (old.transport == extra.transport
+                        && old.destinationPort == extra.destinationPort) {
+                    merged.remove(i);
+                    break;
+                }
+            }
+            merged.add(extra);
+        }
+        String encodedRules = encodeCategoryProtocolRules(
+                RootCategoryProtocolRule.validateAndSort(merged));
+        JSONObject targets = read(TUNNELS);
+        try {
+            targets.put(Integer.toString(category), tunnelName);
+        } catch (JSONException invalid) {
+            throw new IllegalStateException("Unable to encode selected tunnel.");
+        }
+        String encodedTargets = targets.toString();
+        if (encodedRules.length() > MAX_STRING_BYTES
+                || encodedTargets.length() > MAX_STRING_BYTES) {
+            throw new IllegalArgumentException("Routing preference storage is full.");
+        }
+        if (!prefs.edit()
+                .putString(CATEGORY_PROTOCOLS, encodedRules)
+                .putString(TUNNELS, encodedTargets).commit()) {
+            throw new IllegalStateException("Unable to save routing preferences.");
+        }
+    }
+
+    private String encodeCategoryProtocolRules(
+            List<RootCategoryProtocolRule.Rule> checked) {
+        JSONArray values = new JSONArray();
+        JSONObject document = new JSONObject();
+        try {
+            for (RootCategoryProtocolRule.Rule rule : checked) {
+                JSONObject row = new JSONObject();
+                row.put("transport", rule.transport);
+                row.put("destinationPort", rule.destinationPort);
+                row.put("category", rule.category);
+                values.put(row);
+            }
+            document.put("rules", values);
+        } catch (JSONException invalid) {
+            throw new IllegalStateException("Unable to encode category protocol policy.");
+        }
+        return document.toString();
+    }
+
     synchronized void removeCategoryProtocolRule(int protocol, int destinationPort) {
         List<RootCategoryProtocolRule.Rule> remaining = new ArrayList<>();
         for (RootCategoryProtocolRule.Rule rule : categoryProtocolRules()) {
@@ -280,21 +358,7 @@ final class AppRoutingDraftStore {
     private void saveCategoryProtocolRules(List<RootCategoryProtocolRule.Rule> rules) {
         List<RootCategoryProtocolRule.Rule> reviewed =
                 RootCategoryProtocolRule.validateAndSort(rules);
-        JSONArray values = new JSONArray();
-        JSONObject document = new JSONObject();
-        try {
-            for (RootCategoryProtocolRule.Rule rule : reviewed) {
-                JSONObject row = new JSONObject();
-                row.put("transport", rule.transport);
-                row.put("destinationPort", rule.destinationPort);
-                row.put("category", rule.category);
-                values.put(row);
-            }
-            document.put("rules", values);
-        } catch (JSONException invalid) {
-            throw new IllegalStateException("Unable to encode category protocol policy.");
-        }
-        String encoded = document.toString();
+        String encoded = encodeCategoryProtocolRules(reviewed);
         if (encoded.length() > MAX_STRING_BYTES ||
                 !prefs.edit().putString(CATEGORY_PROTOCOLS, encoded).commit()) {
             throw new IllegalStateException("Unable to persist category protocol policy.");
