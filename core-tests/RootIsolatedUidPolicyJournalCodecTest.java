@@ -55,8 +55,9 @@ public final class RootIsolatedUidPolicyJournalCodecTest {
         partial = journal.encode(entries);
         check(partial.endsWith("0A,1P"),
                 "Partially applied policy retains a pending second rule.");
+        RootIsolatedUidOnlyPolicyPlan.Plan rebuilt = plan();
         RootIsolatedUidPolicyJournalCodec reopened =
-                new RootIsolatedUidPolicyJournalCodec(plan());
+                new RootIsolatedUidPolicyJournalCodec(rebuilt);
         List<RootIsolatedUidPolicyJournalCodec.Entry> loaded =
                 reopened.decode(partial);
         check(loaded.size() == 2 && loaded.get(0).applied
@@ -78,15 +79,15 @@ public final class RootIsolatedUidPolicyJournalCodecTest {
                 "Mismatched fingerprint rejected.");
 
         final List<RootIsolatedUidPolicyJournalCodec.Entry> loadedFinal = loaded;
-        reject(() -> reopened.clearLast(loadedFinal, model.startOrder().get(0)),
+        reject(() -> reopened.clearLast(loadedFinal, rebuilt.startOrder().get(0)),
                 "Cannot remove a terminal block while later policy is owned.");
-        reject(() -> reopened.applied(loadedFinal, model.startOrder().get(0)),
+        reject(() -> reopened.applied(loadedFinal, rebuilt.startOrder().get(0)),
                 "Cannot commit a non-last or already committed rule.");
-        reject(() -> reopened.intent(loadedFinal, second),
+        reject(() -> reopened.intent(loadedFinal, rebuilt.startOrder().get(1)),
                 "Cannot duplicate an in-flight rule.");
 
-        loaded = reopened.clearLast(loaded, model.startOrder().get(1));
-        loaded = reopened.clearLast(loaded, model.startOrder().get(0));
+        loaded = reopened.clearLast(loaded, rebuilt.startOrder().get(1));
+        loaded = reopened.clearLast(loaded, rebuilt.startOrder().get(0));
         check(reopened.encode(loaded).isEmpty(),
                 "Exact reverse-order cleanup clears persistent policy metadata.");
 
