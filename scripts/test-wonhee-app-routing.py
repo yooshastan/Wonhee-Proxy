@@ -95,6 +95,9 @@ require('activationAllowed() { return false; }' in isolated_bootstrap
 require('RootIsolatedWireGuardBootstrapPlanTest.java' in
         (root / ".github/workflows/build.yml").read_text(),
         "Two-exit isolated link bootstrap tests must be executed by CI")
+require('RootIsolatedWireGuardBootstrapPlan' in uid_readiness
+        and 'compile(effectiveRoutes, plan).summary()' in uid_readiness,
+        "Home App Routing readiness must report isolated two-exit bootstrap blockers")
 for forbidden in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
                   'Runtime.getRuntime().exec(', 'backend.setState(',
                   'wg-quick up', 'ip -4 rule add', 'ip -6 rule add'):
