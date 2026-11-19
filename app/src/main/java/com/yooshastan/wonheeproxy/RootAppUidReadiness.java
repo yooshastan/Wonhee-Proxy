@@ -108,7 +108,11 @@ final class RootAppUidReadiness {
                     RootPerAppUidPolicyPlan.prepare(defaultName,
                             RootMultiKernelSession.previewAppUidRoutes(selected),
                             resolved, overrides, globalRules, categoryExits);
-            return plan.summary()
+            // This is a compiler for reviewed kernel-table and fail-closed
+            // selector shapes, NOT an executor. No network call is made.
+            RootMultiExitKernelPlan.Result kernel =
+                    RootMultiExitKernelPlan.compile(plan);
+            return plan.summary() + "\n" + kernel.summary()
                     + "\nGLOBAL RULE SCOPE: This read-only proposal only "
                     + "checks explicitly assigned, launcher-visible apps. "
                     + "It does not enumerate or enforce every Android "
