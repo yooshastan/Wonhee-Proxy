@@ -46,6 +46,42 @@ The imported WireGuard profiles' keys, endpoints and AllowedIPs are immutable un
   Do not call any generated install or rollback commands on a real phone.
   This is the preflight/compiler layer, **not live policy routing**.
 
+## Pixel 8a Android 16 ip-rule compatibility audit (2026-11-19)
+
+User-supplied **read-only device evidence** for kernel
+`6.1.145-android14-11-gec45f20f38ea-ab15260282`:
+
+- `ip -4 rule help` and `ip -6 rule help` advertise `fwmark`,
+  `iif`, `pref` and `uidrange`. Both **omit** `ipproto`,
+  `sport` and `dport`; the selected Android command-line utility must
+  not be assumed to accept this project's direct L4 selector syntax.
+- `ACTION` help also **omits** `unreachable`, despite the **existing**
+  Android RPDB rule `32000: from all unreachable`. The existing rule is
+  evidence that the kernel's policy database represents this action; it
+  is **not proof** that the Android CLI can add/remove a specific rule
+  with this action. No write probe is authorized.
+- Android-owned priorities include 10000, 11000, 15040, 15998/15999,
+  16000, 17000, 18000–20000, 22040, 22998/22999, 25000, 29040,
+  29998, 31000 and 32000. Observed device tables include
+  `wlan0`, `rmnet16`, `ipsec13`, and `local_network`; these are not
+  Wonhee-owned and must never be flushed or repurposed.
+- Both families report no Wonhee-owned 12500–12799 rules. This does
+  **not** independently confirm DNS/firewall ownership cleanup; H.2a
+  `CLEAN_STOPPED` remains a release gate.
+- Added pure `RootIpRuleHelpCapabilities` and
+  `RootIpRuleHelpCapabilitiesTest` to preserve this diagnostic, warn
+  about missing direct L4 selectors, and refuse to equate help text
+  with a kernel/traffic-safety check.
+- **Backend decision**: do not attempt to execute conceptual
+  `ip rule ... ipproto ... dport ...` rules on this Pixel 8a. Evaluate
+  a separately verified per-app TCP/UDP classifier that writes an
+  owned packet mark (netfilter or BPF, after feature detection), then
+  restrict the RPDB to the device's available UID/mark selectors.
+  Prove marks cannot collide with Android netd/protectedFromVpn bits,
+  prove encrypted DNS ownership, and enforce selected-exit loss
+  without leaking onto another VPN or the physical network.
+  Neither alternate backend is implemented or activated by this PR.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
