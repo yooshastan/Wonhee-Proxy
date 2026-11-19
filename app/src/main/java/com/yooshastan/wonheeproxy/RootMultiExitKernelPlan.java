@@ -56,6 +56,21 @@ final class RootMultiExitKernelPlan {
             ipv6Rules = v6;
         }
 
+        /**
+         * A future verified stop must undo selectors before deleting the
+         * private routes they reference. This is an ordering preview only.
+         */
+        List<Step> rollbackOrder() {
+            List<Step> reversed = new ArrayList<>(policy.size() + routes.size());
+            for (int i = policy.size() - 1; i >= 0; i--) {
+                reversed.add(policy.get(i));
+            }
+            for (int i = routes.size() - 1; i >= 0; i--) {
+                reversed.add(routes.get(i));
+            }
+            return Collections.unmodifiableList(reversed);
+        }
+
         /** A dry-run compile can NEVER be passed to a root executor. */
         boolean activationAllowed() { return false; }
 
@@ -88,6 +103,7 @@ final class RootMultiExitKernelPlan {
         List<Step> routes = new ArrayList<>();
         List<Step> policies = new ArrayList<>();
         Map<Integer, String> owner = new HashMap<>();
+        Map<String, Integer> deviceOwners = new HashMap<>();
         Set<String> distinctRoutes = new HashSet<>();
         Set<Integer> v4Tables = new HashSet<>();
         Set<Integer> v6Tables = new HashSet<>();
@@ -101,16 +117,22 @@ final class RootMultiExitKernelPlan {
             if (previous != null && !previous.equals(route.device)) {
                 throw new IllegalArgumentException("A private table has two owners.");
             }
+            Integer priorTable = deviceOwners.putIfAbsent(route.device, route.table);
+            if (priorTable != null && priorTable != route.table) {
+                throw new IllegalArgumentException("A tunnel cannot own two private exit tables.");
+            }
             String identity = route.family + "|" + route.table + "|" + route.destination;
             if (!distinctRoutes.add(identity)) {
                 throw new IllegalArgumentException("Duplicate private-table route.");
             }
-            if (route.family == 4 && "0.0.0.0/0".equals(route.destination)) {
-                v4Tables.add(route.table);
+            if (route.family == 4 && "0.0.0.0/0".equals(route.destination)
+                    && !v4Tables.add(route.table)) {
+                throw new IllegalArgumentException("Duplicate IPv4 default in a private table.");
             }
             if (route.family == 6 && ("::/0".equals(route.destination)
-                    || "0:0:0:0:0:0:0:0/0".equals(route.destination))) {
-                v6Tables.add(route.table);
+                    || "0:0:0:0:0:0:0:0/0".equals(route.destination))
+                    && !v6Tables.add(route.table)) {
+                throw new IllegalArgumentException("Duplicate IPv6 default in a private table.");
             }
             String command = "ip -" + route.family + " route";
             String suffix = "table " + route.table + " " + route.destination
@@ -178,8 +200,11 @@ final class RootMultiExitKernelPlan {
         String[] parts = cidr.split("/", -1);
         if (parts.length != 2 || !parts[1].matches("[0-9]{1,3}")) return false;
         String ip = parts[0];
-        if (family == 4 && !ip.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")) {
-            return false;
+        if (family == 4) {
+            if (!ip.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")) return false;
+            for (String octet : ip.split("\\.")) {
+                if (Integer.parseInt(octet) > 255) return false;
+            }
         }
         if (family == 6 && (!ip.contains(":") || !ip.matches("[0-9a-fA-F:.]+"))) {
             return false;
