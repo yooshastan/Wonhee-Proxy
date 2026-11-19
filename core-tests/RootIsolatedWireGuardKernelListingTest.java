@@ -67,10 +67,14 @@ public final class RootIsolatedWireGuardKernelListingTest {
                 "10.0.0.0/24 dev " + DEV, 4, "0.0.0.0/0", DEV),
                 "No default route present");
         match(exact, RootIsolatedWireGuardKernelListing.privateRoute(
-                "10.0.0.169 dev " + DEV, 4, "10.0.0.169/32", DEV)
-                == exact ? "10.0.0.169/32 dev " + DEV
-                    : "10.0.0.169/32 dev " + DEV,
-                4, "10.0.0.169/32", DEV), "Exact private Home host");
+                "10.0.0.169 dev " + DEV, 4, "10.0.0.169/32", DEV),
+                "Exact private Home IPv4 host (bare /32 output)");
+        match(exact, RootIsolatedWireGuardKernelListing.privateRoute(
+                "2001:db8::3 dev " + DEV, 6, "2001:db8::3/128", DEV),
+                "Exact IPv6 host route (bare /128 output)");
+        match(absent, RootIsolatedWireGuardKernelListing.privateRoute(
+                "10.0.0.169 dev " + DEV, 4, "10.0.0.0/24", DEV),
+                "A non-host network must never match a bare host");
         match(exact, RootIsolatedWireGuardKernelListing.privateRoute(
                 "default dev " + DEV + " metric 100\n",
                 6, "::/0", DEV), "IPv6 default");
