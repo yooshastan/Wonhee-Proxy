@@ -253,6 +253,45 @@ per-app routing, rollback journal, or live 3-tunnel test. The current
 `RootMultiKernelSession.connect` is unchanged. This is NOT the 0.15.62
 shipping milestone.
 
+## Journal-first isolated link transaction controller (2026-11-19)
+
+`RootIsolatedWireGuardTransaction` now provides a **root-independent
+transaction engine** for the isolated startup plan, with explicit
+`Kernel` and `Journal` interfaces. It is not wired into Android Start.
+
+- Verifies the *entire* plan shape before any root preflight.
+  No main/default-table command or unknown inverse is eligible.
+- Requires a device-supplied preflight that refuses uncertain root tools,
+  foreign interfaces, profile fingerprints, Android/fwmark control, physical
+  UDP underlay, DNS ownership and fail-closed IPv4+IPv6 policies.
+- Records **durable intent before each mutation**, then checks exact kernel
+  ownership and records a committed step. A command that partially
+  completes before throwing still has an in-flight journal entry.
+- Rollback, Safe Stop and post-crash recovery consume the same journal in
+  strict reverse order. Objects already absent can be acknowledged, but
+  objects with unknown or changed identities are NEVER deleted. If any
+  verification or journal write fails, the remaining journal is retained
+  for an independent audit; retry is supported.
+- Added `RootIsolatedWireGuardJournalCodec` and Android
+  `RootIsolatedWireGuardPreferencesJournal`. Records contain only
+  immutable **plan SHA-256 fingerprint + ordered step index/state**.
+  WireGuard private keys, endpoints and commands are not saved in
+  SharedPreferences. Sync `.commit()` writes are checked. A changed or
+  damaged plan refuses adoption; the record cannot be silently reset.
+- Rootless tests fault-inject failures **after mutation at each startup
+  stage**, before durable writes, during rollback, with a foreign interface,
+  and after a simulated process restart. CI also tests journal corruption,
+  replay, identity mismatch and refused main-table command injection.
+
+**Not yet live:** there is still no verified Android `Kernel` adapter,
+device-enforced preflight or protected configuration handoff, no proof
+of per-UID dual-exit fail-closed routing, and no integration with
+`RootMultiKernelSession.connect`/`stopManagedStack`. App-private
+SharedPreferences metadata alone does not establish live kernel
+ownership; the eventual adapter must implement exact readback of every
+installed object and safely handle credential changes. This is a new
+recovery/control layer, NOT proof of connected Europe+America+Home.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
