@@ -3,6 +3,7 @@ package com.yooshastan.wonheeproxy;
 import android.content.Context;
 
 import com.wireguard.android.util.RootShell;
+import com.wireguard.android.util.ToolsInstaller;
 import com.wireguard.config.Config;
 
 import java.util.ArrayList;
@@ -41,6 +42,7 @@ final class RootIsolatedWireGuardKernelAdapter
 
     private final Context context;
     private final RootShell shell;
+    private final ToolsInstaller tools;
     private final Map<String, Config> selected;
     private final SafetyGate safetyGate;
     private final Set<String> createdThisProcess = new HashSet<>();
@@ -55,6 +57,11 @@ final class RootIsolatedWireGuardKernelAdapter
         }
         this.context = context.getApplicationContext();
         this.shell = shell;
+        // Android's root PATH does not generally expose wg or wg-quick.
+        // Use the exact same bundled WireGuard CLI extraction as the
+        // already-supported RootMultiKernelSession, never a KPM or a
+        // device-wide system partition installation.
+        this.tools = new ToolsInstaller(this.context, shell);
         this.selected = new HashMap<>(selected);
         for (Map.Entry<String, Config> entry : this.selected.entrySet()) {
             if (entry.getKey() == null
@@ -70,7 +77,9 @@ final class RootIsolatedWireGuardKernelAdapter
         preflightApproved = false;
         safetyGate.proveIsolatedUnderlayDnsAndFailClosed();
         shell.start();
-        if (shell.run(null, "wg --version >/dev/null 2>&1") != 0) {
+        tools.ensureToolsAvailable();
+        if (shell.run(null, "wg --version >/dev/null 2>&1") != 0
+                || shell.run(null, "wg-quick --help >/dev/null 2>&1") != 0) {
             throw new IllegalStateException("WireGuard kernel tools not available.");
         }
         List<String> links = read("ip -o link show");
