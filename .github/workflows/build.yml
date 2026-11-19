@@ -86,6 +86,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardJournalCodec.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardKernelListing.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedUidOnlyPolicyPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedUidPolicyTransaction.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootIpRuleHelpCapabilities.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootNetfilterHelpCapabilities.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootNetfilterKernelInventory.java \
@@ -166,6 +167,7 @@ jobs:
             core-tests/RootIsolatedWireGuardJournalCodecTest.java \
             core-tests/RootIsolatedWireGuardKernelListingTest.java \
             core-tests/RootIsolatedUidOnlyPolicyPlanTest.java \
+            core-tests/RootIsolatedUidPolicyTransactionTest.java \
             core-tests/RootIpRuleHelpCapabilitiesTest.java \
             core-tests/RootNetfilterHelpCapabilitiesTest.java \
             core-tests/RootNetfilterKernelInventoryTest.java \
@@ -248,6 +250,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardJournalCodecTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardKernelListingTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedUidOnlyPolicyPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedUidPolicyTransactionTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIpRuleHelpCapabilitiesTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootNetfilterHelpCapabilitiesTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootNetfilterKernelInventoryTest
