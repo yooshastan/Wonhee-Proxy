@@ -126,6 +126,41 @@ require('RootIsolatedWireGuardKernelListingTest.java' in
         (root / ".github/workflows/build.yml").read_text()
         and 'interfaceKind' in kernel_listing,
         "Android CI must exercise exact-owned link/route readback")
+uid_policy_tx = (java / "RootIsolatedUidPolicyTransaction.java").read_text()
+uid_policy_codec = (java / "RootIsolatedUidPolicyJournalCodec.java").read_text()
+uid_policy_prefs = (java / "RootIsolatedUidPolicyPreferencesJournal.java").read_text()
+uid_policy_listing = (java / "RootIsolatedUidPolicyListing.java").read_text()
+require('kernel.requireFailClosedPreflight();' in uid_policy_tx
+        and 'journal.recordIntent(step);' in uid_policy_tx
+        and uid_policy_tx.index('journal.recordIntent(step);')
+            < uid_policy_tx.index('kernel.apply(step);')
+        and 'Presence.FOREIGN_OR_CHANGED' in uid_policy_tx
+        and 'RootIsolatedUidOnlyPolicyPlan.Step' in uid_policy_tx,
+        "UID-only route mutation must require preflight, durable intent and ownership readback")
+require('new RootIsolatedUidPolicyJournalCodec(plan)' in uid_policy_prefs
+        and 'MODE_PRIVATE' in uid_policy_prefs
+        and '.commit()' in uid_policy_prefs
+        and 'pendingOrUnknown(Context context)' in uid_policy_prefs,
+        "UID policy journal must be app-private, synchronous and block legacy lifecycles")
+require('private final String fingerprint;' in uid_policy_codec
+        and 'RootIsolatedUidPolicyTransaction.safeStep(step)' in uid_policy_codec
+        and 'RootIsolatedUidPolicyListing' in uid_policy_listing,
+        "Rule journal fingerprint and exact kernel rule readback are mandatory")
+for required in ('RootIsolatedUidPolicyTransactionTest.java',
+                 'RootIsolatedUidPolicyJournalCodecTest.java',
+                 'RootIsolatedUidPolicyListingTest.java'):
+    require(required in (root / ".github/workflows/build.yml").read_text(),
+            "UID policy rollback and ownership tests must run: " + required)
+require('RootIsolatedUidPolicyTransaction.start(' not in kernel_session
+        and 'new RootIsolatedUidPolicyPreferencesJournal(' not in kernel_session,
+        "UID routing must stay disabled until real on-device DNS/fail-closed proof")
+for forbidden in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
+                  'Runtime.getRuntime().exec(', 'iptables -t mangle -A'):
+    require(forbidden not in uid_policy_tx
+            and forbidden not in uid_policy_codec
+            and forbidden not in uid_policy_prefs
+            and forbidden not in uid_policy_listing,
+            "UID policy transaction model must not execute root commands: " + forbidden)
 kernel_session = (java / "RootMultiKernelSession.java").read_text()
 require('new RootIsolatedWireGuardKernelAdapter(' not in kernel_session
         and 'RootIsolatedWireGuardTransaction.start(' not in kernel_session,
