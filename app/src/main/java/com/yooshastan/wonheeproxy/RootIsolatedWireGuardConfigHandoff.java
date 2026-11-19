@@ -38,8 +38,10 @@ final class RootIsolatedWireGuardConfigHandoff {
         if (!directory.isDirectory() && !directory.mkdir()) {
             throw new IllegalStateException("Cannot create isolated peer directory.");
         }
+        // Android normally aliases /data/user/0 through /data/data; do not
+        // reject that trusted parent alias. Refuse a symlink at our OWN
+        // staging directory, and require restrictive owner-only permissions.
         if (java.nio.file.Files.isSymbolicLink(directory.toPath())
-                || !directory.getCanonicalFile().equals(directory.getAbsoluteFile())
                 || !directory.setReadable(false, false)
                 || !directory.setWritable(false, false)
                 || !directory.setExecutable(false, false)
