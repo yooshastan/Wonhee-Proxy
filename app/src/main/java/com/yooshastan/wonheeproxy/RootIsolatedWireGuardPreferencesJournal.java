@@ -33,6 +33,24 @@ final class RootIsolatedWireGuardPreferencesJournal
         codec = new RootIsolatedWireGuardJournalCodec(plan);
     }
 
+    /**
+     * Standalone read-only lifecycle barrier. A pending or malformed legacy
+     * isolated journal blocks ALL older Start/Safe Stop/update flows. Only a
+     * future exact-owned isolated recovery worker may clear its record.
+     */
+    static boolean pendingOrUnknown(Context context) {
+        if (context == null) return true;
+        try {
+            SharedPreferences stored = context.getApplicationContext()
+                    .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            if (!stored.contains(KEY)) return false;
+            String value = stored.getString(KEY, null);
+            return value == null || !value.isEmpty();
+        } catch (RuntimeException unreadable) {
+            return true;
+        }
+    }
+
     private List<RootIsolatedWireGuardJournalCodec.Entry> read() {
         // Corrupt or mismatched plan fingerprints throw. Do not silently reset.
         return codec.decode(prefs.getString(KEY, ""));
