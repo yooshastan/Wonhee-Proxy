@@ -59,6 +59,18 @@ public final class RootMultiExitKernelPlanTest {
                 && plan.summary().contains("NOT CONNECTED"),
                 "Dry-run must not claim multiple VPN connections succeeded");
 
+        List<RootMultiExitKernelPlan.Step> rollback = plan.rollbackOrder();
+        check(rollback.size() == plan.routes.size() + plan.policy.size()
+                && rollback.get(0).kind.equals("BLOCK")
+                && rollback.get(rollback.size() - 1).kind.equals("ROUTE")
+                && rollback.get(0).rollback.contains(" rule del ")
+                && rollback.get(rollback.size() - 1).rollback.contains(" route del "),
+                "Rollback must remove policy selectors before their private routes");
+        try {
+            rollback.clear();
+            throw new AssertionError("Rollback order may not be externally mutated");
+        } catch (UnsupportedOperationException expected) { /* immutable view */ }
+
         for (RootMultiExitKernelPlan.Step step : plan.routes) {
             check(step.kind.equals("ROUTE")
                     && step.install.startsWith("ip -" + step.family + " route add table ")
@@ -138,6 +150,13 @@ public final class RootMultiExitKernelPlanTest {
         refused(() -> RootMultiExitKernelPlan.compile(
                 new RootPerAppUidPolicyPlan.Plan(source.defaultExit, badCidr,
                         source.rules)), "non-numeric route");
+
+        List<RootPerAppUidPolicyPlan.Route> malformed = new ArrayList<>(source.routes);
+        malformed.set(0, new RootPerAppUidPolicyPlan.Route(before.family,
+                "10.0.0.999/32", before.device, before.table));
+        refused(() -> RootMultiExitKernelPlan.compile(
+                new RootPerAppUidPolicyPlan.Plan(source.defaultExit, malformed,
+                        source.rules)), "malformed numeric host must not use DNS");
 
         List<RootPerAppUidPolicyPlan.Route> noV6 = new ArrayList<>();
         for (RootPerAppUidPolicyPlan.Route route : source.routes) {
