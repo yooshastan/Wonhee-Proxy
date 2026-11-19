@@ -97,7 +97,7 @@ require('RootIsolatedWireGuardBootstrapPlanTest.java' in
         "Two-exit isolated link bootstrap tests must be executed by CI")
 for forbidden in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
                   'Runtime.getRuntime().exec(', 'backend.setState(',
-                  'wg-quick up', 'ip link add dev " + dev'):
+                  'wg-quick up', 'ip -4 rule add', 'ip -6 rule add'):
     require(forbidden not in isolated_bootstrap,
             "Independent bootstrap must never mutate live networking: " + forbidden)
 netfilter_help = (java / "RootNetfilterHelpCapabilities.java").read_text()
