@@ -603,20 +603,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
         showQuickTunnelPicker(hero, false);
         rootSelectionMessage = text(hero, homeSelectionSummary(), 12, MUTED);
-        try {
-            RootTunnelStartSelection.Review plan =
-                    RootMultiKernelSession.reviewMultiStartSelection(
-                            selectedHomeProfiles(), preferredHomePrimary());
-            if (plan.primaryChoices.size() > 1) {
-                secondaryButton(hero, "Choose primary Internet tunnel",
-                        this::chooseRootPrimaryExit);
-                text(hero, "Only the chosen Internet exit will connect in this "
-                        + "build; other Internet exits stay parked.", 12, MUTED);
-            }
-        } catch (Exception | LinkageError unreadable) {
-            // The setup preflight will explain invalid profile routes without
-            // modifying the user's saved network configurations.
-        }
+        // Keep this shortcut on screen even before the second Internet exit is
+        // checked, so adding a profile never requires reopening the page.
+        secondaryButton(hero, "Choose primary Internet tunnel",
+                this::chooseRootPrimaryExit);
         secondaryButton(hero, "Check setup · no connection changes",
                 this::checkRootHomeSetup);
 
