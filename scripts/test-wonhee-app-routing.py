@@ -93,6 +93,17 @@ require('activationAllowed() { return false; }' in netfilter_help,
 require('RootNetfilterHelpCapabilitiesTest.java' in
         (root / ".github/workflows/build.yml").read_text(),
         "Pixel 8a legacy netfilter help tests must run in CI")
+kernel_inventory = (java / "RootNetfilterKernelInventory.java").read_text()
+require('activationAllowed() { return false; }' in kernel_inventory
+        and 'connmark_mangle_OUTPUT' in kernel_inventory
+        and 'RootNetfilterKernelInventoryTest.java' in
+        (root / ".github/workflows/build.yml").read_text(),
+        "Registered kernel modules and foreign OUTPUT chains cannot activate routing")
+for dangerous in ('new RootShell(', 'shell.run(', 'ProcessBuilder(',
+                  'Runtime.getRuntime().exec(', 'iptables -t mangle -A',
+                  'iptables -t mangle -F'):
+    require(dangerous not in kernel_inventory,
+            "Kernel inventory must remain pure/read-only: " + dangerous)
 for dangerous in ('new RootShell(', 'shell.run(', 'startManagedStack(',
                   'enableRootDns(', 'Runtime.getRuntime().exec(', 'ProcessBuilder('):
     require(dangerous not in kernel_plan,
