@@ -121,6 +121,34 @@ Android `netd`'s reserved fwmark bits.
   safe enforcement mechanism is still required. No all-traffic kill switch
   activation is authorized.
 
+## Pixel 8a registered modules + live mangle/OUTPUT inventory (2026-11-19)
+
+Read-only ADB output from the current Android 16 Pixel 8a:
+
+- Both `/proc/net/ip_tables_matches` and
+  `/proc/net/ip6_tables_matches` list `owner`, `tcp`, `udp`,
+  `mark`, `connmark`, `bpf` and `multiport`.
+- Both `/proc/net/ip_tables_targets` and
+  `/proc/net/ip6_tables_targets` list `MARK` and `CONNMARK`
+  (alongside other existing targets). This is **registration evidence**,
+  not a proof of packet-level routing or safe mark ownership.
+- For both families, `iptables -t mangle -S OUTPUT` reported exactly
+  `-P OUTPUT ACCEPT` and
+  `-A OUTPUT -j connmark_mangle_OUTPUT`. This is a **pre-existing**
+  jump; assume it is externally controlled and do **not** flush, replace,
+  append to, or take ownership of the `connmark_mangle_OUTPUT` chain.
+  Its internal contents and creation owner have not yet been inspected.
+- Added pure `RootNetfilterKernelInventory` with a rootless regression
+  test for registered extension names, missing IPv6 targets, unknown
+  OUTPUT rules, and pre-existing chain preservation. This does not apply
+  firewall rules and cannot authorize activation.
+- **Next required read-only check**: inspect the exact v4/v6
+  `connmark_mangle_OUTPUT` chains and mark-related mangle rules, plus
+  Android's existing RPDB fwmark masks. Determine which fields are
+  Android-reserved, and how mangle/OUTPUT might influence routing of
+  locally generated TCP/UDP traffic without breaking WireGuard
+  endpoint sockets. Do not select a Wonhee mark mask yet.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
