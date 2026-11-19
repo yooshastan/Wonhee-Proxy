@@ -495,6 +495,51 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 .show();
     }
 
+    /**
+     * Make the actual current single-default limitation visible on Home.
+     * Choosing a primary changes only the saved UI preference, never a
+     * kernel route, imported profile or running VPN. More than one Internet
+     * exit requires the separate, not-yet-activated multi-exit backend.
+     */
+    private void chooseRootPrimaryExit() {
+        if (rootHomeBusy || session == null || session.isBusy()) {
+            showHomeNotice("Finish the current connection operation first.");
+            return;
+        }
+        final RootTunnelStartSelection.Review plan;
+        try {
+            plan = RootMultiKernelSession.reviewMultiStartSelection(
+                    selectedHomeProfiles(), preferredHomePrimary());
+        } catch (Exception | LinkageError failure) {
+            showSelectionNeedsAdjustment("The selected tunnel routes could not be read. "
+                    + "No connection was changed.");
+            return;
+        }
+        if (plan.primaryChoices.size() < 2) {
+            showHomeNotice("Select at least two full Internet exits to choose a primary. "
+                    + "A Home-only destination tunnel does not need this setting.");
+            return;
+        }
+        final String[] options = plan.primaryChoices.toArray(new String[0]);
+        int checked = java.util.Arrays.asList(options).indexOf(preferredHomePrimary());
+        new AlertDialog.Builder(this)
+                .setTitle("Which VPN carries normal Internet traffic?")
+                .setSingleChoiceItems(options, checked, (dialog, which) -> {
+                    getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                            .putString(HOME_PRIMARY_KEY, options[which]).apply();
+                    dialog.dismiss();
+                    if (rootSelectionMessage != null && tab == 0) {
+                        rootSelectionMessage.setText(homeSelectionSummary());
+                    }
+                })
+                .setMessage("This changes the planned primary only. Other selected "
+                        + "Internet exits remain NOT CONNECTED until verified "
+                        + "per-app multi-exit routing is available. Destination "
+                        + "tunnels can connect alongside the primary.")
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     /** Selection belongs on Home rather than in the advanced connection laboratory. */
     private void showQuickTunnelPicker(LinearLayout parent, boolean includeStatus) {
         if (profileStoreError) {
@@ -562,6 +607,20 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
         showQuickTunnelPicker(hero, false);
         rootSelectionMessage = text(hero, homeSelectionSummary(), 12, MUTED);
+        try {
+            RootTunnelStartSelection.Review plan =
+                    RootMultiKernelSession.reviewMultiStartSelection(
+                            selectedHomeProfiles(), preferredHomePrimary());
+            if (plan.primaryChoices.size() > 1) {
+                secondaryButton(hero, "Choose primary Internet tunnel",
+                        this::chooseRootPrimaryExit);
+                text(hero, "Only the chosen Internet exit will connect in this "
+                        + "build; other Internet exits stay parked.", 12, MUTED);
+            }
+        } catch (Exception | LinkageError unreadable) {
+            // The setup preflight will explain invalid profile routes without
+            // modifying the user's saved network configurations.
+        }
         secondaryButton(hero, "Check setup · no connection changes",
                 this::checkRootHomeSetup);
 
