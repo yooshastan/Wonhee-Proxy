@@ -44,12 +44,17 @@ final class RootIsolatedWireGuardKernelListing {
         }
         String wanted = "0.0.0.0/0".equals(cidr) || "::/0".equals(cidr)
                 ? "default" : cidr;
+        // iproute2 prints an exact /32 or /128 host without the suffix.
+        // Only host routes qualify; never strip an arbitrary network prefix.
+        String bareHost = (family == 4 && cidr.endsWith("/32"))
+                || (family == 6 && cidr.endsWith("/128"))
+                ? cidr.substring(0, cidr.lastIndexOf('/')) : "";
         boolean present = false;
         for (String raw : output.split("\\r?\\n")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
             String[] t = line.split("\\s+");
-            if (!wanted.equals(t[0])) continue;
+            if (!wanted.equals(t[0]) && !bareHost.equals(t[0])) continue;
             String actualDev = tokenAfter(t, "dev");
             if (!device.equals(actualDev) || hasAny(t,
                     "via", "nhid", "nexthop", "unreachable", "blackhole",
