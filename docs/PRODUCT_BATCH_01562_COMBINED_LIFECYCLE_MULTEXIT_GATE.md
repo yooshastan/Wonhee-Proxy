@@ -82,6 +82,45 @@ User-supplied **read-only device evidence** for kernel
   without leaking onto another VPN or the physical network.
   Neither alternate backend is implemented or activated by this PR.
 
+## Pixel 8a netfilter CLI inspection (2026-11-19)
+
+The user ran **read-only** `iptables` and `ip6tables` help commands.
+Both commands identify as **v1.8.11 (legacy)** and print:
+
+- `-m owner` help: `--uid-owner userid[-userid]`
+- TCP/UDP module help: `--dport`
+- `MARK` target help: `--set-xmark value[/mask]` and `--set-mark value[/mask]`
+
+The generic `--ipv4`/`--ipv6` `Error (line is ignored by
+iptables-restore)` lines appear in help output and are **not runtime rule
+installation errors**. This establishes advertised userspace syntax only.
+It does **not** prove that the device's legacy kernel modules can install,
+match or mark packets; does not prove marking `mangle/OUTPUT` reroutes
+already-selected local sockets; and does not establish safe coordination with
+Android `netd`'s reserved fwmark bits.
+
+- Added pure `RootNetfilterHelpCapabilities` and a Java test based on the
+  observed v4/v6 help text, including missing-module, backend mismatch
+  and token-spoof refusal tests. `activationAllowed()` remains `false`.
+- Proposed architecture to evaluate, **not install**: per-UID TCP/UDP
+  destination-port classification in a *Wonhee-owned* local-output chain,
+  with explicit exact-port precedence, a carefully validated packet mark
+  that does not alter Android's network-id/protect bits, and per-mark
+  lookup of an independently owned WireGuard routing table.
+- Before live proof, inventory installed mangle/filter chains, module
+  availability, current marks and policy rules, physical underlay and the
+  presence of any legacy owner chains; perform ownership collision checks.
+  Never flush, rename or rewrite Android's existing chains.
+- All marked traffic must be isolated in BOTH address families.
+  WireGuard transport packets, system resolver traffic, protected sockets,
+  loopback and kernel/system UID traffic require explicit handling; an
+  app's UID is not necessarily the UID used for every associated request.
+- A **failed selected exit must not silently fall back** to another
+  VPN or Wi-Fi/cellular. The current `ip rule` help also omits
+  `unreachable`; a verified per-table terminal block or another equally
+  safe enforcement mechanism is still required. No all-traffic kill switch
+  activation is authorized.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
