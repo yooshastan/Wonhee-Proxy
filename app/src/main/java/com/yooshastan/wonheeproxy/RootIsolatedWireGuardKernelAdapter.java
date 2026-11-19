@@ -44,6 +44,7 @@ final class RootIsolatedWireGuardKernelAdapter
     private final Map<String, Config> selected;
     private final SafetyGate safetyGate;
     private final Set<String> createdThisProcess = new HashSet<>();
+    private final Map<String, String> createdIfindices = new HashMap<>();
     private boolean preflightApproved;
 
     RootIsolatedWireGuardKernelAdapter(Context context, RootShell shell,
@@ -110,7 +111,7 @@ final class RootIsolatedWireGuardKernelAdapter
             if (link == RootIsolatedWireGuardKernelListing.Match.ABSENT) {
                 return RootIsolatedWireGuardTransaction.Presence.ABSENT;
             }
-            if (createdThisProcess.contains(step.device) || publicKeyMatches(step.device)) {
+            if (sameNewKernelLink(step.device) || publicKeyMatches(step.device)) {
                 return RootIsolatedWireGuardTransaction.Presence.EXACT_OWNED;
             }
             return RootIsolatedWireGuardTransaction.Presence.FOREIGN_OR_CHANGED;
@@ -120,7 +121,7 @@ final class RootIsolatedWireGuardKernelAdapter
                 return RootIsolatedWireGuardTransaction.Presence.ABSENT;
             }
             List<String> peers = read("wg show " + step.device + " peers");
-            if (peers.isEmpty() && (createdThisProcess.contains(step.device)
+            if (peers.isEmpty() && (sameNewKernelLink(step.device)
                     || publicKeyMatches(step.device))) {
                 return RootIsolatedWireGuardTransaction.Presence.ABSENT;
             }
@@ -134,7 +135,7 @@ final class RootIsolatedWireGuardKernelAdapter
         if (link == RootIsolatedWireGuardKernelListing.Match.ABSENT) {
             return RootIsolatedWireGuardTransaction.Presence.ABSENT;
         }
-        if (!createdThisProcess.contains(step.device) && !publicKeyMatches(step.device)) {
+        if (!sameNewKernelLink(step.device) && !publicKeyMatches(step.device)) {
             return RootIsolatedWireGuardTransaction.Presence.FOREIGN_OR_CHANGED;
         }
         RootIsolatedWireGuardKernelListing.Match match;
@@ -168,7 +169,7 @@ final class RootIsolatedWireGuardKernelAdapter
 
     @Override public void apply(RootIsolatedWireGuardBootstrapPlan.Step step)
             throws Exception {
-        if (!preflightApproved || step == null
+        if (!preflightApproved || !RootIsolatedWireGuardTransaction.safeStep(step)
                 || !selected.containsKey(step.device)) {
             throw new IllegalStateException("Isolated startup is not authorized.");
         }
@@ -179,6 +180,11 @@ final class RootIsolatedWireGuardKernelAdapter
             // Only command shapes validated by the transaction are reachable.
             requireSuccess(step.install);
             if ("LINK_CREATE".equals(step.kind)) {
+                // Bind the in-process pre-key create to a kernel ifindex.
+                // A competing process cannot replace this named interface
+                // and have us accidentally delete it by name alone.
+                String ifindex = exactIfindex(step.device);
+                createdIfindices.put(step.device, ifindex);
                 createdThisProcess.add(step.device);
             }
         }
@@ -186,7 +192,8 @@ final class RootIsolatedWireGuardKernelAdapter
 
     @Override public void undo(RootIsolatedWireGuardBootstrapPlan.Step step)
             throws Exception {
-        if (step == null || !selected.containsKey(step.device)
+        if (!RootIsolatedWireGuardTransaction.safeStep(step)
+                || !selected.containsKey(step.device)
                 || inspect(step) != RootIsolatedWireGuardTransaction.Presence.EXACT_OWNED) {
             throw new IllegalStateException("No exact isolated kernel ownership.");
         }
@@ -202,7 +209,25 @@ final class RootIsolatedWireGuardKernelAdapter
             requireSuccess(step.inverse);
             if ("LINK_CREATE".equals(step.kind)) {
                 createdThisProcess.remove(step.device);
+                createdIfindices.remove(step.device);
             }
+        }
+    }
+
+    private String exactIfindex(String device) throws Exception {
+        List<String> values = read("cat /sys/class/net/" + device + "/ifindex");
+        if (values.size() != 1 || !values.get(0).trim().matches("[0-9]{1,10}")) {
+            throw new IllegalStateException("WireGuard kernel ifindex unreadable.");
+        }
+        return values.get(0).trim();
+    }
+
+    private boolean sameNewKernelLink(String device) {
+        if (!createdThisProcess.contains(device)) return false;
+        try {
+            return createdIfindices.get(device).equals(exactIfindex(device));
+        } catch (Exception | NullPointerException changed) {
+            return false;
         }
     }
 
