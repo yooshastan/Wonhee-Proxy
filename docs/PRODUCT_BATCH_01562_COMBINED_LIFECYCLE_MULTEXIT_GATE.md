@@ -219,6 +219,40 @@ are demonstrably preserved. Android Private DNS stays OFF.
   The pilot and its fail-closed implementation are not complete until
   tested and explicitly reported as such.
 
+## Offline isolated WireGuard startup sequence (2026-11-19)
+
+New `RootIsolatedWireGuardBootstrapPlan` compiles a non-executing
+**two-full-exit + Home** kernel link setup blueprint that intentionally
+does **not** use `wg-quick` or change the Android main-table default route:
+
+1. Require independent tunnel identities, exact peer CIDRs and a dedicated
+   `51000+` table for every selected profile.
+2. Propose `ip link add dev wnm... type wireguard` for each tunnel, then an
+   explicit **secure peer-configuration handoff** (no keys/URLs in command
+   strings, logs or static previews).
+3. Require host-format interface addresses (/32 or /128) for this pilot;
+   non-host local addresses may create unexpected connected main-table routes.
+   Use per-interface address steps and then raise the interface.
+4. Propose every WireGuard peer AllowedIPs destination **only in the
+   profile's private table**. Both European and American default routes are
+   allowed in *different* tables; Home remains private-destination only.
+5. Reverse-order rollback preview removes private routes first and the owned
+   link last. Profile identity and ownership journaling MUST be verified
+   before a real executor deletes anything.
+6. The App Routing read-only review displays whether this bootstrap plan is
+   structurally viable; failure does not edit imported VPN configurations.
+
+The Java tests validate that command plans never use `wg-quick`, contain
+no main/default table injection, never expose private WireGuard material,
+refuse /24 or /64 local addresses in this pilot, refuse mismatched table
+ownership, and reverse exact cleanup ordering.
+
+**NOT DONE:** no actual kernel interface/peer executor, protected UDP
+endpoint sockets, netd collaboration, IPv4/IPv6 DNS ownership, no-fallback
+per-app routing, rollback journal, or live 3-tunnel test. The current
+`RootMultiKernelSession.connect` is unchanged. This is NOT the 0.15.62
+shipping milestone.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
