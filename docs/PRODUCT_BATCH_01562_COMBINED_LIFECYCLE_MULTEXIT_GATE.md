@@ -292,6 +292,53 @@ ownership; the eventual adapter must implement exact readback of every
 installed object and safely handle credential changes. This is a new
 recovery/control layer, NOT proof of connected Europe+America+Home.
 
+## Implemented toward an APK candidate — protected root adapter (2026-11-19)
+
+- Added `RootIsolatedWireGuardConfigHandoff`. It stages a canonical
+  WireGuard configuration in a 0600 app-private file, uses
+  **`wg-quick strip` only** to remove helper-only DNS/Address/Table fields,
+  and applies peer configuration through **`wg setconf`**.
+  It never calls `wg-quick up/down` or puts private keys in shell arguments.
+  It deletes the staging file immediately after the operation and verifies
+  the live interface and peer public keys. A crashed helper may leave an
+  app-private staging file; that must be audited, not blindly overwritten.
+- Added `RootIsolatedWireGuardKernelAdapter`, an injectable Android
+  root adapter for the journal-first transaction. It implements LINK_CREATE,
+  PEER_CONFIG, HOST_ADDRESS, LINK_UP and PRIVATE_ROUTE with exact command
+  shapes, kernel readback, and read-before-delete ownership. Before a key
+  exists, in-process link ownership is additionally bound to a kernel
+  **ifindex** to reject name reuse. After process restart, it requires a
+  matching WireGuard public identity; uncertain pre-key orphan links
+  are retained for manual recovery.
+- Added `RootIsolatedWireGuardKernelListing` and CI tests covering
+  exact IPv4/IPv6 host addresses, Linux bare /32-/128 route aliases,
+  duplicate and foreign routes, link types, and changed interface names.
+- The legacy Safe Stop and update-readiness checks now **refuse** an
+  isolated ownership ledger that is nonempty, missing expected values or
+  unreadable. `scripts/install-wonhee-safe-update.sh` checks the
+  app-private XML journal and both families' 51000–51007 private-table
+  routes. New mock installer tests refuse corrupt/pending ownership.
+  No existing Android netd firewall or route is modified by these checks.
+- Added `RootIsolatedUidOnlyPolicyPlan` as a non-executing **first
+  routing phase**: only Android-advertised `uidrange`+`fwmark`
+  selectors, with separate high-metric `unreachable default` candidates
+  in each private table, before installing UID rules. This avoids
+  unsupported `ip rule ipproto/dport` and new arbitrary packet marks.
+  The proposed Android `ip route add unreachable` syntax and real
+  fail-closed packet path still require on-device verification. Any
+  configured transport/port override makes this pilot inapplicable.
+- App Routing's read-only review shows this narrower UID-only pilot
+  separately from the advanced protocol/port plan. All activation gates
+  remain **OFF**.
+
+**Release blocker, not a formality:** the real safety gate proving
+WireGuard UDP endpoint underlay, DNS ownership, full IPv4/IPv6 route
+blocking during tunnel loss, and netd coexistence is **not implemented**.
+No production code constructs the new KernelAdapter or invokes the
+journal transaction in Start/Stop. Do NOT promote an Android CI build
+to the signed release or advertise real three-exit routing until the
+active path passes physical-device packet capture and Safe Stop tests.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
