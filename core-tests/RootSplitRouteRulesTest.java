@@ -65,6 +65,14 @@ public final class RootSplitRouteRulesTest {
                 "Different fwmark selector must still refuse");
         check(!host.matchesListing(liveHost.replace(home.device, internet.device)),
                 "Different tunnel must still refuse");
+        check(!host.matchesListing(liveHost.replace("lookup " + home.device,
+                "lookup " + home.device + "garbage")),
+                "A foreign table cannot match by string prefix");
+        check(!host.matchesListing(liveHost.replace("iif lo", "iif localhost")),
+                "A different interface must not match by substring");
+        check(!host.matchesListing(liveHost.replace("uidrange 0-99999",
+                "uidrange 0-999990")),
+                "A broader UID range must not match by substring");
         check(!host.matchesListing(liveHost.replace("uidrange 0-99999",
                 "uidrange 10000-99999")), "Different UID selector must refuse");
         check(!host.matchesListing(liveHost.replace("12500:", "12501:")),
