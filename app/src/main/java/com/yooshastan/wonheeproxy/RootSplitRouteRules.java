@@ -368,9 +368,20 @@ final class RootSplitRouteRules {
         return "";
     }
 
-    /** A kernel may canonicalize a host-form CIDR to its network address. */
+    /**
+     * ip rule prints a single-host destination without /32 (IPv4) or /128
+     * (IPv6) on some Android kernels. Accept that presentation *only* when
+     * the saved ownership record is an exact host route. Never promote a
+     * prefixless destination to a broader owned network.
+     */
     private static boolean sameCidr(String expected, String shown) {
         try {
+            if (expected == null || shown == null) return false;
+            if (shown.indexOf('/') < 0) {
+                int hostPrefix = expected.indexOf(':') >= 0 ? 128 : 32;
+                if (prefix(expected) != hostPrefix) return false;
+                shown = shown + "/" + hostPrefix;
+            }
             if (prefix(expected) != prefix(shown)) return false;
             String left = expected.substring(0, expected.indexOf('/'));
             String right = shown.substring(0, shown.indexOf('/'));
