@@ -67,6 +67,31 @@ audit_clean() {
     if grep -Eq '(^|[[:space:]])12[567][0-9]{2}:' <<< "$rules4"$'\n'"$rules6"; then
         fail "Reserved Wonhee routing rule priority remains (12500-12799)."
     fi
+    # Do not confuse an absent kernel link with an empty isolated startup
+    # journal. A crash can leave identity-verified ownership pending even
+    # when no wnm interface is currently visible.
+    local ledger_file ledger_probe
+    ledger_file="/data/user/0/$pkg/shared_prefs/wonhee_isolated_bootstrap_ownership_v1.xml"
+    ledger_probe="$(root_read "if [ -f $ledger_file ]; then echo exists; else echo absent; fi")" ||
+        fail "Cannot check isolated bootstrap ownership journal."
+    if [[ "$ledger_probe" == exists ]]; then
+        root_read "cat $ledger_file" > "$tmp/isolated_ownership.xml" ||
+            fail "Cannot inspect isolated bootstrap ownership journal."
+        python3 "$(dirname "$0")/check-wonhee-isolated-ledger.py"             "$tmp/isolated_ownership.xml" ||
+            fail "Isolated multi-exit ownership is pending or unknown."
+    elif [[ "$ledger_probe" != absent ]]; then
+        fail "Cannot verify isolated bootstrap ownership journal state."
+    fi
+    # A private route can survive link failure without a visible policy
+    # priority 12500-12799. Never overwrite another owner's route table.
+    for net_family in 4 6; do
+        local all_routes
+        all_routes="$(root_read "ip -$net_family route show table all")" ||
+            fail "Cannot inspect IPv$net_family private routing tables."
+        if grep -Eq '(^|[[:space:]])table[[:space:]]+5100[0-7]([[:space:]]|$)'                 <<< "$all_routes"; then
+            fail "Private multi-exit routing table 51000-51007 is not empty."
+        fi
+    done
     fw4="$(root_read 'iptables-save')" || fail "Cannot inventory IPv4 firewall."
     fw6="$(root_read 'ip6tables-save')" || fail "Cannot inventory IPv6 firewall."
     if grep -Eqi 'WN_|WN-MULTI' <<< "$fw4"$'\n'"$fw6"; then
