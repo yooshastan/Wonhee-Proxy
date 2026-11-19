@@ -35,7 +35,7 @@ jobs:
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
       - name: Verify permanent release-signing setup script syntax
-        run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh
+        run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh scripts/wonhee-01562-device-preflight.sh
       - name: Prove safe installer refuses unsafe live/root states
         run: |
           bash -n scripts/test-wonhee-safe-update.sh
