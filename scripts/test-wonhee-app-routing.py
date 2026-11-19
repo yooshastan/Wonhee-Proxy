@@ -81,6 +81,16 @@ require('previewAppUidRoutes' in uid_readiness
         and 'getPackagesForUid' in uid_readiness
         and 'getPackageUid' in uid_readiness,
         "Readiness must use actual installed UID ownership")
+kernel_plan = (java / "RootMultiExitKernelPlan.java").read_text()
+require('RootMultiExitKernelPlan.compile(plan)' in uid_readiness,
+        "On-device draft readiness must check the proposed independent tables")
+require('activationAllowed() { return false; }' in kernel_plan
+        and 'private RootMultiExitKernelPlan()' in kernel_plan,
+        "Multi-exit compiler must remain non-activating")
+for dangerous in ('new RootShell(', 'shell.run(', 'startManagedStack(',
+                  'enableRootDns(', 'Runtime.getRuntime().exec(', 'ProcessBuilder('):
+    require(dangerous not in kernel_plan,
+            "Multi-exit model must never execute planned commands: " + dangerous)
 for source in (protocol_ui, protocol_model, uid_plan, uid_readiness):
     for dangerous in ('new RootShell(', 'shell.run(', 'iptables -w',
                       'ip rule add', 'ip rule del', 'enableRootDns(',
