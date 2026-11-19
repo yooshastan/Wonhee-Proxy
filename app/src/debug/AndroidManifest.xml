@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- RootLab-only separate launcher icon. The official release
+             does not include this activity or any new root capability. -->
+        <activity
+            android:name=".RootlabReadinessActivity"
+            android:exported="true"
+            android:label="Wonhee Multi-Exit Readiness">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
