@@ -70,9 +70,9 @@ final class RootSplitRouteRules {
             return line != null && parsePriority(line) == priority
                     && sameCidr(destination, wordAfter(line, "to"))
                     && mark.equals(wordAfter(line, "fwmark"))
-                    && line.contains("iif lo")
-                    && line.contains("uidrange " + UIDS)
-                    && line.contains("lookup " + device);
+                    && "lo".equals(wordAfter(line, "iif"))
+                    && UIDS.equals(wordAfter(line, "uidrange"))
+                    && device.equals(wordAfter(line, "lookup"));
         }
     }
 
