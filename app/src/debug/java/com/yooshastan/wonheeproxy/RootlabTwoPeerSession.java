@@ -424,6 +424,94 @@ final class RootlabTwoPeerSession {
                         + "Copy diagnostics and investigate exact ownership.");
     }
 
+    /**
+     * Read-only first gate for future Moka -> Home TCP/4533 routing.
+     * This method MUST NOT add UID rules, firewall chains, DNS, or sockets.
+     * A successful inventory is NOT permission to steer application packets.
+     */
+    String previewMokaHomeRouting() throws Exception {
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3) {
+            return "MOKA HOME ROUTING READINESS: REFUSED — import a Home profile first. "
+                    + "No app traffic was routed.";
+        }
+        RootMultiTunnelPlan.Entry home = pair.entries.get(2);
+        if (!HOME.equals(home.name)
+                || !RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                        home.peerRoutes, "10.0.0.169")) {
+            return "MOKA HOME ROUTING READINESS: REFUSED — selected Home profile "
+                    + "does not allow the numeric Navidrome destination.";
+        }
+        RootIsolatedWireGuardPreferencesJournal journal =
+                new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
+        if (journal.snapshot().size() != pair.plan.steps.size()
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
+            return "MOKA HOME ROUTING READINESS: REFUSED — complete journaled "
+                    + "three-link Start required; UID ownership must be empty.";
+        }
+        RootShell shell = new RootShell(app);
+        shell.start();
+        new ToolsInstaller(app, shell).ensureToolsAvailable();
+        String device = home.device;
+        String expectedKey = pair.configurations.get(device).getInterface()
+                .getKeyPair().getPublicKey().toBase64();
+        List<String> actualKey = readSafe(shell, "wg show " + device + " public-key");
+        if (actualKey.size() != 1 || !expectedKey.equals(actualKey.get(0).trim())) {
+            return "MOKA HOME ROUTING READINESS: REFUSED — Home kernel identity changed.";
+        }
+        String routes = String.join("\n",
+                readSafe(shell, "ip -4 route show table 51002"));
+        for (String network : home.peerRoutes) {
+            if (network.contains(":")) continue;
+            if (RootIsolatedWireGuardKernelListing.privateRoute(
+                    routes, 4, network, device)
+                    != RootIsolatedWireGuardKernelListing.Match.EXACT) {
+                return "MOKA HOME ROUTING READINESS: REFUSED — Home route drift.";
+            }
+        }
+        List<String> lookup = readSafe(shell,
+                "ip -4 route get 10.0.0.169 oif " + device);
+        if (lookup.size() != 1 || !lookup.get(0).contains("dev " + device)) {
+            return "MOKA HOME ROUTING READINESS: REFUSED — Home route lookup mismatch.";
+        }
+
+        // Discover the installed Moka UID rather than assuming the prior
+        // phone's UID. Never export the full installed-package inventory.
+        int mokaCount = 0;
+        String mokaUid = "";
+        for (String line : readSafe(shell, "pm list packages -U")) {
+            String lower = line.toLowerCase(java.util.Locale.ROOT);
+            if (!lower.startsWith("package:") || !lower.contains("moka")) continue;
+            int marker = line.lastIndexOf(" uid:");
+            if (marker < 0) continue;
+            String parsed = line.substring(marker + 5).trim();
+            if (!parsed.matches("[0-9]{4,7}")) continue;
+            mokaCount++;
+            mokaUid = parsed;
+        }
+        if (mokaCount != 1) {
+            return "MOKA HOME ROUTING READINESS: REFUSED — "
+                    + (mokaCount == 0 ? "Moka package/UID not visible"
+                            : "ambiguous Moka package matches")
+                    + ". No UID policy or network changes.";
+        }
+
+        // A route lookup alone cannot prove no-fallback under link loss,
+        // IPv6 coverage, or Android fwmark ownership. Those protections
+        // must have a dedicated exact-owned policy transaction before Start.
+        record("Moka Home UID inventory verified; PREVIEW_ONLY; no UID policy");
+        return "MOKA -> HOME READ-ONLY PREFLIGHT\n"
+                + "Installed Moka candidate: unique; UID " + mokaUid + "\n"
+                + "Home profile, identity, exact-owned journal: VERIFIED\n"
+                + "Home private table 51002 and route to 10.0.0.169: VERIFIED\n"
+                + "Planned destination: TCP 10.0.0.169:4533 only\n"
+                + "ACTIVATION LOCKED: no exact-owned UID policy, dual-stack "
+                + "fail-closed firewall, underlay protection or crash recovery "
+                + "proof in this lab.\n"
+                + "No Android application packets were routed or blocked. "
+                + "No DNS, IPv4/IPv6 rules, firewall, or VPN configuration changed.";
+    }
+
     String status() throws Exception {
         Pair pair = loadPair();
         RootShell shell = new RootShell(app);
