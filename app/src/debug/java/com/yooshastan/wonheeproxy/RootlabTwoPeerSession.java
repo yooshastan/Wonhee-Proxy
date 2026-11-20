@@ -173,6 +173,20 @@ final class RootlabTwoPeerSession {
     }
 
     String start() throws Exception {
+        record("Two-peer Start requested");
+        try {
+            return startImpl();
+        } catch (Exception failed) {
+            // Never persist RootShell/parser exception messages: they could
+            // accidentally include a profile line or endpoint IP.
+            record("Two-peer Start exception class="
+                    + failed.getClass().getSimpleName()
+                    + "; check whether exact-owned journal remains");
+            throw failed;
+        }
+    }
+
+    private String startImpl() throws Exception {
         Pair pair = loadPair();
         RootIsolatedWireGuardPreferencesJournal journal =
                 new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
@@ -200,6 +214,18 @@ final class RootlabTwoPeerSession {
     }
 
     String stop() throws Exception {
+        record("Two-peer Safe Stop requested");
+        try {
+            return stopImpl();
+        } catch (Exception failed) {
+            record("Two-peer Safe Stop exception class="
+                    + failed.getClass().getSimpleName()
+                    + "; journal must not be discarded");
+            throw failed;
+        }
+    }
+
+    private String stopImpl() throws Exception {
         Pair pair = loadPair();
         RootIsolatedWireGuardPreferencesJournal journal =
                 new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
@@ -250,7 +276,8 @@ final class RootlabTwoPeerSession {
         out.append("Two recent distinct peer handshakes: ")
                 .append(RootIsolatedTwoPeerHandshakeAudit.twoRecentDistinct(
                         peers.get(0), peers.get(1)) ? "YES" : "NOT YET")
-                .append("\nNo Android UID rules, firewall, DNS, or default routes installed.");
+                .append("\nNo app UID, firewall or DNS changes. "
+                        + "Default peer routes are restricted to private tables.");
         return out.toString();
     }
 
