@@ -652,10 +652,11 @@ final class RootlabTwoPeerSession {
             return "TCP PROBE REFUSED: kernel tunnel identity mismatch.";
         }
         int table = homeProbe ? 51002 : FIRST.equals(slot) ? 51000 : 51001;
-        String listing = String.join("\\n", readSafe(shell,
+        String listing = String.join("\n", readSafe(shell,
                 "ip -4 route show table " + table));
         boolean matched = false;
         for (String network : selected.peerRoutes) {
+            if (network.indexOf(':') >= 0) continue; // IPv4 only in this probe.
             if (RootIsolatedWireGuardKernelListing.privateRoute(
                     listing, 4, network, dev)
                     != RootIsolatedWireGuardKernelListing.Match.EXACT) {
@@ -668,7 +669,7 @@ final class RootlabTwoPeerSession {
         if (shell.run(lookup, "ip -4 route get " + address.address
                 + " oif " + dev) != 0
                 || !String.join(" ", lookup).matches(
-                        "(?s).*\\\\bdev " + dev + "\\\\b.*")) {
+                        "(?s).*\\bdev " + dev + "\\b.*")) {
             return "TCP PROBE REFUSED: selected output interface not confirmed.";
         }
         // Only root's curl --interface can make this bounded probe; do NOT
@@ -705,7 +706,7 @@ final class RootlabTwoPeerSession {
                 + (code == 0 && httpValid ? "HTTP_RESPONSE" : "NO_HTTP_PROOF"));
         return slot + ": " + outcome + ". No Android app UID, DNS or "
                 + "firewall changes. This does not prove per-app routing, "
-                + "dual-stack no-fallback or kill-switch safety.\\n" + status();
+                + "dual-stack no-fallback or kill-switch safety.\n" + status();
     }
 
     private static List<String> readSafe(RootShell shell, String command)
