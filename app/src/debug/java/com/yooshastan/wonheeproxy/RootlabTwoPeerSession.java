@@ -150,6 +150,18 @@ final class RootlabTwoPeerSession {
             if (parsed.getPeers().size() != 1) {
                 throw new IllegalArgumentException("Each exit requires exactly one peer.");
             }
+            // Verify exact canonical WireGuard-to-setconf compatibility
+            // before root preflight. This read-only check would have
+            // identified upstream PreSharedKey casing in the previous APK.
+            // Never include the secret-bearing exception message or string
+            // in diagnostics.
+            try {
+                RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(
+                        parsed.toWgQuickString());
+            } catch (IllegalArgumentException unsupported) {
+                throw new ProfileRejected(
+                        RootTwoPeerProfileReadiness.Reason.PEER_SETCONF_FORMAT_UNSUPPORTED);
+            }
             // A provider can legitimately publish one server peer key for
             // multiple regional endpoints. Compare ENDPOINT strings and the
             // local client public identity, not the server's public key.
@@ -382,9 +394,17 @@ final class RootlabTwoPeerSession {
         Pair pair = loadPair();
         RootIsolatedWireGuardPreferencesJournal journal =
                 new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
-        if (journal.snapshot().size() != pair.plan.steps.size()) {
-            throw new IllegalStateException(
-                    "Both links must be fully journaled before bound traffic probes.");
+        int activeSteps = journal.snapshot().size();
+        if (activeSteps != pair.plan.steps.size()) {
+            // An unconnected RootLab must never issue a bound network probe.
+            // Expose the actionable prerequisite instead of a generic
+            // IllegalStateException that sounds like a root malfunction.
+            record("Bound probes skipped: incomplete tunnel journal stages="
+                    + activeSteps + "/" + pair.plan.steps.size());
+            return "PROBE SKIPPED: two peer links are not active (journal "
+                    + activeSteps + "/" + pair.plan.steps.size() + "). "
+                    + "A successful two-peer Start is required first. "
+                    + "No probe packets were sent.";
         }
         RootShell shell = new RootShell(app);
         shell.start();
