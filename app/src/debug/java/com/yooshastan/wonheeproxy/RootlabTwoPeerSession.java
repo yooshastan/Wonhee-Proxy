@@ -595,6 +595,119 @@ final class RootlabTwoPeerSession {
                 + "or home-tunnel no-fallback protection.\n" + status();
     }
 
+    /**
+     * Optional numeric-only HTTP(S) diagnostic, explicitly bound by curl to
+     * the verified WireGuard device. Does not install Android UID selectors.
+     * Curl is NOT universally available on Android; in that case refuse
+     * rather than attempt an unbound socket through ordinary networking.
+     */
+    String probeTcp(String slot, String target) throws Exception {
+        final boolean homeProbe = HOME.equals(slot);
+        if (!FIRST.equals(slot) && !SECOND.equals(slot) && !homeProbe) {
+            return "TCP PROBE REFUSED: unknown tunnel slot. No packets sent.";
+        }
+        RootTcpProbeTarget address;
+        try {
+            address = RootTcpProbeTarget.parse(target);
+        } catch (IllegalArgumentException invalid) {
+            return "TCP PROBE REFUSED: numeric IPv4:port required. No packets sent.";
+        }
+        // The isolated three-link lab currently has only IPv4 private-table
+        // probe verification. Do not invent an IPv6 safe route.
+        if (address.family != 4) {
+            return "TCP PROBE REFUSED: IPv6 bound path not verified.";
+        }
+        Pair pair = loadPair();
+        RootMultiTunnelPlan.Entry selected = null;
+        for (RootMultiTunnelPlan.Entry candidate : pair.entries) {
+            if (slot.equals(candidate.name)) selected = candidate;
+        }
+        if (selected == null || (homeProbe && pair.entries.size() != 3)) {
+            return "TCP PROBE SKIPPED: selected WireGuard link not imported.";
+        }
+        if (homeProbe && (address.port != 4533
+                || !RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                        selected.peerRoutes, address.address))) {
+            return "HOME TCP PROBE REFUSED: requires Home AllowedIPs and port 4533.";
+        }
+        // Keep the public exit diagnostic tightly scoped. Numeric IP avoids
+        // Android/system DNS, and port 443 tests TCP+TLS/HTTP, not just ICMP.
+        if (!homeProbe && (!"1.1.1.1".equals(address.address)
+                || address.port != 443)) {
+            return "EXIT TCP PROBE REFUSED: only numeric 1.1.1.1:443 allowed.";
+        }
+        RootIsolatedWireGuardPreferencesJournal journal =
+                new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
+        if (journal.snapshot().size() != pair.plan.steps.size()) {
+            return "TCP PROBE SKIPPED: complete exact-owned Start required. No packets sent.";
+        }
+        RootShell shell = new RootShell(app);
+        shell.start();
+        new ToolsInstaller(app, shell).ensureToolsAvailable();
+        String dev = selected.device;
+        String wanted = pair.configurations.get(dev).getInterface()
+                .getKeyPair().getPublicKey().toBase64();
+        List<String> identity = readSafe(shell, "wg show " + dev + " public-key");
+        if (identity.size() != 1 || !wanted.equals(identity.get(0).trim())) {
+            return "TCP PROBE REFUSED: kernel tunnel identity mismatch.";
+        }
+        int table = homeProbe ? 51002 : FIRST.equals(slot) ? 51000 : 51001;
+        String listing = String.join("\\n", readSafe(shell,
+                "ip -4 route show table " + table));
+        boolean matched = false;
+        for (String network : selected.peerRoutes) {
+            if (RootIsolatedWireGuardKernelListing.privateRoute(
+                    listing, 4, network, dev)
+                    != RootIsolatedWireGuardKernelListing.Match.EXACT) {
+                return "TCP PROBE REFUSED: private-table route identity changed.";
+            }
+            matched = true;
+        }
+        if (!matched) return "TCP PROBE REFUSED: empty private routes.";
+        List<String> lookup = new ArrayList<>();
+        if (shell.run(lookup, "ip -4 route get " + address.address
+                + " oif " + dev) != 0
+                || !String.join(" ", lookup).matches(
+                        "(?s).*\\\\bdev " + dev + "\\\\b.*")) {
+            return "TCP PROBE REFUSED: selected output interface not confirmed.";
+        }
+        // Only root's curl --interface can make this bounded probe; do NOT
+        // silently substitute wget, nc, raw sockets or normal app networking.
+        if (shell.run(null, "command -v curl >/dev/null 2>&1") != 0) {
+            return "TCP PROBE SKIPPED: curl unavailable on this Android build. "
+                    + "No TCP connection attempted.";
+        }
+        String url = (homeProbe ? "http://" : "https://")
+                + address.label() + "/";
+        // All parts are fixed or validated numeric values. Never print
+        // curl's stderr (network details), URL, config or peer endpoints.
+        List<String> response = new ArrayList<>();
+        String command = "curl --ipv4 --noproxy '*' --interface " + dev
+                + " --connect-timeout 3 --max-time 6 --silent "
+                + " --output /dev/null --write-out '%{http_code}' "
+                + "'" + url + "' 2>/dev/null";
+        int code = shell.run(response, command);
+        String http = String.join("", response).trim();
+        boolean httpValid = http.matches("[1-5][0-9]{2}");
+        String outcome;
+        if (code == 0 && httpValid) {
+            outcome = "TCP+HTTP response received (HTTP " + http + ")";
+        } else if (code == 28) {
+            outcome = "attempted; connection timed out";
+        } else if (code == 7) {
+            outcome = "attempted; connection refused or unreachable";
+        } else if (code == 60) {
+            outcome = "TCP reached TLS validation; certificate verification failed";
+        } else {
+            outcome = "attempted; no verified HTTP response (curl code " + code + ")";
+        }
+        record(slot + " optional interface-bound TCP diagnostic: "
+                + (code == 0 && httpValid ? "HTTP_RESPONSE" : "NO_HTTP_PROOF"));
+        return slot + ": " + outcome + ". No Android app UID, DNS or "
+                + "firewall changes. This does not prove per-app routing, "
+                + "dual-stack no-fallback or kill-switch safety.\\n" + status();
+    }
+
     private static List<String> readSafe(RootShell shell, String command)
             throws Exception {
         List<String> lines = new ArrayList<>();
