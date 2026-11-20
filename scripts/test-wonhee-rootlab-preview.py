@@ -123,8 +123,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(116)" in gradle
-assert "output.versionName.set('0.15.63-rootlab-bound-tcp')" in gradle
+assert "output.versionCode.set(117)" in gradle
+assert "output.versionName.set('0.15.63-rootlab-bound-tcp-fix1')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
