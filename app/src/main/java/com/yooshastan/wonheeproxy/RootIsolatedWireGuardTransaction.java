@@ -85,9 +85,23 @@ final class RootIsolatedWireGuardTransaction {
         }
 
         String summary() {
-            return (connected ? "BOOTSTRAP STRUCTURALLY APPLIED"
-                    : cleanupComplete ? "REFUSED/FAILED; EXACT ROLLBACK COMPLETE"
-                    : "REFUSED/FAILED; MANUAL OWNERSHIP AUDIT REQUIRED")
+            // Manual Safe Stop is NOT a failed Start. Preserve the distinct
+            // recovery statuses so users do not mistake a clean shutdown for
+            // a refusal or discard pending ownership after a paused stop.
+            String outcome;
+            if ("CLEAN_STOPPED".equals(stage) && cleanupComplete
+                    && remainingJournalEntries == 0) {
+                outcome = "EXACT-OWNED SAFE STOP COMPLETE";
+            } else if ("RECOVERY_PAUSED".equals(stage)) {
+                outcome = "SAFE STOP PAUSED; OWNERSHIP AUDIT REQUIRED";
+            } else if (connected) {
+                outcome = "BOOTSTRAP STRUCTURALLY APPLIED";
+            } else if (cleanupComplete) {
+                outcome = "START REFUSED/FAILED; EXACT ROLLBACK COMPLETE";
+            } else {
+                outcome = "START REFUSED/FAILED; MANUAL OWNERSHIP AUDIT REQUIRED";
+            }
+            return outcome
                     + " (stage=" + stage
                     + "; phase=" + failurePhase
                     + "; reason=" + failureCode
