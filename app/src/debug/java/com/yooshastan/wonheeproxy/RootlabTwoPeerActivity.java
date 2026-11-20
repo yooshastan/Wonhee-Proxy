@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.66 · Multi-Link & Firewall Pilot", 21, true);
+        TextView heading = text("Wonhee 0.15.67 · Detached Firewall Stage", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -165,6 +165,23 @@ public final class RootlabTwoPeerActivity extends Activity {
                         .setPositiveButton("Inspect", (dialog, which) ->
                                 execute("Moka Home firewall inspection",
                                         session::auditMokaHomeFirewall))
+                        .show());
+        action(layout, "Stage detached Moka firewall chains · opt-in test", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Stage detached IPv4/IPv6 chains?")
+                        .setMessage("This is a root firewall mutation test. "
+                                + "It creates and verifies two private filter chains "
+                                + "with Moka/Home allow and terminal reject rules, "
+                                + "but NEVER connects them to Android OUTPUT or "
+                                + "any app UID rule. No app packets are affected. "
+                                + "Exact-owned Safe Stop removes the staged chains "
+                                + "before removing the WireGuard links. "
+                                + "If recovery is uncertain, the journal is retained. "
+                                + "Do not uninstall, clear data or update until clean.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Stage detached chains", (dialog, which) ->
+                                execute("Detached Moka firewall stage",
+                                        session::stageDetachedMokaFirewall))
                         .show());
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
