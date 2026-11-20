@@ -435,8 +435,10 @@ ephemeral CI debug signing key.
   probes, **Safe Stop**, and **Export redacted diagnostics (.txt)**.
 - `RootlabTwoPeerSession` stores imported configurations in the separate
   lab package's AndroidKeyStore-encrypted `SecureTunnelProfileStore`;
-  configs and keys never enter journals or exported logs. Local and peer
-  public identities must differ, and `RootIsolatedTwoPeerLinkPlan` requires
+  configs and keys never enter journals or exported logs. Remote server
+  peer identities must differ; provider-reused local client keys are accepted
+  only when `RootIsolatedTwoPeerLinkPlan` can establish distinct named links
+  with independent interface addresses. The plan requires
   independently allocated /32-/128 interface hosts. Peer routes are
   limited to full IPv4 (optional IPv6) defaults, stored in independently
   owned private tables, with NO `ip rule` selectors.
