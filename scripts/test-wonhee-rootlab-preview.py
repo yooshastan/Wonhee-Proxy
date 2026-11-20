@@ -67,6 +67,16 @@ assert 'String stageDetachedMokaFirewall()' in session
 assert 'String attachMokaIpv6Hook()' in session
 assert 'String readMokaIpv6Counters()' in session
 assert 'String previewMokaIpv4Order()' in session
+assert 'String auditMokaHomeRouteSelection()' in session
+assert 'session::auditMokaHomeRouteSelection' in two_peer
+assert 'Audit cellular Moka' in two_peer
+assert 'ip -4 route get 10.0.0.169 uid ' in session
+assert 'ip -4 route show table 51002' in session
+assert 'ACTIVATION LOCKED: synthetic route get' in session
+route_plan = (repo / 'app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeRouteSafetyPlan.java').read_text()
+assert 'boolean activationAllowed() { return false; }' in route_plan
+assert 'REFUSE_CELLULAR_FALLTHROUGH' in route_plan
+assert 'RootMokaHomeRouteSafetyPlanTest.java' in (repo / '.github/workflows/build.yml').read_text()
 assert 'session::readMokaIpv6Counters' in two_peer
 assert 'session::previewMokaIpv4Order' in two_peer
 assert 'Read Moka IPv6 REJECT counters' in two_peer
@@ -199,8 +209,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(124)" in gradle
-assert "output.versionName.set('0.15.70-rootlab-ipv6-counter-fix')" in gradle
+assert "output.versionCode.set(125)" in gradle
+assert "output.versionName.set('0.15.71-rootlab-home-route-audit')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
