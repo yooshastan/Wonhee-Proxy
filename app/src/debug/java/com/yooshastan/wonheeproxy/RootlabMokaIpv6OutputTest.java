@@ -20,6 +20,9 @@ final class RootlabMokaIpv6OutputTest {
     private static final String PREF = "wonhee_rootlab_moka_ipv6_hook_v1";
     private static final String KEY = "pending";
     private static final String VERSION = "WMH6V1";
+    private static final String SNAPSHOT_PACKETS = "last_ipv6_reject_packets";
+    private static final String SNAPSHOT_BYTES = "last_ipv6_reject_bytes";
+    private static final String FIRST_PID = "attached_pid";
 
     private final Context app;
     RootlabMokaIpv6OutputTest(Context context) {
@@ -62,7 +65,9 @@ final class RootlabMokaIpv6OutputTest {
     }
 
     private void clear() {
-        if (!prefs().edit().remove(KEY).commit() || prefs().contains(KEY)) {
+        if (!prefs().edit().remove(KEY)
+                .remove(SNAPSHOT_PACKETS).remove(SNAPSHOT_BYTES)
+                .remove(FIRST_PID).commit() || prefs().contains(KEY)) {
             throw new IllegalStateException("IPv6 OUTPUT journal clear failed.");
         }
     }
@@ -156,6 +161,9 @@ final class RootlabMokaIpv6OutputTest {
             if (shell.run(null, step.install) != 0 || !exactHookExists(shell, plan)) {
                 throw new IllegalStateException("Hook install/readback failed.");
             }
+            // Optional process-restart indicator; failure to persist it
+            // never invalidates the already durable hook ownership journal.
+            prefs().edit().putInt(FIRST_PID, android.os.Process.myPid()).commit();
             return "MOKA IPv6 OUTPUT HOOK VERIFIED: exact UID " + uid
                     + " owner hook installed. Moka IPv6 OUTPUT is REJECTED "
                     + "via its verified private chain; IPv4, UID routing, DNS, "
@@ -166,6 +174,76 @@ final class RootlabMokaIpv6OutputTest {
             return "IPv6 HOOK TEST FAILED (" + error.getClass().getSimpleName()
                     + "); " + cleanup;
         }
+    }
+
+    /**
+     * Read-only packet evidence. No -Z/-F, packet injection, DNS changes or
+     * app launch. User opens Moka and attempts a normal connection between
+     * two readings. Distinguishes observed packet hits from full protection.
+     */
+    String readCounters() throws Exception {
+        RootMokaHomeFirewallPilotPlan.Plan plan = planFromJournal();
+        if (plan == null) {
+            return "MOKA IPv6 COUNTERS REFUSED: no active hook journal. "
+                    + "Attach the Moka IPv6 guard first.";
+        }
+        RootShell shell = new RootShell(app);
+        shell.start();
+        if (!exactHookExists(shell, plan)
+                || !new RootlabDetachedMokaFirewall(app)
+                        .exactStagingPresent(plan.uid, plan.homeDevice)) {
+            return "MOKA IPv6 COUNTERS REFUSED: missing or altered exact-owned "
+                    + "hook/chain. Use Exact-owned Safe Stop; no counters reset.";
+        }
+        List<String> outputList = new ArrayList<>();
+        List<String> chainList = new ArrayList<>();
+        if (shell.run(outputList, "ip6tables -w -t filter -L OUTPUT -nvx") != 0
+                || shell.run(chainList, "ip6tables -w -t filter -L "
+                    + RootMokaHomeFirewallPilotPlan.CHAIN6 + " -nvx") != 0) {
+            return "MOKA IPv6 COUNTERS UNAVAILABLE: read-only ip6tables listing "
+                    + "failed; no firewall state modified.";
+        }
+        RootMokaIpv6CounterParser.Counts hookCounts =
+                RootMokaIpv6CounterParser.target(
+                        String.join("\n", outputList),
+                        RootMokaHomeFirewallPilotPlan.CHAIN6);
+        RootMokaIpv6CounterParser.Counts rejectCounts =
+                RootMokaIpv6CounterParser.target(
+                        String.join("\n", chainList), "REJECT");
+        boolean prior = prefs().contains(SNAPSHOT_PACKETS)
+                && prefs().contains(SNAPSHOT_BYTES);
+        long oldPackets = prefs().getLong(SNAPSHOT_PACKETS, 0);
+        long oldBytes = prefs().getLong(SNAPSHOT_BYTES, 0);
+        long deltaPkts = prior ? RootMokaIpv6CounterParser.delta(
+                oldPackets, rejectCounts.packets) : -1;
+        long deltaBytes = prior ? RootMokaIpv6CounterParser.delta(
+                oldBytes, rejectCounts.bytes) : -1;
+        if (!prefs().edit().putLong(SNAPSHOT_PACKETS, rejectCounts.packets)
+                .putLong(SNAPSHOT_BYTES, rejectCounts.bytes).commit()) {
+            return "MOKA IPv6 COUNTERS READ BUT BASELINE SAVE FAILED; "
+                    + "no kernel state modified; retry after inspecting journal.";
+        }
+        int attachedPid = prefs().getInt(FIRST_PID, 0);
+        int nowPid = android.os.Process.myPid();
+        return "MOKA IPv6 PACKET COUNTERS (READ ONLY)\n"
+                + "Exact hook UID: " + plan.uid + "\n"
+                + "IPv6 OUTPUT owner hook: " + hookCounts.packets
+                + " packets, " + hookCounts.bytes + " bytes\n"
+                + "Moka IPv6 private REJECT: " + rejectCounts.packets
+                + " packets, " + rejectCounts.bytes + " bytes\n"
+                + (deltaPkts < 0 || deltaBytes < 0
+                    ? "DELTA: baseline established or counters reset; "
+                            + "no increment claim\n"
+                    : "SINCE LAST READING: +" + deltaPkts + " rejected packets, +"
+                            + deltaBytes + " bytes\n")
+                + (attachedPid != 0 && attachedPid != nowPid
+                    ? "PROCESS RESTART INDICATOR: app PID differs from hook "
+                            + "attachment; exact hook still verified\n"
+                    : "PROCESS RESTART INDICATOR: same or unknown app PID\n")
+                + "Counts are cumulative and cannot identify a specific "
+                + "packet or prove IPv4/IPv6 leak protection. "
+                + "No -Z counters reset, no DNS/routing/firewall changes. "
+                + "Use Exact-owned Safe Stop.";
     }
 
     String recover() throws Exception {
