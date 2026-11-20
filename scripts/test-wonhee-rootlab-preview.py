@@ -62,8 +62,7 @@ assert 'String probeTcp(String slot, String target)' in session
 assert 'RootTcpProbeTarget.parse(target)' in session
 assert 'command -v curl >/dev/null' in session
 assert '--interface ' in session and '--connect-timeout 3' in session
-assert "--write-out '%{http_code}\\\
-'" in session, (
+assert "--write-out '%{http_code}\\\\n'" in session, (
     "curl must produce line-terminated status for persistent RootShell.run readLine"
 )
 assert "No TCP connection attempted." in session
