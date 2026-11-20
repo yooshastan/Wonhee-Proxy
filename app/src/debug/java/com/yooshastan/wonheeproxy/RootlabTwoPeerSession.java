@@ -268,10 +268,16 @@ final class RootlabTwoPeerSession {
                 + "; connected stages=" + result.connected
                 + "; cleanup=" + result.cleanupComplete
                 + "; journal=" + result.remainingJournalEntries);
-        return (result.connected
-                ? "TWO PEER LINKS CONFIGURED. No Android apps are routed. "
+        if (!result.connected) {
+            // Do not drown the actual fixed failure code in two verbose
+            // handshake readouts. When the journal is 0, no peer was left
+            // active by this transaction. Use explicit Status for details.
+            return "TWO PEER START REFUSED.\n" + result.summary()
+                    + "\nFor diagnostics, export the redacted report. "
+                    + "No app routing was activated.";
+        }
+        return "TWO PEER LINKS CONFIGURED. No Android apps are routed. "
                 + "Handshakes may require a bound probe.\n"
-                : "TWO PEER START REFUSED.\n")
                 + result.summary() + "\n" + status();
     }
 
