@@ -216,6 +216,19 @@ final class RootlabDetachedMokaFirewall {
                 + "Use Exact-owned Safe Stop to recover.";
     }
 
+    /** Read-only structural proof for the anchored IPv6 OUTPUT test. */
+    boolean exactStagingPresent(int uid, String device) throws Exception {
+        State state = load();
+        if (state == null || state.count != 5
+                || state.plan.uid != uid || !state.plan.homeDevice.equals(device)) {
+            return false;
+        }
+        RootShell shell = new RootShell(context);
+        shell.start();
+        verifyPrefix(shell, state.plan, 5);
+        return true;
+    }
+
     String recover() throws Exception {
         State state = load();
         if (state == null) return "DETACHED FIREWALL: no ownership journal.";
