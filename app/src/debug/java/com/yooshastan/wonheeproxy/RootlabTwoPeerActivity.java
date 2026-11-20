@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.64 · Multi-Link & Routing Readiness Lab", 21, true);
+        TextView heading = text("Wonhee 0.15.66 · Multi-Link & Firewall Pilot", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -153,6 +153,19 @@ public final class RootlabTwoPeerActivity extends Activity {
                                 execute("Moka Home routing readiness",
                                         session::previewMokaHomeRouting))
                         .show());
+        action(layout, "Inspect Moka Home firewall (read-only)", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Dual-stack firewall inspection")
+                        .setMessage("Read Android's current IPv4/IPv6 OUTPUT rules, "
+                                + "check reserved name collisions and CLI syntax, "
+                                + "and validate the proposed exact-owned Moka policy. "
+                                + "No firewall rules, app routing or DNS changes "
+                                + "will be made. Activation remains locked.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Inspect", (dialog, which) ->
+                                execute("Moka Home firewall inspection",
+                                        session::auditMokaHomeFirewall))
+                        .show());
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
@@ -173,6 +186,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         layout.addView(statusText);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setFitsSystemWindows(true);
         scroll.addView(layout);
         setContentView(scroll);
 
