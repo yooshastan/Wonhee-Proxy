@@ -52,6 +52,7 @@ public final class RootIsolatedWireGuardTransactionTest {
         int applyCalls;
         int undoCalls;
         int failApplyAt = -1;
+        int failSafeAt = -1;
         int failUndoAt = -1;
         boolean gate = true;
 
@@ -75,6 +76,10 @@ public final class RootIsolatedWireGuardTransactionTest {
             applyCalls++;
             if (!gate) throw new AssertionError("Mutated without preflight.");
             installed.add(step);
+            if (applyCalls == failSafeAt) {
+                throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                        "WG_SETCONF_COMMAND_FAILED");
+            }
             if (applyCalls == failApplyAt) {
                 throw new IllegalStateException("Command failed after partial mutation");
             }
@@ -141,6 +146,22 @@ public final class RootIsolatedWireGuardTransactionTest {
                             && journal.empty() && kernel.installed.isEmpty(),
                     "Partial kernel mutation at step " + i + " must fully roll back");
         }
+
+        // Verify that a PEER_CONFIG failure provides an actionably precise
+        // stage and a fixed safe category, without preserving stderr/keys.
+        kernel = new MemoryKernel();
+        journal = new MemoryJournal();
+        kernel.failSafeAt = 2;
+        RootIsolatedWireGuardTransaction.Outcome peerFailed =
+                RootIsolatedWireGuardTransaction.start(plan, kernel, journal);
+        check(!peerFailed.connected && peerFailed.cleanupComplete
+                        && journal.empty() && kernel.installed.isEmpty()
+                        && peerFailed.stage.equals("PEER_CONFIG")
+                        && peerFailed.failurePhase.equals("KERNEL_APPLY")
+                        && peerFailed.failureCode.equals("WG_SETCONF_COMMAND_FAILED")
+                        && peerFailed.summary().contains("reason=WG_SETCONF_COMMAND_FAILED")
+                        && !peerFailed.summary().contains("PrivateKey"),
+                "Exact peer failure must report sanitized code and roll back cleanly");
 
         // Fail before writing the current intent. No current-step mutation.
         kernel = new MemoryKernel();
