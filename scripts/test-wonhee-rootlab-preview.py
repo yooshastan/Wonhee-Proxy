@@ -66,6 +66,12 @@ assert 'invalid.reason.name()' in session
 assert 'No kernel change has been attempted by this check.' in session
 assert 'record("Two-peer Start refused at PROFILE_CHECK:' in session
 assert 'NO JOURNALED TUNNEL STAGES' in session
+assert 'PEER_SETCONF_FORMAT_UNSUPPORTED' in session
+assert 'parsed.toWgQuickString()' in session
+assert 'RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(' in session
+assert 'PROBE SKIPPED: two peer links are not active' in session
+assert 'No probe packets were sent.' in session
+
 assert 'result.failurePhase' in session and 'result.failureCode' in session
 profile_check = (repo / "app/src/main/java/com/yooshastan/wonheeproxy/RootTwoPeerProfileReadiness.java").read_text()
 assert 'OVERLAPPING_INTERFACE_ADDRESSES' in profile_check
