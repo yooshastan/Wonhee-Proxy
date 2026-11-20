@@ -56,7 +56,11 @@ assert 'RootIsolatedUidPolicyTransaction.start(' not in two_peer + session
 assert 'does NOT route phone apps' in two_peer
 assert 'Check both profiles (no root changes)' in two_peer
 assert 'session::profileReadiness' in two_peer
-assert 'RootTwoPeerProfileReadiness.assess(routes, true)' in session
+assert 'RootTwoPeerProfileReadiness.assess(' in session
+assert 'routes, differentEndpoints, differentClientKeys' in session
+assert 'getEndpoint().map(Object::toString)' in session
+assert 'getKeyPair()' in session
+assert 'RootTwoPeerProfileReadiness.Reason.SAME_SERVER_PEER' not in session
 assert 'catch (ProfileRejected invalid)' in session
 assert 'invalid.reason.name()' in session
 assert 'No kernel change has been attempted by this check.' in session
