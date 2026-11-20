@@ -126,6 +126,21 @@ final class RootlabTwoPeerSession {
         }
     }
 
+    /** Explicitly disable optional Home before Start; never alter profiles
+     * while a link-ownership journal may still require exact Safe Stop. */
+    String removeHomeProfile() throws Exception {
+        if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
+            return "HOME REMOVAL REFUSED: Safe Stop must finish first. "
+                    + "Do not discard recovery ownership.";
+        }
+        if (!hasProfile(HOME)) return "Home not imported; no change.";
+        new SecureTunnelProfileStore(app).delete(HOME);
+        record("Optional Home encrypted profile removed while no journal pending");
+        return "Home removed from this separate RootLab profile store. "
+                + "The two Internet exits are unchanged; no kernel change.";
+    }
+
     private Pair loadPair() throws Exception {
         SecureTunnelProfileStore.Profile first = null, second = null, home = null;
         for (SecureTunnelProfileStore.Profile saved :
@@ -207,7 +222,8 @@ final class RootlabTwoPeerSession {
         try { homeConfig = Config.parse(new ByteArrayInputStream(homeBytes)); }
         finally { Arrays.fill(homeBytes, (byte) 0); }
         if (homeConfig.getPeers().size() != 1) {
-            throw new IllegalArgumentException("Home requires one WireGuard peer.");
+            throw new ProfileRejected(
+                    RootTwoPeerProfileReadiness.Reason.HOME_PRIVATE_LAN_UNSUPPORTED);
         }
         try {
             RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(
@@ -221,7 +237,8 @@ final class RootlabTwoPeerSession {
         String homeLocalKey = homeConfig.getInterface().getKeyPair()
                 .getPublicKey().toBase64();
         if (homeEndpoint.isEmpty()) {
-            throw new IllegalArgumentException("Home has no server endpoint.");
+            throw new ProfileRejected(
+                    RootTwoPeerProfileReadiness.Reason.HOME_PRIVATE_LAN_UNSUPPORTED);
         }
         for (Config internetConfig : configs.values()) {
             String endpoint = internetConfig.getPeers().get(0)
@@ -229,13 +246,18 @@ final class RootlabTwoPeerSession {
             String localKey = internetConfig.getInterface().getKeyPair()
                     .getPublicKey().toBase64();
             if (homeEndpoint.equals(endpoint) || homeLocalKey.equals(localKey)) {
-                throw new IllegalArgumentException(
-                        "Home must have an independently provisioned peer/client identity.");
+                throw new ProfileRejected(
+                        RootTwoPeerProfileReadiness.Reason.HOME_IDENTITY_CONFLICT);
             }
         }
         RootMultiTunnelPlan.Entry homeRoute = entry(HOME, homeConfig);
-        RootIsolatedWireGuardBootstrapPlan.Plan triple =
-                RootIsolatedThreePeerLinkPlan.compile(routes, homeRoute);
+        RootIsolatedWireGuardBootstrapPlan.Plan triple;
+        try {
+            triple = RootIsolatedThreePeerLinkPlan.compile(routes, homeRoute);
+        } catch (IllegalArgumentException incompatible) {
+            throw new ProfileRejected(
+                    RootTwoPeerProfileReadiness.Reason.HOME_PRIVATE_LAN_UNSUPPORTED);
+        }
         configs.put(homeRoute.device, homeConfig);
         routes.add(homeRoute);
         return new Pair(triple, configs, routes);
@@ -257,9 +279,11 @@ final class RootlabTwoPeerSession {
 
     String profileReadiness() {
         try {
-            loadPair(); // parses profile metadata, does NOT request root.
-            record("Profile compatibility checked: READY; no root operation");
-            return "PROFILE CHECK: READY — "
+            Pair checked = loadPair(); // does not request root.
+            record("Profile compatibility checked: READY ("
+                    + checked.plan.devices + " links); no root operation");
+            return "PROFILE CHECK: READY (" + checked.plan.devices
+                    + " independent WireGuard links) — "
                     + RootTwoPeerProfileReadiness.explain(
                             RootTwoPeerProfileReadiness.Reason.READY)
                     + "\nNo kernel change has been attempted by this check.";
@@ -280,7 +304,7 @@ final class RootlabTwoPeerSession {
     }
 
     String start() throws Exception {
-        record("Two-peer Start requested; validating encrypted profiles");
+        record("Multi-link Start requested; validating encrypted profiles");
         try {
             return startImpl();
         } catch (ProfileRejected invalid) {
@@ -303,7 +327,7 @@ final class RootlabTwoPeerSession {
 
     private String startImpl() throws Exception {
         Pair pair = loadPair();
-        record("Two-peer PROFILE_CHECK=READY; entering ownership preflight");
+        record("Multi-link PROFILE_CHECK=READY; entering ownership preflight");
         RootIsolatedWireGuardPreferencesJournal journal =
                 new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
         if (!journal.empty()) {
@@ -319,7 +343,7 @@ final class RootlabTwoPeerSession {
                         new RootlabTwoPeerSafetyGate(app, shell));
         RootIsolatedWireGuardTransaction.Outcome result =
                 RootIsolatedWireGuardTransaction.start(pair.plan, backend, journal);
-        record("Two-peer Start: " + result.stage
+        record("Multi-link Start: " + result.stage
                 + "; phase=" + result.failurePhase
                 + "; reason=" + result.failureCode
                 + "; connected stages=" + result.connected
@@ -329,11 +353,11 @@ final class RootlabTwoPeerSession {
             // Do not drown the actual fixed failure code in two verbose
             // handshake readouts. When the journal is 0, no peer was left
             // active by this transaction. Use explicit Status for details.
-            return "TWO PEER START REFUSED.\n" + result.summary()
+            return "MULTI-LINK START REFUSED.\n" + result.summary()
                     + "\nFor diagnostics, export the redacted report. "
                     + "No app routing was activated.";
         }
-        return "TWO PEER LINKS CONFIGURED. No Android apps are routed. "
+        return pair.plan.devices + " WG LINKS CONFIGURED. No Android apps are routed. "
                 + "Handshakes may require a bound probe.\n"
                 + result.summary() + "\n" + status();
     }
