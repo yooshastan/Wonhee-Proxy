@@ -57,6 +57,14 @@ final class RootIsolatedWireGuardSetconfCodec {
                 throw new IllegalArgumentException("Unrecognized canonical WG line.");
             }
             String key = line.substring(0, equal).trim();
+            // The upstream Android WireGuard Peer.toWgQuickString()
+            // canonical spelling is "PreSharedKey" (capital S); wg setconf
+            // conventionally uses "PresharedKey". Treat only these two
+            // EXACT spellings as one allowed field and reject duplicates
+            // after normalization. No other case folding or unknown options.
+            if (section.equals("Peer") && key.equals("PreSharedKey")) {
+                key = "PresharedKey";
+            }
             String value = line.substring(equal + 1).trim();
             if (value.isEmpty() || value.length() > 2048
                     || value.indexOf('\u0000') >= 0
