@@ -685,7 +685,7 @@ final class RootlabTwoPeerSession {
         List<String> response = new ArrayList<>();
         String command = "curl --ipv4 --noproxy '*' --interface " + dev
                 + " --connect-timeout 3 --max-time 6 --silent "
-                + " --output /dev/null --write-out '%{http_code}' "
+                + " --output /dev/null --write-out '%{http_code}\\n' "
                 + "'" + url + "' 2>/dev/null";
         int code = shell.run(response, command);
         String http = String.join("", response).trim();
