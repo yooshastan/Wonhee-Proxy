@@ -64,6 +64,23 @@ assert 'session::auditMokaHomeFirewall' in two_peer
 assert 'scroll.setFitsSystemWindows(true)' in two_peer
 assert 'String auditMokaHomeFirewall()' in session
 assert 'String stageDetachedMokaFirewall()' in session
+assert 'String attachMokaIpv6Hook()' in session
+assert 'session::attachMokaIpv6Hook' in two_peer
+assert 'Attach Moka IPv6 OUTPUT guard' in two_peer
+hook = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaIpv6OutputTest.java').read_text()
+assert 'RootMokaHomeFirewallPilotPlan.compile(uid, device)' in hook
+assert 'exactStagingPresent(uid, device)' in hook
+assert 'intent(plan);' in hook
+assert 'exactReferences(shell, plan)' in hook
+assert 'hook(plan).inverse' in hook
+assert 'String recover() throws Exception' in hook
+assert 'new RootlabMokaIpv6OutputTest(app).recover()' in session
+assert session.index('new RootlabMokaIpv6OutputTest(app).recover()') < session.index('new RootlabDetachedMokaFirewall(app).recover()')
+assert 'RootlabMokaIpv6OutputTest.pendingOrUnknown(app)' in session
+assert 'RootlabMokaIpv6OutputTest.pendingOrUnknown(app)' in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSafetyGate.java'
+).read_text()
+
 assert 'session::stageDetachedMokaFirewall' in two_peer
 assert 'Stage detached Moka firewall chains' in two_peer
 assert 'RootlabDetachedMokaFirewall.pendingOrUnknown(app)' in session
@@ -159,8 +176,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(121)" in gradle
-assert "output.versionName.set('0.15.67-rootlab-detached-firewall')" in gradle
+assert "output.versionCode.set(122)" in gradle
+assert "output.versionName.set('0.15.68-rootlab-moka-ipv6-hook')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
