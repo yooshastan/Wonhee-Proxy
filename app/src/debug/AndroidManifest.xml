@@ -33,7 +33,7 @@
         <activity
             android:name=".RootlabTwoPeerActivity"
             android:exported="true"
-            android:label="Wonhee Two-Peer Identity Check">
+            android:label="Wonhee Two-Peer Link Fix">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
