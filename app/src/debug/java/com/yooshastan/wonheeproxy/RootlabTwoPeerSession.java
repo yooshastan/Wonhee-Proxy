@@ -657,6 +657,96 @@ final class RootlabTwoPeerSession {
                 + "IPv4 activation LOCKED.";
     }
 
+    /**
+     * Read-only Android route-policy proof gate. A synthetic 'route get uid'
+     * is NOT an observed Moka socket and may not reflect fwmark/netd routing.
+     * Never installs a UID rule, route, OUTPUT hook, or DNS configuration.
+     */
+    String auditMokaHomeRouteSelection() throws Exception {
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "HOME ROUTE AUDIT REFUSED: active Home link and Moka UID "
+                    + "must be verified first.";
+        }
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
+            return "HOME ROUTE AUDIT REFUSED: three independent profiles required.";
+        }
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        RootMokaHomeRouteSafetyPlan.Plan candidate =
+                RootMokaHomeRouteSafetyPlan.compile(uid, device);
+        RootShell shell = new RootShell(app);
+        shell.start();
+        List<String> v4Rules = new ArrayList<>();
+        List<String> homeRoutes = new ArrayList<>();
+        List<String> selected = new ArrayList<>();
+        int rulesCode = shell.run(v4Rules, "ip -4 rule show");
+        int homeCode = shell.run(homeRoutes, "ip -4 route show table 51002");
+        int selectedCode = shell.run(selected,
+                "ip -4 route get 10.0.0.169 uid " + uid);
+        if (rulesCode != 0 || homeCode != 0 || v4Rules.isEmpty()
+                || homeRoutes.isEmpty()) {
+            return "HOME ROUTE AUDIT INCOMPLETE: kernel route/rule inventory "
+                    + "is not readable; no Android configuration changed.";
+        }
+        boolean exactHomeRoute = false;
+        for (String route : homeRoutes) {
+            if (route.trim().startsWith("10.0.0.169 dev " + device + " ")) {
+                exactHomeRoute = true;
+            }
+        }
+        boolean priorityOccupied = false;
+        boolean hasUidSelector = false;
+        for (String rule : v4Rules) {
+            String normalized = rule.trim().replaceAll("\\s+", " ");
+            if (normalized.startsWith("12700:")) priorityOccupied = true;
+            if (normalized.contains("uidrange " + uid + "-" + uid)
+                    && normalized.matches(".*\\b(?:lookup|table) 51002\\b.*")) {
+                hasUidSelector = true;
+            }
+        }
+        String synthetic = String.join(" ", selected);
+        boolean syntheticHome = selectedCode == 0
+                && synthetic.contains(" dev " + device + " ");
+        boolean syntheticRead = selectedCode == 0 && !selected.isEmpty();
+        String routeState = !syntheticRead ? "UNAVAILABLE"
+                : syntheticHome ? "HOME_INTERFACE (synthetic lookup only)"
+                : "NOT_HOME_INTERFACE (expected before UID routing)";
+        StringBuilder out = new StringBuilder(
+                "MOKA HOME CELLULAR ROUTE AUDIT (READ ONLY)\n");
+        out.append("UID: ").append(uid).append("; Home table: 51002\n")
+                .append("Home destination 10.0.0.169/32: ")
+                .append(exactHomeRoute ? "EXACT ROUTE OBSERVED" : "UNVERIFIED")
+                .append("\nAndroid policy priority 12700: ")
+                .append(priorityOccupied ? "OCCUPIED — REFUSE" : "NOT OBSERVED")
+                .append("\nExisting Moka/Home UID selector: ")
+                .append(hasUidSelector ? "OBSERVED — REFUSE" : "NOT OBSERVED")
+                .append("\nSynthetic Android UID route lookup: ")
+                .append(routeState).append('\n')
+                .append("Candidate would match only UID ").append(uid)
+                .append(" and IPv4 destination 10.0.0.169/32 at priority 12700.")
+                .append("\nNot installed: candidate destination-specific "
+                        + "unreachable route and UID rule.\n")
+                .append("FAIL-CLOSED GATES STILL LOCKED: terminal IPv4/IPv6 "
+                        + "Moka firewalls, Android OUTPUT chain ordering, "
+                        + "destination-specific unreachable fallback, "
+                        + "cellular Home-loss packet proof, DNS and endpoint "
+                        + "underlay, exact ownership recovery and TCP/4533 scope.")
+                .append("\n")
+                .append(candidate.summary()).append('\n')
+                .append("ACTIVATION LOCKED: synthetic route get cannot prove "
+                        + "real Moka packets or safety. No kernel changes.");
+        record("Moka Home routing audit read-only; exact Home="
+                + exactHomeRoute + "; priority collision=" + priorityOccupied
+                + "; synthetic Home=" + syntheticHome);
+        return out.toString();
+    }
+
     String stageDetachedMokaFirewall() throws Exception {
         String inventory = auditMokaHomeFirewall();
         if (!inventory.contains("DEVICE PRECHECK: NO IMMEDIATE COLLISION OBSERVED")) {
