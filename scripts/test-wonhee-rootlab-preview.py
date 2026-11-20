@@ -90,6 +90,12 @@ assert 'intent(plan);' in hook
 assert 'exactReferences(shell, plan)' in hook
 assert 'hook(plan).inverse' in hook
 assert 'String recover() throws Exception' in hook
+assert 'exactStagingPresentWithVerifiedIpv6Hook(plan.uid, plan.homeDevice)' in hook
+assert 'exactStagingPresent(plan.uid, plan.homeDevice)' not in hook
+assert 'requireDetached(shell, 4)' in detached
+assert 'verifyChain(shell, plan, 4, 5)' in detached
+assert 'verifyChain(shell, plan, 6, 5)' in detached
+assert 'references != 1' in detached
 assert 'new RootlabMokaIpv6OutputTest(app).recover()' in session
 assert session.index('new RootlabMokaIpv6OutputTest(app).recover()') < session.index('new RootlabDetachedMokaFirewall(app).recover()')
 assert 'RootlabMokaIpv6OutputTest.pendingOrUnknown(app)' in session
@@ -192,8 +198,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(123)" in gradle
-assert "output.versionName.set('0.15.69-rootlab-ipv6-packet-evidence')" in gradle
+assert "output.versionCode.set(124)" in gradle
+assert "output.versionName.set('0.15.70-rootlab-ipv6-counter-fix')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
