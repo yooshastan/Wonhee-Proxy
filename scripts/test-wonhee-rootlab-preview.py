@@ -59,6 +59,14 @@ assert 'Probe Exit B TCP/HTTPS' in two_peer
 assert 'Probe Home Navidrome TCP/HTTP' in two_peer
 assert 'session.probeTcp(slot, target)' in two_peer
 assert 'Moka → Home routing readiness (read-only)' in two_peer
+assert 'Inspect Moka Home firewall (read-only)' in two_peer
+assert 'session::auditMokaHomeFirewall' in two_peer
+assert 'scroll.setFitsSystemWindows(true)' in two_peer
+assert 'String auditMokaHomeFirewall()' in session
+assert 'RootMokaHomeFirewallPilotTransaction.validate(plan)' in session
+assert 'iptables' in session and 'ip6tables' in session
+assert 'No firewall/routing/DNS changes.' in session
+assert 'RootMokaHomeFirewallPilotTransactionTest.java' in (repo / '.github/workflows/build.yml').read_text()
 assert 'session::previewMokaHomeRouting' in two_peer
 assert 'String previewMokaHomeRouting()' in session
 assert 'RootMokaHomePolicySafetyCase.currentLabGate(' in session
@@ -134,8 +142,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(119)" in gradle
-assert "output.versionName.set('0.15.65-rootlab-home-safety')" in gradle
+assert "output.versionCode.set(120)" in gradle
+assert "output.versionName.set('0.15.66-rootlab-firewall-pilot')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
