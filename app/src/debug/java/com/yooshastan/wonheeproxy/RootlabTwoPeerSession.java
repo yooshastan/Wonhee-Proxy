@@ -337,6 +337,10 @@ final class RootlabTwoPeerSession {
         if (RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
             return "START REFUSED: pending UID policy ownership.";
         }
+        if (RootlabDetachedMokaFirewall.pendingOrUnknown(app)) {
+            return "START REFUSED: detached firewall journal pending. "
+                    + "Use Exact-owned Safe Stop first.";
+        }
         RootShell shell = new RootShell(app);
         RootIsolatedWireGuardKernelAdapter backend =
                 new RootIsolatedWireGuardKernelAdapter(app, shell, pair.configurations,
@@ -375,6 +379,15 @@ final class RootlabTwoPeerSession {
     }
 
     private String stopImpl() throws Exception {
+        // Recover the detached, never-hooked firewall stage BEFORE removing
+        // the Home WireGuard link. A foreign/changed stage must retain journal.
+        String detachedStatus = new RootlabDetachedMokaFirewall(app).recover();
+        if (RootlabDetachedMokaFirewall.pendingOrUnknown(app)) {
+            record("Safe Stop paused: detached firewall ownership uncertain");
+            return "SAFE STOP PAUSED: " + detachedStatus
+                    + "\nThe WireGuard link journal was not changed. "
+                    + "Do not clear app data or update RootLab.";
+        }
         if (!RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)) {
             // A rejected profile plan cannot write a new ownership journal.
             // However no journal alone is not proof that the kernel is clean:
@@ -524,6 +537,38 @@ final class RootlabTwoPeerSession {
      * and compile a canonical future firewall transaction. No -N/-A/-I/-D
      * or policy routing commands execute here.
      */
+    /**
+     * Explicitly requested root experiment. Stage only detached filter
+     * chains; never attach OUTPUT or send real application packets.
+     */
+    String stageDetachedMokaFirewall() throws Exception {
+        String inventory = auditMokaHomeFirewall();
+        if (!inventory.contains("DEVICE PRECHECK: NO IMMEDIATE COLLISION OBSERVED")) {
+            return "DETACHED FIREWALL REFUSED: read-only inspection is not clean.";
+        }
+        if (RootlabDetachedMokaFirewall.pendingOrUnknown(app)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
+            return "DETACHED FIREWALL REFUSED: previous policy ownership pending.";
+        }
+        Pair pair = loadPair();
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "DETACHED FIREWALL REFUSED: Home/Moka preflight changed.";
+        }
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        String result = new RootlabDetachedMokaFirewall(app).stage(uid, device);
+        record("Detached firewall stage: "
+                + (result.startsWith("DETACHED FIREWALL STAGE VERIFIED")
+                        ? "VERIFIED_UNHOOKED" : "REFUSED_OR_RECOVERY_REQUIRED"));
+        return result + "\nNo UID routing, DNS, OUTPUT hook or packet-policy "
+                + "activation was performed.";
+    }
+
     String auditMokaHomeFirewall() throws Exception {
         Pair pair = loadPair();
         if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
