@@ -86,6 +86,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardBootstrapPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedTwoPeerLinkPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTwoExitHomeRoutingPreview.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomePolicySafetyCase.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedThreePeerLinkPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardSetconfCodec.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTwoPeerProfileReadiness.java \
@@ -175,6 +176,7 @@ jobs:
             core-tests/RootIsolatedWireGuardBootstrapPlanTest.java \
             core-tests/RootIsolatedTwoPeerLinkPlanTest.java \
             core-tests/RootTwoExitHomeRoutingPreviewTest.java \
+            core-tests/RootMokaHomePolicySafetyCaseTest.java \
             core-tests/RootIsolatedThreePeerLinkPlanTest.java \
             core-tests/RootIsolatedWireGuardSetconfCodecTest.java \
             core-tests/RootTwoPeerProfileReadinessTest.java \
@@ -266,6 +268,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardBootstrapPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedTwoPeerLinkPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTwoExitHomeRoutingPreviewTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomePolicySafetyCaseTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedThreePeerLinkPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardSetconfCodecTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTwoPeerProfileReadinessTest
