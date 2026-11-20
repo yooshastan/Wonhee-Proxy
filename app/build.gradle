@@ -23,7 +23,7 @@ android {
     buildTypes {
         debug {
             // Side-by-side experiment; never replace the user's signed stable app.
-            applicationIdSuffix '.rootlab01562peers'
+            applicationIdSuffix '.rootlab01562peersfix1'
         }
         release {
             if (hasReleaseSigning) {
@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(110)
-            output.versionName.set('0.15.62-two-peer-lab')
+            output.versionCode.set(111)
+            output.versionName.set('0.15.62-two-peer-profile-check')
         }
     }
 }
