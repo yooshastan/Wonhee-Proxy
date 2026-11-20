@@ -122,6 +122,42 @@ final class RootTwoExitHomeRoutingPreview {
         }
     }
 
+    /**
+     * Numeric-only, no-DNS guard for one optional user-selected Home
+     * service probe. The target must lie inside an approved private Home
+     * AllowedIPs prefix. No route/UID rules are installed by this check.
+     */
+    static boolean permitsHomeTarget(List<String> homeDestinations,
+            String target) {
+        if (homeDestinations == null || target == null
+                || !target.matches("([0-9]{1,3}\\.){3}[0-9]{1,3}")) {
+            return false;
+        }
+        try {
+            byte[] targetBytes = InetAddress.getByName(target).getAddress();
+            if (targetBytes.length != 4) return false;
+            for (String prefix : homeDestinations) {
+                if (!privateLanNetwork(prefix)) continue;
+                String[] parts = prefix.split("/", -1);
+                byte[] net = InetAddress.getByName(parts[0]).getAddress();
+                int bits = Integer.parseInt(parts[1]);
+                boolean matched = true;
+                for (int i = 0; i < bits; i++) {
+                    int j = i / 8;
+                    int mask = 0x80 >>> (i % 8);
+                    if ((net[j] & mask) != (targetBytes[j] & mask)) {
+                        matched = false;
+                        break;
+                    }
+                }
+                if (matched) return true;
+            }
+        } catch (Exception invalid) {
+            return false;
+        }
+        return false;
+    }
+
     private static boolean overlap(String left, String right) {
         int maskA = Integer.parseInt(left.substring(left.indexOf('/') + 1));
         int maskB = Integer.parseInt(right.substring(right.indexOf('/') + 1));
