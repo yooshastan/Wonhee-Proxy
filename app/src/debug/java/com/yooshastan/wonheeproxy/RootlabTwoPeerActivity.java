@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.67 · Detached Firewall Stage", 21, true);
+        TextView heading = text("Wonhee 0.15.68 · Moka IPv6 Guard Pilot", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -182,6 +182,25 @@ public final class RootlabTwoPeerActivity extends Activity {
                         .setPositiveButton("Stage detached chains", (dialog, which) ->
                                 execute("Detached Moka firewall stage",
                                         session::stageDetachedMokaFirewall))
+                        .show());
+        action(layout, "Attach Moka IPv6 OUTPUT guard · opt-in test", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Temporarily block Moka IPv6 traffic?")
+                        .setMessage("ADVANCED ROOT TEST. Requires successful staging "
+                                + "of both detached firewall chains. "
+                                + "This WILL insert one real IPv6 OUTPUT rule "
+                                + "matching only the detected Moka UID, rejecting "
+                                + "Moka's IPv6 connections until Safe Stop. "
+                                + "Other apps and Moka IPv4 remain unchanged. "
+                                + "It does NOT route Moka through Home or provide "
+                                + "dual-stack leak protection. Safe Stop must "
+                                + "remove this hook BEFORE deleting firewall "
+                                + "chains or WireGuard links. If recovery pauses, "
+                                + "DO NOT uninstall or clear app data.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Attach IPv6 guard", (dialog, which) ->
+                                execute("Moka IPv6 OUTPUT hook",
+                                        session::attachMokaIpv6Hook))
                         .show());
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
