@@ -189,15 +189,20 @@ final class RootlabTwoPeerSession {
     String profileReadiness() {
         try {
             loadPair(); // parses profile metadata, does NOT request root.
+            record("Profile compatibility checked: READY; no root operation");
             return "PROFILE CHECK: READY — "
                     + RootTwoPeerProfileReadiness.explain(
                             RootTwoPeerProfileReadiness.Reason.READY)
                     + "\nNo kernel change has been attempted by this check.";
         } catch (ProfileRejected invalid) {
+            record("Profile compatibility checked: " + invalid.reason.name()
+                    + "; no root operation");
             return "PROFILE CHECK: " + invalid.reason.name() + "\n"
                     + invalid.getMessage()
                     + "\nNo kernel change has been attempted by this check.";
         } catch (Exception invalid) {
+            record("Profile compatibility checked: IMPORTED_CONFIG_PARSE_ERROR; "
+                    + "no root operation");
             return "PROFILE CHECK: IMPORTED_CONFIG_PARSE_ERROR\n"
                     + "The saved profile could not be parsed or securely loaded. "
                     + "No keys, addresses or exception details are included. "
@@ -268,6 +273,14 @@ final class RootlabTwoPeerSession {
     }
 
     private String stopImpl() throws Exception {
+        if (!RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)) {
+            // A rejected profile plan cannot write a new ownership journal.
+            // However no journal alone is not proof that the kernel is clean:
+            // never attempt a broad name-pattern-based cleanup.
+            record("Safe Stop found no owned journal steps; no kernel mutation");
+            return "NO JOURNALED TUNNEL STAGES. This Stop made no kernel changes. "
+                    + "Absence of a journal is NOT an audit of global root networking.";
+        }
         Pair pair = loadPair();
         RootIsolatedWireGuardPreferencesJournal journal =
                 new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
