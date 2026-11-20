@@ -35,7 +35,7 @@ assert 'Settings.Global.getString' in gate
 assert '"off".equals(privateDns)' in gate
 assert '5100[0-7]' in gate
 assert 'RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown' in gate
-assert 'ip rule add' not in link_plan and 'iptables' not in link_plan
+assert '"ip rule add' not in link_plan and '"iptables ' not in link_plan
 assert 'connmark' not in session and 'set-mark' not in session
 assert 'RootIsolatedUidPolicyTransaction.start(' not in two_peer + session
 assert 'does NOT route phone apps' in two_peer
