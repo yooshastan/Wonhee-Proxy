@@ -54,6 +54,20 @@ assert '"ip rule add' not in link_plan and '"iptables ' not in link_plan
 assert 'connmark' not in session and 'set-mark' not in session
 assert 'RootIsolatedUidPolicyTransaction.start(' not in two_peer + session
 assert 'does NOT route phone apps' in two_peer
+assert 'Check both profiles (no root changes)' in two_peer
+assert 'session::profileReadiness' in two_peer
+assert 'RootTwoPeerProfileReadiness.assess(routes, true)' in session
+assert 'catch (ProfileRejected invalid)' in session
+assert 'invalid.reason.name()' in session
+assert 'No kernel change has been attempted by this check.' in session
+assert 'record("Two-peer Start refused at PROFILE_CHECK:' in session
+assert 'NO JOURNALED TUNNEL STAGES' in session
+profile_check = (repo / "app/src/main/java/com/yooshastan/wonheeproxy/RootTwoPeerProfileReadiness.java").read_text()
+assert 'OVERLAPPING_INTERFACE_ADDRESSES' in profile_check
+assert 'INTERFACE_HOST_PREFIX_REQUIRED' in profile_check
+assert 'IPV4_DEFAULT_ALLOWEDIPS_REQUIRED' in profile_check
+assert 'Do not' in profile_check and 'No root networking was changed' in profile_check
+
 
 assert 'android:label="Wonhee Multi-Exit Readiness"' in manifest
 assert 'android:name=".WonheeDashboardPreviewActivity"' in manifest
@@ -65,9 +79,9 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(110)" in gradle
-assert "output.versionName.set('0.15.62-two-peer-lab')" in gradle
-assert "applicationIdSuffix '.rootlab01562peers'" in gradle
+assert "output.versionCode.set(111)" in gradle
+assert "output.versionName.set('0.15.62-two-peer-profile-check')" in gradle
+assert "applicationIdSuffix '.rootlab01562peersfix1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
 assert "Private DNS" in source and "READ-ONLY" in source
