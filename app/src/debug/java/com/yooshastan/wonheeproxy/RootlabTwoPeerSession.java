@@ -406,8 +406,9 @@ final class RootlabTwoPeerSession {
             // However no journal alone is not proof that the kernel is clean:
             // never attempt a broad name-pattern-based cleanup.
             record("Safe Stop found no owned journal steps; no kernel mutation");
-            return "NO JOURNALED TUNNEL STAGES. This Stop made no kernel changes. "
-                    + "Absence of a journal is NOT an audit of global root networking.";
+            return hookStatus + "\n" + detachedStatus + "\n"
+                    + "NO JOURNALED TUNNEL STAGES. No owned kernel links removed. "
+                    + "Absence of a tunnel journal does NOT audit global networking.";
         }
         Pair pair = loadPair();
         RootIsolatedWireGuardPreferencesJournal journal =
@@ -441,7 +442,8 @@ final class RootlabTwoPeerSession {
         }
         record("Safe Stop: " + result.stage + "; cleanup="
                 + result.cleanupComplete + "; journal=" + result.remainingJournalEntries);
-        return result.summary() + "\n"
+        return hookStatus + "\n" + detachedStatus + "\n"
+                + result.summary() + "\n"
                 + (stagingClean ? "" : "STAGED PRIVATE KEY FILE NEEDS AUDIT. "
                         + "Do not uninstall this lab.\n")
                 + (result.cleanupComplete
