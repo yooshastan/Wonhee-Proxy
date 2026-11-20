@@ -33,7 +33,7 @@ for component in (
     assert component in manifest, f"Debug package must explicitly remove {component}"
 assert manifest.count('tools:node="remove"') >= 7
 
-assert 'android:label="Wonhee Two-Peer Lab"' in manifest
+assert 'android:label="Wonhee Two-Peer Check"' in manifest
 assert 'RootlabTwoPeerActivity' not in production_manifest
 two_peer = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerActivity.java").read_text()
 session = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSession.java").read_text()
