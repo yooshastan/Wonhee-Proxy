@@ -27,6 +27,33 @@ import java.util.ArrayList;
 final class RootIsolatedWireGuardConfigHandoff {
     private RootIsolatedWireGuardConfigHandoff() { }
 
+    /**
+     * Crash-recovery hygiene: remove only a known app-private staging file
+     * whose device is listed in a previously authenticated ownership journal.
+     * This never touches live WireGuard peers, public kernel routes or an
+     * unrelated process's files. Call from Safe Stop, not arbitrary Start.
+     */
+    static void cleanupStaleOwnedFile(Context context, String device)
+            throws Exception {
+        if (context == null || device == null
+                || !device.matches("wnm[0-9a-f]{12}")) {
+            throw new IllegalArgumentException("Invalid staged peer identity.");
+        }
+        File directory = new File(context.getCacheDir(), "isolated-peer-handoff");
+        if (!directory.exists()) return;
+        if (!directory.isDirectory()
+                || java.nio.file.Files.isSymbolicLink(directory.toPath())) {
+            throw new IllegalStateException("Peer staging directory identity changed.");
+        }
+        File stale = new File(directory, device + ".conf");
+        if (!stale.exists()) return;
+        if (!stale.isFile()
+                || java.nio.file.Files.isSymbolicLink(stale.toPath())
+                || !stale.delete()) {
+            throw new IllegalStateException("Cannot remove owned stale peer config.");
+        }
+    }
+
     static void apply(Context context, RootShell shell, String device,
             Config configuration) throws Exception {
         if (context == null || shell == null || configuration == null
