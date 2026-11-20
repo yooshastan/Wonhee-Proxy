@@ -178,6 +178,56 @@ final class RootlabDetachedMokaFirewall {
         verifyChain(shell, plan, 6, applied);
     }
 
+    /**
+     * Validate the five exact-owned chain steps AFTER a separately verified
+     * canonical Moka IPv6 owner hook has been installed. The old detached
+     * validator MUST refuse that hook, so only counter observation calls
+     * this method. It never authorizes new hooks or recovery.
+     */
+    boolean exactStagingPresentWithVerifiedIpv6Hook(int uid, String device)
+            throws Exception {
+        State state = load();
+        if (state == null || state.count != 5
+                || state.plan.uid != uid
+                || !state.plan.homeDevice.equals(device)) {
+            return false;
+        }
+        RootMokaHomeFirewallPilotPlan.Plan plan = state.plan;
+        RootShell shell = new RootShell(context);
+        shell.start();
+        requireDetached(shell, 4);
+        // Any other jump into the IPv6 private chain is a foreign collision.
+        String ipv6 = String.join("\n", read(shell,
+                "ip6tables -w -t filter -S"));
+        String expected = "-A OUTPUT -m owner --uid-owner " + uid
+                + " -m comment --comment "
+                + RootMokaHomeFirewallPilotPlan.TAG6
+                + " -j " + RootMokaHomeFirewallPilotPlan.CHAIN6;
+        int references = 0;
+        for (String line : ipv6.split("\n")) {
+            boolean mentions = line.contains(" -j "
+                    + RootMokaHomeFirewallPilotPlan.CHAIN6)
+                    || line.contains(" -g "
+                    + RootMokaHomeFirewallPilotPlan.CHAIN6)
+                    || line.contains(RootMokaHomeFirewallPilotPlan.TAG6);
+            if (!mentions) continue;
+            String normalized = line.trim().replace("\"", "")
+                    .replaceAll("\\s+", " ");
+            if (!expected.equals(normalized)) {
+                throw new IllegalStateException(
+                        "Unexpected IPv6 chain reference; ownership uncertain.");
+            }
+            references++;
+        }
+        if (references != 1) {
+            throw new IllegalStateException(
+                    "Expected exactly one verified IPv6 owner hook.");
+        }
+        verifyChain(shell, plan, 4, 5);
+        verifyChain(shell, plan, 6, 5);
+        return true;
+    }
+
     String stage(int uid, String device) throws Exception {
         if (pendingOrUnknown(context)) {
             return "DETACHED FIREWALL STAGE REFUSED: existing ownership journal; "
