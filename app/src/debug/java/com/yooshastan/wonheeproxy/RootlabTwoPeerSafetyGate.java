@@ -60,7 +60,8 @@ final class RootlabTwoPeerSafetyGate
                     "Use an active physical network without another Android VPN.");
         }
         if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)
-                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)
+                || RootlabDetachedMokaFirewall.pendingOrUnknown(app)) {
             throw new IllegalStateException(
                     "An old isolated ownership journal needs exact recovery.");
         }
