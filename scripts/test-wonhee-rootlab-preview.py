@@ -63,6 +63,23 @@ assert 'Inspect Moka Home firewall (read-only)' in two_peer
 assert 'session::auditMokaHomeFirewall' in two_peer
 assert 'scroll.setFitsSystemWindows(true)' in two_peer
 assert 'String auditMokaHomeFirewall()' in session
+assert 'String stageDetachedMokaFirewall()' in session
+assert 'session::stageDetachedMokaFirewall' in two_peer
+assert 'Stage detached Moka firewall chains' in two_peer
+assert 'RootlabDetachedMokaFirewall.pendingOrUnknown(app)' in session
+detached = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabDetachedMokaFirewall.java').read_text()
+assert 'No Android app traffic is routed or filtered' in detached
+assert 'journal' in detached.lower() and 'persist(plan, n + 1)' in detached
+assert 'if ("OWNER_ANCHOR".equals(step.kind)) continue' in detached
+assert 'requireDetached(shell, 4)' in detached and 'requireDetached(shell, 6)' in detached
+assert 'verifyPrefix(shell, plan, n + 1)' in detached
+assert 'new RootlabDetachedMokaFirewall(app).recover()' in session
+assert 'new RootlabDetachedMokaFirewall(app).stage(uid, device)' in session
+assert 'RootlabDetachedMokaFirewall.pendingOrUnknown(app)' in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSafetyGate.java'
+).read_text()
+assert '" -I OUTPUT' not in detached and '" -A OUTPUT' not in detached
+
 assert 'RootMokaHomeFirewallPilotTransaction.validate(plan)' in session
 assert 'iptables' in session and 'ip6tables' in session
 assert 'No firewall/routing/DNS changes.' in session
@@ -142,8 +159,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(120)" in gradle
-assert "output.versionName.set('0.15.66-rootlab-firewall-pilot')" in gradle
+assert "output.versionCode.set(121)" in gradle
+assert "output.versionName.set('0.15.67-rootlab-detached-firewall')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
