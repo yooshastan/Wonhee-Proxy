@@ -15,7 +15,9 @@ final class RootTwoPeerProfileReadiness {
     enum Reason {
         READY,
         NEED_TWO_PROFILES,
-        SAME_SERVER_PEER,
+        SAME_SERVER_PEER, // Legacy diagnostic label, no longer a Start condition.
+        SAME_SERVER_ENDPOINT,
+        SAME_CLIENT_IDENTITY,
         OVERLAPPING_INTERFACE_ADDRESSES,
         INTERFACE_HOST_PREFIX_REQUIRED,
         IPV4_DEFAULT_ALLOWEDIPS_REQUIRED,
@@ -25,13 +27,25 @@ final class RootTwoPeerProfileReadiness {
 
     private RootTwoPeerProfileReadiness() { }
 
+    /**
+     * A provider may deliberately use the same remote WireGuard public key
+     * at multiple geographically distinct endpoints. That is not, by itself,
+     * proof of a duplicate server, so validate remote ENDPOINTS instead.
+     *
+     * Distinct client keys and provider-assigned interface addresses remain
+     * required to avoid sharing a WireGuard peer registration across live
+     * tunnels. Neither key nor endpoint ever enters the result string.
+     */
     static Reason assess(List<RootMultiTunnelPlan.Entry> selected,
-            boolean distinctServerPeers) {
+            boolean distinctRemoteEndpoints, boolean distinctLocalClients) {
         if (selected == null || selected.size() != 2) {
             return Reason.NEED_TWO_PROFILES;
         }
-        if (!distinctServerPeers) {
-            return Reason.SAME_SERVER_PEER;
+        if (!distinctRemoteEndpoints) {
+            return Reason.SAME_SERVER_ENDPOINT;
+        }
+        if (!distinctLocalClients) {
+            return Reason.SAME_CLIENT_IDENTITY;
         }
         try {
             RootMultiTunnelPlan.validateIndependentInterfaceAddresses(selected);
@@ -83,8 +97,17 @@ final class RootTwoPeerProfileReadiness {
             case NEED_TWO_PROFILES:
                 return "Import both Exit A and Exit B before Start.";
             case SAME_SERVER_PEER:
-                return "The two profiles specify the same WireGuard server peer. "
-                        + "Generate profiles for two different exit servers.";
+                return "This older app compared server public keys rather than "
+                        + "endpoints. Provider-shared public keys can be legitimate. "
+                        + "Recheck using the newer endpoint-aware validator.";
+            case SAME_SERVER_ENDPOINT:
+                return "Both profiles target the same WireGuard server endpoint. "
+                        + "Select two separate provider exit destinations.";
+            case SAME_CLIENT_IDENTITY:
+                return "Both configurations reuse the same WireGuard client key "
+                        + "pair. Generate a second provider-registered device/key "
+                        + "identity with its own assigned tunnel addresses; "
+                        + "do not edit the private key or interface IP by hand.";
             case OVERLAPPING_INTERFACE_ADDRESSES:
                 return "Exit A and Exit B have overlapping internal WireGuard "
                         + "interface addresses. Generate two provider-assigned "
