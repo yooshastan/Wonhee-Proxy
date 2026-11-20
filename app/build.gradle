@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(122)
-            output.versionName.set('0.15.68-rootlab-moka-ipv6-hook')
+            output.versionCode.set(123)
+            output.versionName.set('0.15.69-rootlab-ipv6-packet-evidence')
         }
     }
 }
