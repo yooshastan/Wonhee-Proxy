@@ -115,13 +115,30 @@ require('new ToolsInstaller(this.context, shell)' in root_kernel_adapter
 require('RootIsolatedWireGuardTransaction.safeStep(step)' in root_kernel_adapter
         and 'RootIsolatedWireGuardConfigHandoff.apply(' in root_kernel_adapter,
         "Only prevalidated steps and secure peer-config handoff may be executed")
-require('wg-quick strip' in config_handoff
-        and 'wg setconf' in config_handoff
+setconf_codec = (java / "RootIsolatedWireGuardSetconfCodec.java").read_text()
+require('RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(' in config_handoff
+        and 'wg setconf ' in config_handoff
+        and '"wg-quick strip ' not in config_handoff
+        and ' | wg setconf' not in config_handoff
+        and ' /dev/stdin' not in config_handoff
         and 'wg-quick up' not in config_handoff
         and 'wg-quick down' not in config_handoff
         and "FileOutputStream" in config_handoff
         and "Arrays.fill(clear" in config_handoff,
-        "Isolated peer configuration must avoid wg-quick route/dns mutations and clear byte arrays")
+        "Peer configuration must use strict app-generated wg setconf, never fragile shell pipes")
+require('key.equals("Address")' in setconf_codec
+        and 'key.equals("DNS")' in setconf_codec
+        and 'key.equals("MTU")' in setconf_codec
+        and 'key.equals("PrivateKey")' in setconf_codec
+        and 'key.equals("PublicKey")' in setconf_codec
+        and 'key.equals("AllowedIPs")' in setconf_codec
+        and 'RootIsolatedWireGuardSetconfCodecTest.java' in
+            (root / ".github/workflows/build.yml").read_text(),
+        "The kernel peer serializer must strip DNS/addresses, preserve WG keys and run CI tests")
+require('failurePhase' in transaction
+        and 'failureCode' in transaction
+        and 'class SafeFailure extends Exception' in transaction,
+        "Transaction must report only sanitized connection failure codes")
 require('RootIsolatedWireGuardKernelListingTest.java' in
         (root / ".github/workflows/build.yml").read_text()
         and 'interfaceKind' in kernel_listing,
