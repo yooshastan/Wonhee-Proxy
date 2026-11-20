@@ -43,18 +43,45 @@ final class RootIsolatedWireGuardTransaction {
         void clearExact(RootIsolatedWireGuardBootstrapPlan.Step step) throws Exception;
     }
 
+    /**
+     * Sanitized, non-secret error code that may be carried into logs.
+     * Never pass original shell stderr, configuration lines or endpoints.
+     */
+    static final class SafeFailure extends Exception {
+        final String code;
+
+        SafeFailure(String code) {
+            super("Isolated peer stage refused");
+            if (code == null || !code.matches("[A-Z0-9_]{3,64}")) {
+                throw new IllegalArgumentException("Invalid safe stage failure code.");
+            }
+            this.code = code;
+        }
+    }
+
     static final class Outcome {
         final boolean connected;
         final boolean cleanupComplete;
         final int remainingJournalEntries;
         final String stage;
+        final String failurePhase;
+        final String failureCode;
 
         Outcome(boolean connected, boolean cleanupComplete,
                 int remainingJournalEntries, String stage) {
+            this(connected, cleanupComplete, remainingJournalEntries, stage,
+                    "NONE", "NONE");
+        }
+
+        Outcome(boolean connected, boolean cleanupComplete,
+                int remainingJournalEntries, String stage,
+                String failurePhase, String failureCode) {
             this.connected = connected;
             this.cleanupComplete = cleanupComplete;
             this.remainingJournalEntries = remainingJournalEntries;
             this.stage = stage;
+            this.failurePhase = failurePhase;
+            this.failureCode = failureCode;
         }
 
         String summary() {
@@ -62,6 +89,8 @@ final class RootIsolatedWireGuardTransaction {
                     : cleanupComplete ? "REFUSED/FAILED; EXACT ROLLBACK COMPLETE"
                     : "REFUSED/FAILED; MANUAL OWNERSHIP AUDIT REQUIRED")
                     + " (stage=" + stage
+                    + "; phase=" + failurePhase
+                    + "; reason=" + failureCode
                     + "; persistent entries=" + remainingJournalEntries + "). "
                     + "This result alone does not prove VPN reachability, "
                     + "Android DNS, private packet paths or kill-switch safety.";
@@ -95,28 +124,40 @@ final class RootIsolatedWireGuardTransaction {
         // A candidate has no authority to relax this requirement.
         kernel.requireActivationPreflight();
         String stage = "PREFLIGHT";
+        String phase = "PRECHECK";
         try {
             for (RootIsolatedWireGuardBootstrapPlan.Step step : plan.steps) {
                 stage = step.kind;
                 if (step == null || !safeStep(step)) {
                     throw new IllegalArgumentException("Unsafe startup plan step.");
                 }
+                phase = "READ_BEFORE";
                 if (kernel.inspect(step) != Presence.ABSENT) {
                     throw new IllegalStateException("Kernel object already exists.");
                 }
                 // A crash at ANY point after this durable write is recoverable.
+                phase = "JOURNAL_INTENT";
                 journal.beforeMutation(step);
+                phase = "KERNEL_APPLY";
                 kernel.apply(step);
+                phase = "READ_AFTER";
                 if (kernel.inspect(step) != Presence.EXACT_OWNED) {
                     throw new IllegalStateException("Applied kernel object unverified.");
                 }
+                phase = "JOURNAL_COMMIT";
                 journal.committed(step);
             }
             // Entries intentionally remain: Safe Stop will consume them.
             return new Outcome(true, false, journal.snapshot().size(), "VERIFIED_STEPS");
         } catch (Exception failure) {
+            // Deliberately expose only a fixed safe enum value or Java
+            // exception class; never error text or root command output.
+            String reason = failure instanceof SafeFailure
+                    ? ((SafeFailure) failure).code
+                    : failure.getClass().getSimpleName();
             boolean clean = recoverOwned(kernel, journal);
-            return new Outcome(false, clean, journal.snapshot().size(), stage);
+            return new Outcome(false, clean, journal.snapshot().size(), stage,
+                    phase, reason);
         }
     }
 
