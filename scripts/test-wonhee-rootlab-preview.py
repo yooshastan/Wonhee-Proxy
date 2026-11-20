@@ -61,6 +61,10 @@ assert 'session.probeTcp(slot, target)' in two_peer
 assert 'Moka → Home routing readiness (read-only)' in two_peer
 assert 'session::previewMokaHomeRouting' in two_peer
 assert 'String previewMokaHomeRouting()' in session
+assert 'RootMokaHomePolicySafetyCase.currentLabGate(' in session
+assert 'FAIL-CLOSED POLICY GATE:' in session
+assert 'RootMokaHomePolicySafetyCaseTest.java' in (repo / '.github/workflows/build.yml').read_text()
+assert 'RootMokaHomePolicySafetyCaseTest.java' in (repo / '.github/workflows/build.yml').read_text()
 assert 'pm list packages -U' in session
 assert 'RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)' in session
 assert 'ACTIVATION LOCKED:' in session
@@ -130,8 +134,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(118)" in gradle
-assert "output.versionName.set('0.15.64-rootlab-moka-readiness')" in gradle
+assert "output.versionCode.set(119)" in gradle
+assert "output.versionName.set('0.15.65-rootlab-home-safety')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
