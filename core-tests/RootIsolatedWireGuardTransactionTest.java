@@ -130,8 +130,10 @@ public final class RootIsolatedWireGuardTransactionTest {
         RootIsolatedWireGuardTransaction.Outcome stopped =
                 RootIsolatedWireGuardTransaction.recover(kernel, journal);
         check(stopped.cleanupComplete && journal.empty() && kernel.installed.isEmpty()
-                        && stopped.stage.equals("CLEAN_STOPPED"),
-                "Safe Stop must reverse all exact-owned stages");
+                        && stopped.stage.equals("CLEAN_STOPPED")
+                        && stopped.summary().startsWith("EXACT-OWNED SAFE STOP COMPLETE")
+                        && !stopped.summary().contains("REFUSED/FAILED"),
+                "Safe Stop must reverse all exact-owned stages and report success");
         check(RootIsolatedWireGuardTransaction.recover(kernel, journal).cleanupComplete,
                 "Repeated Safe Stop must be idempotent");
 
@@ -156,6 +158,8 @@ public final class RootIsolatedWireGuardTransactionTest {
                 RootIsolatedWireGuardTransaction.start(plan, kernel, journal);
         check(!peerFailed.connected && peerFailed.cleanupComplete
                         && journal.empty() && kernel.installed.isEmpty()
+                        && peerFailed.summary().startsWith(
+                                "START REFUSED/FAILED; EXACT ROLLBACK COMPLETE")
                         && peerFailed.stage.equals("PEER_CONFIG")
                         && peerFailed.failurePhase.equals("KERNEL_APPLY")
                         && peerFailed.failureCode.equals("WG_SETCONF_COMMAND_FAILED")
@@ -230,7 +234,9 @@ public final class RootIsolatedWireGuardTransactionTest {
         RootIsolatedWireGuardTransaction.Outcome paused =
                 RootIsolatedWireGuardTransaction.recover(kernel, journal);
         check(!paused.cleanupComplete && !journal.empty()
-                        && kernel.foreign.contains(last) && kernel.undoCalls == 0,
+                        && kernel.foreign.contains(last) && kernel.undoCalls == 0
+                        && paused.summary().startsWith("SAFE STOP PAUSED;")
+                        && paused.summary().contains("OWNERSHIP AUDIT REQUIRED"),
                 "Safe Stop must pause rather than deleting an unowned rule");
         kernel.foreign.remove(last);
         check(RootIsolatedWireGuardTransaction.recover(kernel, journal).cleanupComplete,
