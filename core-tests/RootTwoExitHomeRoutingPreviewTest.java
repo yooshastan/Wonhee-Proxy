@@ -54,6 +54,20 @@ public final class RootTwoExitHomeRoutingPreviewTest {
                         && !preview.summary().contains("10.77.0.0"),
                 "Safe summary makes no leak-proof claims and reveals no internal addresses");
 
+        check(RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                        preview.homeDestinations, "10.0.0.169"),
+                "A target inside configured Home LAN may be probed");
+        check(!RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                        preview.homeDestinations, "1.1.1.1")
+                        && !RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                                preview.homeDestinations, "10.8.0.1")
+                        && !RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                                preview.homeDestinations, "10.0.1.169")
+                        && !RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                                preview.homeDestinations, "10.0.0.169; ip rule flush")
+                        && !RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                                preview.homeDestinations, "navidrome.example.com"),
+                "Home probe must be numeric, private and contained in AllowedIPs");
         reject(exits, profile("Home", "10.6.0.2/32", "0.0.0.0/0"),
                 "Home must not be full-tunnel Internet default");
         reject(exits, profile("Home", "10.6.0.2/32", "::/0"),
