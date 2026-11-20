@@ -46,6 +46,15 @@ final class RootlabTwoPeerSession {
         app = context.getApplicationContext();
     }
 
+    private static final class ProfileRejected extends IllegalArgumentException {
+        final RootTwoPeerProfileReadiness.Reason reason;
+
+        ProfileRejected(RootTwoPeerProfileReadiness.Reason reason) {
+            super(RootTwoPeerProfileReadiness.explain(reason));
+            this.reason = reason;
+        }
+    }
+
     private static final class Pair {
         final RootIsolatedWireGuardBootstrapPlan.Plan plan;
         final Map<String, Config> configurations;
@@ -123,7 +132,8 @@ final class RootlabTwoPeerSession {
             if (SECOND.equals(saved.name)) second = saved;
         }
         if (first == null || second == null) {
-            throw new IllegalStateException("Import both Exit A and Exit B profiles.");
+            throw new ProfileRejected(
+                    RootTwoPeerProfileReadiness.Reason.NEED_TWO_PROFILES);
         }
         Map<String, Config> configs = new HashMap<>();
         List<RootMultiTunnelPlan.Entry> routes = new ArrayList<>();
@@ -140,8 +150,8 @@ final class RootlabTwoPeerSession {
             String publicPeer = parsed.getPeers().get(0)
                     .getPublicKey().toBase64();
             if (!firstPeer.isEmpty() && firstPeer.equals(publicPeer)) {
-                throw new IllegalArgumentException(
-                        "The two exits must use different WireGuard server peers.");
+                throw new ProfileRejected(
+                        RootTwoPeerProfileReadiness.Reason.SAME_SERVER_PEER);
             }
             if (firstPeer.isEmpty()) {
                 firstPeer = publicPeer;
@@ -153,6 +163,11 @@ final class RootlabTwoPeerSession {
             RootMultiTunnelPlan.Entry entry = entry(stored.name, parsed);
             routes.add(entry);
             configs.put(entry.device, parsed);
+        }
+        RootTwoPeerProfileReadiness.Reason check =
+                RootTwoPeerProfileReadiness.assess(routes, true);
+        if (check != RootTwoPeerProfileReadiness.Reason.READY) {
+            throw new ProfileRejected(check);
         }
         return new Pair(RootIsolatedTwoPeerLinkPlan.compile(routes), configs, routes);
     }
@@ -171,10 +186,37 @@ final class RootlabTwoPeerSession {
         return new RootMultiTunnelPlan.Entry(name, peers, hosts);
     }
 
+    String profileReadiness() {
+        try {
+            loadPair(); // parses profile metadata, does NOT request root.
+            return "PROFILE CHECK: READY — "
+                    + RootTwoPeerProfileReadiness.explain(
+                            RootTwoPeerProfileReadiness.Reason.READY)
+                    + "\nNo kernel change has been attempted by this check.";
+        } catch (ProfileRejected invalid) {
+            return "PROFILE CHECK: " + invalid.reason.name() + "\n"
+                    + invalid.getMessage()
+                    + "\nNo kernel change has been attempted by this check.";
+        } catch (Exception invalid) {
+            return "PROFILE CHECK: IMPORTED_CONFIG_PARSE_ERROR\n"
+                    + "The saved profile could not be parsed or securely loaded. "
+                    + "No keys, addresses or exception details are included. "
+                    + "No kernel change was attempted by this check.";
+        }
+    }
+
     String start() throws Exception {
-        record("Two-peer Start requested");
+        record("Two-peer Start requested; validating encrypted profiles");
         try {
             return startImpl();
+        } catch (ProfileRejected invalid) {
+            // This refusal occurs in loadPair(), before any RootShell,
+            // journal write, or kernel mutation in this Start attempt.
+            record("Two-peer Start refused at PROFILE_CHECK: "
+                    + invalid.reason.name() + "; no kernel operation attempted");
+            return "START REFUSED — " + invalid.reason.name() + "\n"
+                    + invalid.getMessage()
+                    + "\nThis attempt stopped before root networking.";
         } catch (Exception failed) {
             // Never persist RootShell/parser exception messages: they could
             // accidentally include a profile line or endpoint IP.
@@ -187,6 +229,7 @@ final class RootlabTwoPeerSession {
 
     private String startImpl() throws Exception {
         Pair pair = loadPair();
+        record("Two-peer PROFILE_CHECK=READY; entering ownership preflight");
         RootIsolatedWireGuardPreferencesJournal journal =
                 new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
         if (!journal.empty()) {
