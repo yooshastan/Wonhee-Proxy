@@ -1159,7 +1159,7 @@ final class RootlabTwoPeerSession {
     String diagnostics() {
         String text = app.getSharedPreferences(LOG_PREF, Context.MODE_PRIVATE)
                 .getString(LOG_KEY, "");
-        return "Wonhee 0.15.70 · TWO EXITS + OPTIONAL HOME LAB (redacted)\n"
+        return "Wonhee 0.15.71 · TWO EXITS + OPTIONAL HOME LAB (redacted)\n"
                 + "Package: " + app.getPackageName() + "\n"
                 + "Android Private DNS: must remain OFF\n"
                 + "No app traffic is steered by this lab.\n"
