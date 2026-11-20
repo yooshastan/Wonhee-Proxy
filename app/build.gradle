@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(117)
-            output.versionName.set('0.15.63-rootlab-bound-tcp-fix1')
+            output.versionCode.set(118)
+            output.versionName.set('0.15.64-rootlab-moka-readiness')
         }
     }
 }
