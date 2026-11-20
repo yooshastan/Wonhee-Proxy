@@ -427,11 +427,20 @@ final class RootlabTwoPeerSession {
             peers.add(parsed);
             out.append(parsed.publicSummary()).append('\n');
         }
-        out.append("Two recent distinct peer handshakes: ")
+        out.append("Two recent distinct Internet peer handshakes: ")
                 .append(RootIsolatedTwoPeerHandshakeAudit.twoRecentDistinct(
-                        peers.get(0), peers.get(1)) ? "YES" : "NOT YET")
-                .append("\nNo app UID, firewall or DNS changes. "
-                        + "Default peer routes are restricted to private tables.");
+                        peers.get(0), peers.get(1)) ? "YES" : "NOT YET");
+        if (peers.size() == 3) {
+            RootIsolatedTwoPeerHandshakeAudit.Peer home = peers.get(2);
+            out.append("\nHome peer handshake: ")
+                    .append(home.identityMatches && home.recentHandshake
+                            ? "VERIFIED" : "NOT YET");
+        } else {
+            out.append("\nHome: not imported (optional WireGuard .conf)");
+        }
+        out.append("\nNo app UID, firewall or DNS changes. "
+                + "Home and Internet peer routes exist only in private tables.");
+
         return out.toString();
     }
 
@@ -446,9 +455,9 @@ final class RootlabTwoPeerSession {
             // IllegalStateException that sounds like a root malfunction.
             record("Bound probes skipped: incomplete tunnel journal stages="
                     + activeSteps + "/" + pair.plan.steps.size());
-            return "PROBE SKIPPED: two peer links are not active (journal "
+            return "PROBE SKIPPED: selected peer links are not active (journal "
                     + activeSteps + "/" + pair.plan.steps.size() + "). "
-                    + "A successful two-peer Start is required first. "
+                    + "A successful link Start is required first. "
                     + "No probe packets were sent.";
         }
         RootShell shell = new RootShell(app);
@@ -459,6 +468,10 @@ final class RootlabTwoPeerSession {
         // interface rather than silently falling back to WiFi/cellular.
         StringBuilder result = new StringBuilder();
         for (RootMultiTunnelPlan.Entry route : pair.entries) {
+            if (HOME.equals(route.name)) {
+                // Home is split-only: never send Internet 1.1.1.1 through it.
+                continue;
+            }
             String dev = route.device;
             List<String> identity = readSafe(shell, "wg show " + dev + " public-key");
             String wanted = pair.configurations.get(dev).getInterface()
@@ -490,6 +503,74 @@ final class RootlabTwoPeerSession {
         return result + status();
     }
 
+    /**
+     * Optional Home-only test against one explicitly entered, numeric
+     * private-LAN host. The imported Home AllowedIPs must include that
+     * address; the exact Home route must be present in private table 51002.
+     * No global route or app UID selector is ever installed. A failed
+     * ICMP probe is not evidence that Navidrome's TCP port is unavailable.
+     */
+    String probeHome(String target) throws Exception {
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3) {
+            return "HOME PROBE SKIPPED: import a separate Home WireGuard .conf. "
+                    + "An existing Tailscale session cannot be used as a WG file.";
+        }
+        RootMultiTunnelPlan.Entry home = pair.entries.get(2);
+        if (!HOME.equals(home.name)
+                || !RootTwoExitHomeRoutingPreview.permitsHomeTarget(
+                        home.peerRoutes, target)) {
+            return "HOME PROBE REFUSED: numeric target must be inside "
+                    + "the imported Home WireGuard private-LAN routes. "
+                    + "No packets were sent.";
+        }
+        RootIsolatedWireGuardPreferencesJournal journal =
+                new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
+        if (journal.snapshot().size() != pair.plan.steps.size()) {
+            return "HOME PROBE SKIPPED: all three owned links must be active. "
+                    + "No packets were sent.";
+        }
+        RootShell shell = new RootShell(app);
+        shell.start();
+        new ToolsInstaller(app, shell).ensureToolsAvailable();
+        String dev = home.device;
+        String wanted = pair.configurations.get(dev).getInterface()
+                .getKeyPair().getPublicKey().toBase64();
+        List<String> actual = readSafe(shell,
+                "wg show " + dev + " public-key");
+        if (actual.size() != 1 || !wanted.equals(actual.get(0).trim())) {
+            return "HOME PROBE REFUSED: owned interface identity differs.";
+        }
+        String routes = String.join("\n", readSafe(shell,
+                "ip -4 route show table 51002"));
+        boolean ownedRoute = false;
+        for (String network : home.peerRoutes) {
+            if (RootIsolatedWireGuardKernelListing.privateRoute(
+                    routes, 4, network, dev)
+                    != RootIsolatedWireGuardKernelListing.Match.EXACT) {
+                return "HOME PROBE REFUSED: exact Home private routes not verified.";
+            }
+            ownedRoute = true;
+        }
+        if (!ownedRoute) return "HOME PROBE REFUSED: no owned Home route.";
+        List<String> lookup = new ArrayList<>();
+        int result = shell.run(lookup,
+                "ip -4 route get " + target + " oif " + dev);
+        if (result != 0 || !String.join(" ", lookup).matches(
+                "(?s).*\\bdev " + dev + "\\b.*")) {
+            return "HOME PROBE REFUSED: kernel did not verify Home output device.";
+        }
+        int pingExit = shell.run(null, "ping -n -I " + dev
+                + " -c 1 -W 2 " + target + " >/dev/null 2>&1");
+        record("Manual Home bound LAN probe: "
+                + (pingExit == 0 ? "replied" : "no ICMP reply")
+                + " (target not logged)");
+        return "HOME bound private LAN probe "
+                + (pingExit == 0 ? "replied" : "attempted (no ICMP reply)")
+                + ". This does not prove TCP/HTTPS access, per-app routing "
+                + "or home-tunnel no-fallback protection.\n" + status();
+    }
+
     private static List<String> readSafe(RootShell shell, String command)
             throws Exception {
         List<String> lines = new ArrayList<>();
@@ -514,7 +595,7 @@ final class RootlabTwoPeerSession {
     String diagnostics() {
         String text = app.getSharedPreferences(LOG_PREF, Context.MODE_PRIVATE)
                 .getString(LOG_KEY, "");
-        return "Wonhee 0.15.62 · TWO PEER LAB (redacted)\n"
+        return "Wonhee 0.15.62 · TWO EXITS + OPTIONAL HOME LAB (redacted)\n"
                 + "Package: " + app.getPackageName() + "\n"
                 + "Android Private DNS: must remain OFF\n"
                 + "No app traffic is steered by this lab.\n"
