@@ -247,6 +247,36 @@ public final class RootIsolatedUidPolicyTransactionTest {
         check(noChanges.writes == 0 && noChanges.preflightCalls == 0
                         && empty.empty(), "Malformed policy never reaches root.");
 
+        // A syntactically valid range is NOT an exact per-app UID selector.
+        // Reject it before root preflight or any policy installation.
+        RootIsolatedUidOnlyPolicyPlan.Step original =
+                plan.uidSelectors.get(0);
+        RootIsolatedUidOnlyPolicyPlan.Step widened =
+                new RootIsolatedUidOnlyPolicyPlan.Step(original.family,
+                        original.kind,
+                        original.add.replace("10341-10341", "10341-10342"),
+                        original.remove.replace("10341-10341", "10341-10342"));
+        check(!RootIsolatedUidPolicyTransaction.safeStep(widened),
+                "UID range that captures another app must be refused.");
+        List<RootIsolatedUidOnlyPolicyPlan.Step> widenedSteps =
+                new ArrayList<>(plan.uidSelectors);
+        widenedSteps.set(0, widened);
+        RootIsolatedUidOnlyPolicyPlan.Plan widenedPlan =
+                new RootIsolatedUidOnlyPolicyPlan.Plan(
+                        plan.blockers, widenedSteps, 2, 2);
+        Kernel rangeKernel = kernelWithPlan(widenedPlan);
+        Journal rangeJournal = new Journal();
+        reject(() -> {
+            try {
+                RootIsolatedUidPolicyTransaction.start(
+                        widenedPlan, rangeKernel, rangeJournal);
+            } catch (RuntimeException runtime) { throw runtime; }
+            catch (Exception checked) { throw new AssertionError(checked); }
+        }, "Widened UID rule must fail before any kernel operation.");
+        check(rangeKernel.writes == 0 && rangeKernel.preflightCalls == 0
+                        && rangeJournal.empty(),
+                "A widened UID range must not reach root.");
+
         System.out.println("RootIsolatedUidPolicyTransactionTest passed");
     }
 }
