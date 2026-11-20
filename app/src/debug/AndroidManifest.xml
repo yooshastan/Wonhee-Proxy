@@ -1,6 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:name=".RootlabApplication"
+        tools:replace="android:name">
+        <!-- This separate debug package cannot auto-register a normal VPN,
+             schedule root recovery jobs, or reconfigure networking at boot. -->
+        <service android:name="com.wireguard.android.backend.GoBackend$VpnService"
+            tools:node="remove" />
+        <service android:name=".VpnTrafficNotificationService"
+            tools:node="remove" />
+        <service android:name=".RootMultiTrafficNotificationService"
+            tools:node="remove" />
+        <service android:name=".VpnRecoveryJobService"
+            tools:node="remove" />
+        <service android:name=".RootMultiRecoveryJobService"
+            tools:node="remove" />
+        <service android:name=".WonheeQuickSettingsTile"
+            tools:node="remove" />
+        <receiver android:name=".RootMultiRecoveryBootReceiver"
+            tools:node="remove" />
+        <activity android:name=".VpnActivity"
+            android:exported="false"
+            tools:replace="android:exported" />
         <!-- Disable the ordinary Connect/Start dashboard in this diagnostic
              variant. This is NOT the live multi-exit beta yet. -->
         <activity
