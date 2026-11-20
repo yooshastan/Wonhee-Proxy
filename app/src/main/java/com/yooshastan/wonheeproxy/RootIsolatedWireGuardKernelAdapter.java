@@ -269,7 +269,17 @@ final class RootIsolatedWireGuardKernelAdapter
             }
             throw new IllegalStateException("Kernel link identity unreadable.");
         }
-        return String.join("\n", result);
+        String shown = String.join("\n", result);
+        if (!shown.matches("(?s).*\\bwireguard\\b.*")) {
+            // Some Android iproute2 builds omit the link kind in -d output.
+            // An exact named 'wg show' read must ALSO succeed before any
+            // fallback can identify this as a WireGuard kernel interface.
+            // Never infer ownership from its wnm prefix alone.
+            if (shell.run(null, "wg show " + device + " public-key >/dev/null 2>&1") == 0) {
+                shown += " wireguard";
+            }
+        }
+        return shown;
     }
 
     private List<String> read(String command) throws Exception {
