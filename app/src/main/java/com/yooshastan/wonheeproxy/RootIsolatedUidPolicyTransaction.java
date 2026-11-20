@@ -3,6 +3,8 @@ package com.yooshastan.wonheeproxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Write-ahead, exact-owned UID-only routing phase for the isolated kernel
@@ -162,10 +164,15 @@ final class RootIsolatedUidPolicyTransaction {
                     && s.remove.equals(s.add.replace(" route add ", " route del "));
         }
         if ("APP_UID".equals(s.kind)) {
-            return s.add.matches(family + " rule add pref 12[89][0-9]{2}"
+            Pattern selector = Pattern.compile(Pattern.quote(family)
+                    + " rule add pref 12[89][0-9]{2}"
                     + " fwmark 0x0/0x20000 iif lo uidrange"
-                    + " (?:[1-9][0-9]{4})-(?:[1-9][0-9]{4})"
-                    + " lookup 5100[0-7]")
+                    + " ([1-9][0-9]{4})-([1-9][0-9]{4})"
+                    + " lookup 5100[0-7]");
+            Matcher match = selector.matcher(s.add);
+            // A range silently captures other apps. Only a single,
+            // explicitly selected non-system UID may be routed.
+            return match.matches() && match.group(1).equals(match.group(2))
                     && s.remove.equals(s.add.replace(" rule add ", " rule del "));
         }
         return false;
