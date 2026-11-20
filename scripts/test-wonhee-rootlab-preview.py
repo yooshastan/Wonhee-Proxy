@@ -18,6 +18,21 @@ manifest = debug_manifest.read_text()
 source = debug_activity.read_text()
 assert 'RootlabReadinessActivity' in manifest
 assert 'RootlabTwoPeerActivity' in manifest
+assert 'android:name=".RootlabApplication"' in manifest
+assert 'tools:replace="android:name"' in manifest
+lab_app = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabApplication.java").read_text()
+assert 'RootMultiRecoveryScheduler' not in lab_app
+assert 'GoBackend.setAlwaysOnCallback' not in lab_app
+for component in (
+    'com.wireguard.android.backend.GoBackend$VpnService',
+    '.RootMultiRecoveryJobService',
+    '.RootMultiRecoveryBootReceiver',
+    '.RootMultiTrafficNotificationService',
+    '.WonheeQuickSettingsTile',
+):
+    assert component in manifest, f"Debug package must explicitly remove {component}"
+assert manifest.count('tools:node="remove"') >= 7
+
 assert 'android:label="Wonhee Two-Peer Lab"' in manifest
 assert 'RootlabTwoPeerActivity' not in production_manifest
 two_peer = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerActivity.java").read_text()
