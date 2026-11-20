@@ -19,6 +19,8 @@ final class RootTwoPeerProfileReadiness {
         SAME_SERVER_ENDPOINT,
         SAME_CLIENT_IDENTITY,
         PEER_SETCONF_FORMAT_UNSUPPORTED,
+        HOME_IDENTITY_CONFLICT,
+        HOME_PRIVATE_LAN_UNSUPPORTED,
         OVERLAPPING_INTERFACE_ADDRESSES,
         INTERFACE_HOST_PREFIX_REQUIRED,
         IPV4_DEFAULT_ALLOWEDIPS_REQUIRED,
@@ -114,6 +116,17 @@ final class RootTwoPeerProfileReadiness {
                         + "setting that this strict link-only serializer does "
                         + "not support. No root networking was attempted. "
                         + "Export the redacted report; never post private keys.";
+            case HOME_IDENTITY_CONFLICT:
+                return "Home must use a separate WireGuard endpoint and "
+                        + "client key identity from Exit A/B. Do not reuse "
+                        + "an AirVPN client profile as Home.";
+            case HOME_PRIVATE_LAN_UNSUPPORTED:
+                return "Home requires an independent WireGuard .conf with "
+                        + "narrow, private IPv4 LAN AllowedIPs (such as a "
+                        + "/24 or /32), non-overlapping local /32 or /128 "
+                        + "addresses, and no 0.0.0.0/0 or ::/0 Internet "
+                        + "default route. A Tailscale connection is not a "
+                        + "WireGuard .conf.";
             case OVERLAPPING_INTERFACE_ADDRESSES:
                 return "Exit A and Exit B have overlapping internal WireGuard "
                         + "interface addresses. Generate two provider-assigned "
