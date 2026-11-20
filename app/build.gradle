@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(116)
-            output.versionName.set('0.15.63-rootlab-bound-tcp')
+            output.versionCode.set(117)
+            output.versionName.set('0.15.63-rootlab-bound-tcp-fix1')
         }
     }
 }
