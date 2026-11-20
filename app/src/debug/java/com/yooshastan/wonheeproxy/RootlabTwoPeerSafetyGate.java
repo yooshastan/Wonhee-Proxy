@@ -1,6 +1,9 @@
 package com.yooshastan.wonheeproxy;
 
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.provider.Settings;
 
 import com.wireguard.android.util.RootShell;
@@ -39,6 +42,22 @@ final class RootlabTwoPeerSafetyGate
         if (!"off".equals(privateDns)) {
             throw new IllegalStateException(
                     "Android Private DNS must remain OFF for this device.");
+        }
+        // A separate Android VpnService could capture WireGuard's root
+        // endpoint sockets and produce a false "independent" handshake.
+        // Refuse a simultaneous Android VPN even though this lab does not
+        // itself request Android VPN permission.
+        ConnectivityManager connectivity = (ConnectivityManager)
+                app.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (connectivity == null) {
+            throw new IllegalStateException("Android network service unavailable.");
+        }
+        Network active = connectivity.getActiveNetwork();
+        NetworkCapabilities caps = active == null
+                ? null : connectivity.getNetworkCapabilities(active);
+        if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+            throw new IllegalStateException(
+                    "Use an active physical network without another Android VPN.");
         }
         if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)
                 || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
