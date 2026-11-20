@@ -6,6 +6,17 @@
         <activity
             android:name=".WonheeDashboardPreviewActivity"
             android:enabled="false" />
+        <!-- Explicitly opted-in, debug-only independent WireGuard link pilot.
+             Neither its label nor its controls claim Android app routing. -->
+        <activity
+            android:name=".RootlabTwoPeerActivity"
+            android:exported="true"
+            android:label="Wonhee Two-Peer Lab">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <!-- RootLab-only separate launcher icon. The official release
              does not include this activity or any new root capability. -->
         <activity
