@@ -519,6 +519,45 @@ mechanism, **not proof** that the pipeline was the sole cause, nor a
 successful live handshake. Treat the next exported redacted
 `stage/phase/reason` as decisive evidence.
 
+## Pixel 8a: two independent peers successfully handshook and stopped
+
+**Device evidence received on 2026-11-20** from RootLab
+`com.yooshastan.wonheeproxy.rootlab01562peersfix4`:
+- Both independently provisioned Exit A and Exit B profiles passed validation,
+  the isolated kernel startup completed **14/14 journaled stages**, and two
+  distinct peers passed public-key identity readback.
+- **Both handshakes were recent**. In the first screen the counters were
+  `rx=92, tx=180` for each peer (handshake ages 6s/5s); after explicit
+  per-interface bound ICMP probes the counters advanced to
+  `rx=220, tx=340` for each (18s/17s).
+- Both bound ICMP tests reported **replied** after the tool's kernel
+  `ip route get ... oif <owned-device>` interface check.
+- User-initiated **Safe Stop** completed with `stage=CLEAN_STOPPED`,
+  `phase=NONE`, `reason=NONE`, and **persistent entries=0**. This
+  verifies exact-owned link-transaction cleanup within the lab's scope,
+  not a full audit of every Android/system network object.
+- The inherited `Outcome.summary()` incorrectly displayed
+  `REFUSED/FAILED` even on clean Safe Stop. Subsequent source change
+  distinguishes successful Safe Stop from failed Start and paused recovery,
+  with core test coverage. The compact peer readout now avoids repeating
+  a privacy disclaimer after every row.
+
+**What this proves:** simultaneous authenticated peer contact, successful
+interface-bound probe replies, journaled isolated private-table startup and
+exact-owned Safe Stop on this phone. This is the first phone-side evidence
+of functional two-peer links in the new 0.15.62 RootLab path.
+
+**What this does NOT prove:** unique public egress country/IP, independently
+verified underlying UDP path for each peer, Android application UID routing,
+DNS ownership, IPv6 fallback safety, per-port overrides, Home third tunnel,
+VPN kill switch, or a signed production-ready APK. RootLab intentionally
+does not install app policy selectors or Android DNS changes.
+
+**Next engineering gate:** verify the phone-side Android routing hooks, true
+per-UID IPv4/IPv6 no-fallback and DNS behavior before enabling a minimal
+explicit opt-in one-app-per-exit routing pilot. Continue to preserve
+the official signed 0.15.61 and keep Android Private DNS OFF.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
