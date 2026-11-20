@@ -19,10 +19,13 @@ import java.util.regex.Pattern;
  * Android root adapter for the isolated WireGuard transaction.
  *
  * NOT WIRED INTO PRODUCTION START/STOP. Constructing this adapter requires a
- * separate SafetyGate that checks a genuine dual-stack, no-leak, no-fallback
- * policy and protected physical WireGuard UDP endpoint before ANY mutation.
- * The project intentionally has no such gate implementation yet. It may not
- * be activated by Home selection, a debug flag or a shell property.
+ * separate SafetyGate before ANY mutation. Production still needs a
+ * genuine dual-stack, no-leak, no-fallback policy and protected physical
+ * WireGuard UDP endpoint; none of those product release gates is implemented.
+ * A debug-only manually opted-in link experiment may instead prove that
+ * NO Android application selector references the new private tables, and
+ * must not expose UID routing, DNS changes or any production Start button.
+ * This is not permission to activate the multi-exit product.
  *
  * This class never writes Android main/legacy routing tables, Android netd
  * fwmarks, mangle chains or system Private DNS. All mutations go through
