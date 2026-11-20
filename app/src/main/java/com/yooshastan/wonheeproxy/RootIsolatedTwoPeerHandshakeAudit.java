@@ -30,11 +30,12 @@ final class RootIsolatedTwoPeerHandshakeAudit {
         }
 
         String publicSummary() {
-            return label + ": peer identity " + (identityMatches ? "verified" : "NOT VERIFIED")
-                    + ", handshake " + (recentHandshake
-                    ? ("recent (" + handshakeAgeSeconds + "s ago)") : "not recent/unknown")
-                    + ", rx=" + bytesReceived + ", tx=" + bytesSent
-                    + ". No application routing or DNS safety claim.";
+            // One compact line per exit. The caller prints the safety
+            // disclaimer once, after both entries, on small phone screens.
+            return label + ": peer " + (identityMatches ? "verified" : "NOT VERIFIED")
+                    + "; handshake " + (recentHandshake
+                    ? (handshakeAgeSeconds + "s ago") : "not recent/unknown")
+                    + "; rx=" + bytesReceived + "; tx=" + bytesSent;
         }
     }
 
