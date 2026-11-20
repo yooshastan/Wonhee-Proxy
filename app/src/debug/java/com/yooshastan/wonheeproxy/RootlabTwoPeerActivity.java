@@ -84,6 +84,17 @@ public final class RootlabTwoPeerActivity extends Activity {
                 () -> choose(PICK_SECOND));
         action(layout, "Import optional Home WireGuard .conf",
                 () -> choose(PICK_HOME));
+        action(layout, "Remove optional Home profile (after Safe Stop)", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Remove Home profile from this RootLab?")
+                        .setMessage("Only the Home configuration in this test "
+                                + "package will be deleted. If any tunnel "
+                                + "ownership journal exists, removal is refused. "
+                                + "Official Wonhee is never changed.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Remove Home", (dialog, which) ->
+                                execute("Remove optional Home", session::removeHomeProfile))
+                        .show());
         action(layout, "Check selected profiles (no root changes)", () ->
                 execute("Two-exit/Home profile compatibility", session::profileReadiness));
         startButton = action(layout, "Start 2 exits + optional Home", this::confirmStart);
