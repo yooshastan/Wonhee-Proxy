@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.70 · IPv6 Packet Counter Fix", 21, true);
+        TextView heading = text("Wonhee 0.15.71 · Home Route Audit", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -216,6 +216,20 @@ public final class RootlabTwoPeerActivity extends Activity {
                         .setPositiveButton("Read counters", (dialog, which) ->
                                 execute("Moka IPv6 firewall counters",
                                         session::readMokaIpv6Counters))
+                        .show());
+        action(layout, "Audit cellular Moka → Home route · read-only", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Inspect Android's Home route selection")
+                        .setMessage("READ ONLY: checks private Home table 51002, "
+                                + "the proposed UID policy priority, and an "
+                                + "Android route-get lookup for Moka UID 10300. "
+                                + "This is NOT a live Moka socket or leak test. "
+                                + "No UID routes, firewall rules, DNS or packet "
+                                + "routing will be activated.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Inspect routing", (dialog, which) ->
+                                execute("Moka Home cellular route audit",
+                                        session::auditMokaHomeRouteSelection))
                         .show());
         action(layout, "Audit proposed Moka IPv4 rule order · read-only", () ->
                 execute("Moka IPv4 enforcement ordering",
