@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(124)
-            output.versionName.set('0.15.70-rootlab-ipv6-counter-fix')
+            output.versionCode.set(125)
+            output.versionName.set('0.15.71-rootlab-home-route-audit')
         }
     }
 }
