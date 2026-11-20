@@ -35,6 +35,7 @@ import java.util.Map;
 final class RootlabTwoPeerSession {
     static final String FIRST = "Exit A";
     static final String SECOND = "Exit B";
+    static final String HOME = "Home";
 
     private static final String LOG_PREF = "wonhee_rootlab_two_peers_redacted_v1";
     private static final String LOG_KEY = "events";
@@ -78,7 +79,8 @@ final class RootlabTwoPeerSession {
     }
 
     String importProfile(String slot, InputStream stream) throws Exception {
-        if (!FIRST.equals(slot) && !SECOND.equals(slot)) {
+        if (!FIRST.equals(slot) && !SECOND.equals(slot)
+                && !HOME.equals(slot)) {
             throw new IllegalArgumentException("Unknown test slot.");
         }
         if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)
@@ -125,11 +127,12 @@ final class RootlabTwoPeerSession {
     }
 
     private Pair loadPair() throws Exception {
-        SecureTunnelProfileStore.Profile first = null, second = null;
+        SecureTunnelProfileStore.Profile first = null, second = null, home = null;
         for (SecureTunnelProfileStore.Profile saved :
                 new SecureTunnelProfileStore(app).load()) {
             if (FIRST.equals(saved.name)) first = saved;
             if (SECOND.equals(saved.name)) second = saved;
+            if (HOME.equals(saved.name)) home = saved;
         }
         if (first == null || second == null) {
             throw new ProfileRejected(
@@ -193,7 +196,49 @@ final class RootlabTwoPeerSession {
         if (check != RootTwoPeerProfileReadiness.Reason.READY) {
             throw new ProfileRejected(check);
         }
-        return new Pair(RootIsolatedTwoPeerLinkPlan.compile(routes), configs, routes);
+        if (home == null) {
+            return new Pair(RootIsolatedTwoPeerLinkPlan.compile(routes), configs, routes);
+        }
+        // Home is OPTIONAL and never a third Internet default.
+        // This is a genuine independent WireGuard config, not a Tailscale
+        // control-plane identity or an invented /32 host.
+        byte[] homeBytes = home.configuration.getBytes(StandardCharsets.UTF_8);
+        Config homeConfig;
+        try { homeConfig = Config.parse(new ByteArrayInputStream(homeBytes)); }
+        finally { Arrays.fill(homeBytes, (byte) 0); }
+        if (homeConfig.getPeers().size() != 1) {
+            throw new IllegalArgumentException("Home requires one WireGuard peer.");
+        }
+        try {
+            RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(
+                    homeConfig.toWgQuickString());
+        } catch (IllegalArgumentException unsafe) {
+            throw new ProfileRejected(
+                    RootTwoPeerProfileReadiness.Reason.PEER_SETCONF_FORMAT_UNSUPPORTED);
+        }
+        String homeEndpoint = homeConfig.getPeers().get(0)
+                .getEndpoint().map(Object::toString).orElse("");
+        String homeLocalKey = homeConfig.getInterface().getKeyPair()
+                .getPublicKey().toBase64();
+        if (homeEndpoint.isEmpty()) {
+            throw new IllegalArgumentException("Home has no server endpoint.");
+        }
+        for (Config internetConfig : configs.values()) {
+            String endpoint = internetConfig.getPeers().get(0)
+                    .getEndpoint().map(Object::toString).orElse("");
+            String localKey = internetConfig.getInterface().getKeyPair()
+                    .getPublicKey().toBase64();
+            if (homeEndpoint.equals(endpoint) || homeLocalKey.equals(localKey)) {
+                throw new IllegalArgumentException(
+                        "Home must have an independently provisioned peer/client identity.");
+            }
+        }
+        RootMultiTunnelPlan.Entry homeRoute = entry(HOME, homeConfig);
+        RootIsolatedWireGuardBootstrapPlan.Plan triple =
+                RootIsolatedThreePeerLinkPlan.compile(routes, homeRoute);
+        configs.put(homeRoute.device, homeConfig);
+        routes.add(homeRoute);
+        return new Pair(triple, configs, routes);
     }
 
     private static RootMultiTunnelPlan.Entry entry(String name, Config config) {
