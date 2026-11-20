@@ -112,6 +112,10 @@ public final class RootlabTwoPeerActivity extends Activity {
                         .setPositiveButton("Probe", (dialog, which) ->
                                 execute("Bound test probes", session::probe))
                         .show());
+        action(layout, "Probe Exit A TCP/HTTPS · bound (optional)", () ->
+                confirmTcpProbe(RootlabTwoPeerSession.FIRST, "1.1.1.1:443"));
+        action(layout, "Probe Exit B TCP/HTTPS · bound (optional)", () ->
+                confirmTcpProbe(RootlabTwoPeerSession.SECOND, "1.1.1.1:443"));
         homeTarget = new EditText(this);
         homeTarget.setSingleLine(true);
         homeTarget.setHint("Numeric Home LAN host · e.g. 10.0.0.169");
@@ -131,6 +135,9 @@ public final class RootlabTwoPeerActivity extends Activity {
                             execute("Bound Home test probe",
                                     () -> session.probeHome(target));
                         }).show());
+        action(layout, "Probe Home Navidrome TCP/HTTP · bound (optional)", () ->
+                confirmTcpProbe(RootlabTwoPeerSession.HOME,
+                        homeTarget.getText().toString().trim() + ":4533"));
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
@@ -234,6 +241,24 @@ public final class RootlabTwoPeerActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Start links", (dialog, which) ->
                         execute("Multi-link kernel Start", session::start))
+                .show();
+    }
+
+    private void confirmTcpProbe(String slot, String target) {
+        if (WORKING.get()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Optional interface-bound TCP test · " + slot)
+                .setMessage("Only send a numeric TCP/HTTP diagnostic through "
+                        + "the verified WireGuard interface. The test checks "
+                        + "owned routes and uses root curl --interface when "
+                        + "available; otherwise it refuses. It never adds "
+                        + "app UID, DNS or firewall rules, and does not prove "
+                        + "kill-switch or no-fallback safety. "
+                        + "Target: " + target)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Test TCP", (dialog, which) ->
+                        execute("Bound " + slot + " TCP probe",
+                                () -> session.probeTcp(slot, target)))
                 .show();
     }
 
