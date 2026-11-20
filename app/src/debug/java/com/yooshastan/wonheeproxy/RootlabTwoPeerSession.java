@@ -519,6 +519,86 @@ final class RootlabTwoPeerSession {
                 + "No DNS, IPv4/IPv6 rules, firewall, or VPN configuration changed.";
     }
 
+    /**
+     * READ ONLY: inspect Android's existing dual-stack filter OUTPUT hooks
+     * and compile a canonical future firewall transaction. No -N/-A/-I/-D
+     * or policy routing commands execute here.
+     */
+    String auditMokaHomeFirewall() throws Exception {
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
+            return "FIREWALL PILOT REFUSED: a separate Home profile is required.";
+        }
+        String preliminary = previewMokaHomeRouting();
+        if (!preliminary.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")) {
+            return "FIREWALL PILOT REFUSED: Moka/Home identity or journal is not ready.";
+        }
+        // The earlier preflight emits the UID after checking a unique Moka
+        // package match. Never silently use UID 10300 across devices.
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preliminary);
+        if (!found.find()) {
+            return "FIREWALL PILOT REFUSED: cannot establish the Moka UID.";
+        }
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        RootMokaHomeFirewallPilotPlan.Plan plan =
+                RootMokaHomeFirewallPilotPlan.compile(uid, device);
+        RootMokaHomeFirewallPilotTransaction.validate(plan);
+        RootShell shell = new RootShell(app);
+        shell.start();
+        StringBuilder result = new StringBuilder(
+                "MOKA HOME FIREWALL DEVICE INVENTORY (READ-ONLY)\n");
+        boolean complete = true;
+        for (int family : new int[]{4, 6}) {
+            String tool = family == 4 ? "iptables" : "ip6tables";
+            String chain = family == 4
+                    ? RootMokaHomeFirewallPilotPlan.CHAIN4
+                    : RootMokaHomeFirewallPilotPlan.CHAIN6;
+            List<String> output = new ArrayList<>();
+            int outputCode = shell.run(output,
+                    tool + " -w -t filter -S OUTPUT 2>/dev/null");
+            boolean readable = outputCode == 0 && !output.isEmpty();
+            // A stale/foreign exact-name chain must never be adopted.
+            boolean reservedChainPresent =
+                    shell.run(null, tool + " -w -t filter -S " + chain
+                            + " >/dev/null 2>&1") == 0;
+            String outputText = String.join("\n", output);
+            boolean reservedOutputHook = outputText.contains(
+                    family == 4 ? RootMokaHomeFirewallPilotPlan.TAG4
+                            : RootMokaHomeFirewallPilotPlan.TAG6)
+                    || outputText.contains(" -j " + chain);
+            boolean ownerHelp = shell.run(null,
+                    tool + " -m owner -h >/dev/null 2>&1") == 0;
+            boolean commentHelp = shell.run(null,
+                    tool + " -m comment -h >/dev/null 2>&1") == 0;
+            complete &= readable && !reservedChainPresent
+                    && !reservedOutputHook && ownerHelp && commentHelp;
+            result.append("IPv").append(family).append(": OUTPUT ")
+                    .append(readable ? "READABLE" : "UNVERIFIED")
+                    .append("; reserved name ")
+                    .append(reservedChainPresent || reservedOutputHook
+                            ? "OCCUPIED — REFUSE" : "NOT OBSERVED")
+                    .append("; owner/comment syntax ")
+                    .append(ownerHelp && commentHelp ? "ADVERTISED" : "UNVERIFIED")
+                    .append('\n');
+        }
+        result.append(plan.summary()).append('\n');
+        result.append("CANONICAL WRITE-AHEAD ORDER: two chains, IPv4 Home allow, ")
+                .append("dual-stack terminal reject, then two UID OUTPUT hooks.\n");
+        result.append("DEVICE PRECHECK: ")
+                .append(complete ? "NO IMMEDIATE COLLISION OBSERVED"
+                        : "NOT READY / REQUIRES MANUAL AUDIT")
+                .append(". This is NOT packet evidence or approval to apply rules.\n")
+                .append("ACTIVATION LOCKED: kernel backend, durable ownership, ")
+                .append("packet-level IPv4/IPv6 no-fallback, DNS and crash recovery ")
+                .append("are not yet verified. No firewall/routing/DNS changes.");
+        record("Moka Home firewall inventory completed; preview only; "
+                + (complete ? "syntax observed" : "refusal/unknown"));
+        return result.toString();
+    }
+
     String status() throws Exception {
         Pair pair = loadPair();
         RootShell shell = new RootShell(app);
