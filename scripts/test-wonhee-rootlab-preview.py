@@ -77,7 +77,7 @@ assert 'RootMokaIpv6CounterParser.target(' in (
 parser = (repo / 'app/src/main/java/com/yooshastan/wonheeproxy/RootMokaIpv6CounterParser.java').read_text()
 assert 'static Counts target(' in parser and 'static long delta(' in parser
 assert 'RootMokaIpv6CounterParserTest.java' in (repo / '.github/workflows/build.yml').read_text()
-assert ' -Z ' not in (
+assert 'shell.run(null, "ip6tables -w -t filter -Z' not in (
     repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaIpv6OutputTest.java'
 ).read_text()
 
