@@ -558,6 +558,41 @@ per-UID IPv4/IPv6 no-fallback and DNS behavior before enabling a minimal
 explicit opt-in one-app-per-exit routing pilot. Continue to preserve
 the official signed 0.15.61 and keep Android Private DNS OFF.
 
+## Third Home split-tunnel: staged now, activation explicitly blocked
+
+Following successful simultaneous peer handshakes and exact Safe Stop
+on Pixel 8a, the next product goal is **two full-Internet exit tunnels
+plus a separate Home access tunnel**. Home is for LAN destinations such
+as the home Navidrome service and MUST NOT silently become a third
+default Internet route.
+
+Added `RootTwoExitHomeRoutingPreview`: a **pure, non-executing**
+three-profile contract that preserves the working two-Internet peer
+planner and reserves **Home private table 51002**. In a future
+verified kernel policy, explicit Home-destination lookups would have
+higher priority than per-app Internet-exit selection and a persistent
+terminal destination block would prevent fallback to the Internet
+tables if Home went down. The preview accepts narrowly scoped,
+canonical RFC1918 IPv4 LAN destinations (a /24 or narrower),
+rejects `0.0.0.0/0`, public networks, overlapping/duplicate
+destinations and overlapping WireGuard interface addresses.
+The code is **not connected to the RootLab Start, Android IP rules,
+DNS, firewall or ordinary device routing**; it does not claim
+that Android honors this intended precedence or fail-closed behavior.
+CI tests cover valid Home + two Internet exits, duplicate profiles,
+non-private/broad routes and accidental overlaps.
+
+Before enabling a *third live tunnel*, the actual Home transport must
+be confirmed as an independently reachable WireGuard peer with its
+own valid config (a Tailscale-only home connection cannot be imported
+as an ordinary WireGuard .conf without a separate implementation).
+Further gates: exact home-owned journal + route rollback; established
+remote home handshake; home destination route identity; fail-closed
+proof when Home drops; Android netd/fwmask precedence checks;
+DNS handling; and acceptance testing of the home-only service.
+The first per-app two-exit pilot must also pass real IPv4/IPv6
+no-fallback tests before enabling routing for ordinary apps.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
