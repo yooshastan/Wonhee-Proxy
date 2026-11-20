@@ -65,6 +65,22 @@ assert 'scroll.setFitsSystemWindows(true)' in two_peer
 assert 'String auditMokaHomeFirewall()' in session
 assert 'String stageDetachedMokaFirewall()' in session
 assert 'String attachMokaIpv6Hook()' in session
+assert 'String readMokaIpv6Counters()' in session
+assert 'String previewMokaIpv4Order()' in session
+assert 'session::readMokaIpv6Counters' in two_peer
+assert 'session::previewMokaIpv4Order' in two_peer
+assert 'Read Moka IPv6 REJECT counters' in two_peer
+assert 'Audit proposed Moka IPv4 rule order' in two_peer
+assert 'RootMokaIpv6CounterParser.target(' in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaIpv6OutputTest.java'
+).read_text()
+parser = (repo / 'app/src/main/java/com/yooshastan/wonheeproxy/RootMokaIpv6CounterParser.java').read_text()
+assert 'static Counts target(' in parser and 'static long delta(' in parser
+assert 'RootMokaIpv6CounterParserTest.java' in (repo / '.github/workflows/build.yml').read_text()
+assert ' -Z ' not in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaIpv6OutputTest.java'
+).read_text()
+
 assert 'session::attachMokaIpv6Hook' in two_peer
 assert 'Attach Moka IPv6 OUTPUT guard' in two_peer
 hook = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaIpv6OutputTest.java').read_text()
@@ -176,8 +192,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(122)" in gradle
-assert "output.versionName.set('0.15.68-rootlab-moka-ipv6-hook')" in gradle
+assert "output.versionCode.set(123)" in gradle
+assert "output.versionName.set('0.15.69-rootlab-ipv6-packet-evidence')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
