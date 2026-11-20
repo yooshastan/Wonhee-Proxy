@@ -33,7 +33,7 @@ for component in (
     assert component in manifest, f"Debug package must explicitly remove {component}"
 assert manifest.count('tools:node="remove"') >= 7
 
-assert 'android:label="Wonhee Two-Peer Check"' in manifest
+assert 'android:label="Wonhee Two-Peer Identity Check"' in manifest
 assert 'RootlabTwoPeerActivity' not in production_manifest
 two_peer = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerActivity.java").read_text()
 session = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSession.java").read_text()
@@ -83,9 +83,9 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(111)" in gradle
-assert "output.versionName.set('0.15.62-two-peer-profile-check')" in gradle
-assert "applicationIdSuffix '.rootlab01562peersfix1'" in gradle
+assert "output.versionCode.set(112)" in gradle
+assert "output.versionName.set('0.15.62-two-peer-identity-check')" in gradle
+assert "applicationIdSuffix '.rootlab01562peersfix2'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
 assert "Private DNS" in source and "READ-ONLY" in source
