@@ -471,7 +471,7 @@ final class RootlabTwoPeerSession {
         }
         List<String> lookup = readSafe(shell,
                 "ip -4 route get 10.0.0.169 oif " + device);
-        if (lookup.size() != 1 || !lookup.get(0).contains("dev " + device)) {
+        if (lookup.isEmpty() || !String.join(" ", lookup).contains("dev " + device)) {
             return "MOKA HOME ROUTING READINESS: REFUSED — Home route lookup mismatch.";
         }
 
