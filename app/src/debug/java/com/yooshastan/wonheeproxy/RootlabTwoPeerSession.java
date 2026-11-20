@@ -137,7 +137,10 @@ final class RootlabTwoPeerSession {
         }
         Map<String, Config> configs = new HashMap<>();
         List<RootMultiTunnelPlan.Entry> routes = new ArrayList<>();
-        String firstPeer = "";
+        String firstEndpoint = "";
+        String firstLocalKey = "";
+        boolean differentEndpoints = true;
+        boolean differentClientKeys = true;
         for (SecureTunnelProfileStore.Profile stored :
                 Arrays.asList(first, second)) {
             byte[] clear = stored.configuration.getBytes(StandardCharsets.UTF_8);
@@ -147,25 +150,34 @@ final class RootlabTwoPeerSession {
             if (parsed.getPeers().size() != 1) {
                 throw new IllegalArgumentException("Each exit requires exactly one peer.");
             }
-            String publicPeer = parsed.getPeers().get(0)
+            // A provider can legitimately publish one server peer key for
+            // multiple regional endpoints. Compare ENDPOINT strings and the
+            // local client public identity, not the server's public key.
+            // Neither string is ever persisted in the diagnostics report.
+            String endpoint = parsed.getPeers().get(0)
+                    .getEndpoint().map(Object::toString).orElse("");
+            String localKey = parsed.getInterface().getKeyPair()
                     .getPublicKey().toBase64();
-            if (!firstPeer.isEmpty() && firstPeer.equals(publicPeer)) {
+            if (endpoint.isEmpty()) {
                 throw new ProfileRejected(
-                        RootTwoPeerProfileReadiness.Reason.SAME_SERVER_PEER);
+                        RootTwoPeerProfileReadiness.Reason.INVALID_OR_AMBIGUOUS_PLAN);
             }
-            if (firstPeer.isEmpty()) {
-                firstPeer = publicPeer;
+            if (firstEndpoint.isEmpty()) {
+                firstEndpoint = endpoint;
+                firstLocalKey = localKey;
+            } else {
+                differentEndpoints = !firstEndpoint.equals(endpoint);
+                differentClientKeys = !firstLocalKey.equals(localKey);
             }
-            // Many VPN providers intentionally reuse a client's local key
-            // across regions. This is okay for two separate named links,
-            // provided the remote peer and interface host addresses differ.
-            // The link-only compiler enforces non-overlapping local addresses.
+            // The compiler separately requires disjoint provider-assigned
+            // IPv4/IPv6 interface hosts. We never invent new tunnel addresses.
             RootMultiTunnelPlan.Entry entry = entry(stored.name, parsed);
             routes.add(entry);
             configs.put(entry.device, parsed);
         }
         RootTwoPeerProfileReadiness.Reason check =
-                RootTwoPeerProfileReadiness.assess(routes, true);
+                RootTwoPeerProfileReadiness.assess(
+                        routes, differentEndpoints, differentClientKeys);
         if (check != RootTwoPeerProfileReadiness.Reason.READY) {
             throw new ProfileRejected(check);
         }
