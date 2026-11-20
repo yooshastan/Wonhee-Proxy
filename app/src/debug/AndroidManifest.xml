@@ -33,7 +33,7 @@
         <activity
             android:name=".RootlabTwoPeerActivity"
             android:exported="true"
-            android:label="Wonhee Two-Peer PSK Fix">
+            android:label="Wonhee Two Exits + Home Lab">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
