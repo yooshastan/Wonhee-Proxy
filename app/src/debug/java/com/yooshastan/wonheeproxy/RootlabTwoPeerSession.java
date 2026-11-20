@@ -582,6 +582,81 @@ final class RootlabTwoPeerSession {
         return result;
     }
 
+    /**
+     * Read-only exact counters from the Moka IPv6 hook and its private
+     * terminal REJECT. Caller may take before/after snapshots manually.
+     */
+    String readMokaIpv6Counters() throws Exception {
+        String result = new RootlabMokaIpv6OutputTest(app).readCounters();
+        record("Moka IPv6 counter snapshot: "
+                + (result.startsWith("MOKA IPv6 PACKET COUNTERS")
+                    ? "EXACT_OWNER_READ_ONLY" : "NOT_READY_OR_UNVERIFIED"));
+        return result;
+    }
+
+    /**
+     * IPv4 policy ordering audit, no IPv4 OUTPUT hook is installed.
+     * A precompiled permit is not yet verified app routing.
+     */
+    String previewMokaIpv4Order() throws Exception {
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "MOKA IPv4 PLAN REFUSED: Home or installed app identity changed.";
+        }
+        Pair pair = loadPair();
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        RootMokaHomeFirewallPilotPlan.Plan plan =
+                RootMokaHomeFirewallPilotPlan.compile(uid, device);
+        RootMokaHomeFirewallPilotTransaction.validate(plan);
+        String allow = null;
+        String reject = null;
+        String anchor = null;
+        for (RootMokaHomeFirewallPilotPlan.Step step : plan.steps) {
+            if (step.family != 4) continue;
+            if ("ALLOW_HOME_ONLY".equals(step.kind)) allow = step.install;
+            if ("TERMINAL_DENY".equals(step.kind)) reject = step.install;
+            if ("OWNER_ANCHOR".equals(step.kind)) anchor = step.install;
+        }
+        if (allow == null || reject == null || anchor == null
+                || !allow.contains("-o " + device)
+                || !allow.contains("-d 10.0.0.169/32")
+                || !allow.contains("--dport 4533")) {
+            return "MOKA IPv4 PLAN REFUSED: noncanonical Home TCP scope.";
+        }
+        RootShell shell = new RootShell(app);
+        shell.start();
+        List<String> output = new ArrayList<>();
+        if (shell.run(output, "iptables -w -t filter -S OUTPUT") != 0
+                || output.isEmpty()) {
+            return "MOKA IPv4 PLAN REFUSED: cannot inventory existing OUTPUT.";
+        }
+        String outputRules = String.join("\n", output);
+        boolean existingHook = outputRules.contains(
+                RootMokaHomeFirewallPilotPlan.TAG4)
+                || outputRules.contains(" -j "
+                        + RootMokaHomeFirewallPilotPlan.CHAIN4);
+        return "MOKA IPv4 ENFORCEMENT ORDER (READ ONLY)\n"
+                + "UID: " + uid + "; Home interface identity: VERIFIED\n"
+                + "1. Exact permit: TCP 10.0.0.169:4533, output "
+                        + "only through verified Home interface\n"
+                + "2. Terminal REJECT: all other Moka IPv4 output\n"
+                + "3. UID OUTPUT hook: would be installed only after "
+                        + "dual-stack ordering/recovery proof\n"
+                + "Current IPv4 OUTPUT collision: "
+                        + (existingHook ? "OBSERVED — DO NOT ATTACH"
+                                : "NOT OBSERVED") + "\n"
+                + "NO IPv4 rules or packet routes changed. Permit RETURN "
+                + "is NOT proof of safe next-chain behavior or Home-only "
+                + "routing. No fallback, IPv6 coverage, underlay, DNS and "
+                + "Android fwmark ownership remain unverified. "
+                + "IPv4 activation LOCKED.";
+    }
+
     String stageDetachedMokaFirewall() throws Exception {
         String inventory = auditMokaHomeFirewall();
         if (!inventory.contains("DEVICE PRECHECK: NO IMMEDIATE COLLISION OBSERVED")) {
