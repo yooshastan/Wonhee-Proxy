@@ -127,7 +127,7 @@ final class RootlabTwoPeerSession {
         }
         Map<String, Config> configs = new HashMap<>();
         List<RootMultiTunnelPlan.Entry> routes = new ArrayList<>();
-        String firstPeer = "", firstInterface = "";
+        String firstPeer = "";
         for (SecureTunnelProfileStore.Profile stored :
                 Arrays.asList(first, second)) {
             byte[] clear = stored.configuration.getBytes(StandardCharsets.UTF_8);
@@ -137,20 +137,19 @@ final class RootlabTwoPeerSession {
             if (parsed.getPeers().size() != 1) {
                 throw new IllegalArgumentException("Each exit requires exactly one peer.");
             }
-            String publicInterface = parsed.getInterface().getKeyPair()
-                    .getPublicKey().toBase64();
             String publicPeer = parsed.getPeers().get(0)
                     .getPublicKey().toBase64();
-            if (!firstPeer.isEmpty()
-                    && (firstPeer.equals(publicPeer)
-                    || firstInterface.equals(publicInterface))) {
-                throw new IllegalArgumentException("The two exits must have "
-                        + "independent local and remote WireGuard identities.");
+            if (!firstPeer.isEmpty() && firstPeer.equals(publicPeer)) {
+                throw new IllegalArgumentException(
+                        "The two exits must use different WireGuard server peers.");
             }
             if (firstPeer.isEmpty()) {
                 firstPeer = publicPeer;
-                firstInterface = publicInterface;
             }
+            // Many VPN providers intentionally reuse a client's local key
+            // across regions. This is okay for two separate named links,
+            // provided the remote peer and interface host addresses differ.
+            // The link-only compiler enforces non-overlapping local addresses.
             RootMultiTunnelPlan.Entry entry = entry(stored.name, parsed);
             routes.add(entry);
             configs.put(entry.device, parsed);
