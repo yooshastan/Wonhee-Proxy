@@ -61,7 +61,8 @@ final class RootlabTwoPeerSafetyGate
         }
         if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)
                 || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)
-                || RootlabDetachedMokaFirewall.pendingOrUnknown(app)) {
+                || RootlabDetachedMokaFirewall.pendingOrUnknown(app)
+                || RootlabMokaIpv6OutputTest.pendingOrUnknown(app)) {
             throw new IllegalStateException(
                     "An old isolated ownership journal needs exact recovery.");
         }
