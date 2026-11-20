@@ -54,6 +54,18 @@ assert 'new SecureTunnelProfileStore(app).delete(HOME)' in session
 assert 'removeHomeProfile()' in session
 assert 'Import optional Home WireGuard .conf' in two_peer
 assert 'Probe Home host over Home interface' in two_peer
+assert 'Probe Exit A TCP/HTTPS' in two_peer
+assert 'Probe Exit B TCP/HTTPS' in two_peer
+assert 'Probe Home Navidrome TCP/HTTP' in two_peer
+assert 'session.probeTcp(slot, target)' in two_peer
+assert 'String probeTcp(String slot, String target)' in session
+assert 'RootTcpProbeTarget.parse(target)' in session
+assert 'command -v curl >/dev/null' in session
+assert '--interface ' in session and '--connect-timeout 3' in session
+assert "No TCP connection attempted." in session
+assert 'RootIsolatedWireGuardKernelListing.privateRoute(' in session
+assert 'RootIsolatedWireGuardPreferencesJournal(app, pair.plan)' in session
+assert 'RootIsolatedUidPolicyTransaction.start(' not in session
 assert 'Safe Stop ALL selected test links' in two_peer
 third_link = (repo / "app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedThreePeerLinkPlan.java").read_text()
 assert '"PRIVATE_ROUTE"' in third_link and 'HOME_TABLE' in third_link
@@ -108,8 +120,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(115)" in gradle
-assert "output.versionName.set('0.15.62-two-exit-home-link')" in gradle
+assert "output.versionCode.set(116)" in gradle
+assert "output.versionName.set('0.15.63-rootlab-bound-tcp')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
