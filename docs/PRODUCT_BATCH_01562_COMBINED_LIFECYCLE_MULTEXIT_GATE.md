@@ -593,6 +593,51 @@ DNS handling; and acceptance testing of the home-only service.
 The first per-app two-exit pilot must also pass real IPv4/IPv6
 no-fallback tests before enabling routing for ordinary apps.
 
+## 0.15.62 optional three-WireGuard-link functional RootLab APK
+
+After real Pixel 8a proof of two independently handshaking AirVPN exits and
+clean Safe Stop, this batch adds a **third independent Home WireGuard link
+option**, without activating per-application routing.
+
+- New `RootIsolatedThreePeerLinkPlan` preserves the 14 proven Internet
+  stages and appends journaled Home `LINK_CREATE`, `PEER_CONFIG`,
+  host-address `/32` or `/128`, `LINK_UP`, and private route stages.
+  Home uses table **51002** and only canonical private IPv4 /24-or-narrower
+  destinations from a separately provisioned Home WireGuard `.conf`.
+  Home is *never* an extra `0.0.0.0/0` default, and no app policy
+  selectors, ordinary Android routes, DNS or firewall rules are modified.
+- The side-by-side debug UI retains Import Exit A/B, Start, handshake status,
+  bound Internet probes, exact Safe Stop and redacted log export. It now
+  offers **Import optional Home**, a separate numeric Home-LAN probe
+  verified against Home AllowedIPs and private route readback, and guarded
+  **Remove optional Home**. Without Home imported, the tested two-Internet
+  engine and plan are unchanged.
+- Loading Home checks its independent endpoint and local client identity,
+  full strict peer config, non-overlapping local interface addresses, and
+  narrow private LAN destinations. Failed/ambiguous profiles cannot
+  activate root startup; raw keys/addresses/endpoints never reach logs.
+  The full three-link kernel transaction uses the same exact-owned,
+  fingerprinted journal and reverse-order Safe Stop.
+- Additional pure-Java tests verify Home private table, intact two-peer
+  stages, no IPv4/IPv6 Internet-default fallback from Home, local route
+  CIDR constraints, unique interfaces, reverse cleanup, and Home probe
+  target inclusion. Static CI checks enforce debug-only components and
+  absence of per-app mutation.
+
+**Important**: The Home peer may not yet exist as a standard WireGuard
+server. The user's home networking has previously depended on Tailscale
+after a separate WireGuard experiment failed; Tailscale network status
+does not mean a valid third WireGuard `.conf` exists. The APK cannot
+import a Tailscale account as a WireGuard peer.
+
+**Proven on device so far:** two Internet WireGuard links, two recent
+handshakes and interface-bound replies, exact-owned Safe Stop. **Still
+unproven:** three simultaneous real Home/Internet handshakes,
+LAN/Navidrome reachability, Android UID steering, independent exit egress
+country, DNS isolation, port/protocol precedence, IPv6 and tunnel-down
+no-fallback behavior. Do not claim a working multi-exit VPN or a
+production-signed update until these are demonstrated.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
