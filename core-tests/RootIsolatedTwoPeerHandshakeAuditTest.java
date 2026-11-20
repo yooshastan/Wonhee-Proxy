@@ -32,8 +32,10 @@ public final class RootIsolatedTwoPeerHandshakeAuditTest {
         check(!eu.publicSummary().contains(EU_KEY)
                         && !us.publicSummary().contains(US_KEY)
                         && !eu.publicSummary().contains("endpoint")
-                        && eu.publicSummary().contains("No application routing"),
-                "No peer keys, endpoints or routing claims in exported audit");
+                        && !eu.publicSummary().contains("DNS safety")
+                        && eu.publicSummary().contains("handshake 50s ago")
+                        && eu.publicSummary().contains("rx=17000"),
+                "Concise readout has verified state/counters but no secrets or repeated disclaimer");
 
         check(!RootIsolatedTwoPeerHandshakeAudit.twoRecentDistinct(
                         eu, peer("America", US_KEY, 1000)),
