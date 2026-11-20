@@ -499,12 +499,19 @@ final class RootlabTwoPeerSession {
         // A route lookup alone cannot prove no-fallback under link loss,
         // IPv6 coverage, or Android fwmark ownership. Those protections
         // must have a dedicated exact-owned policy transaction before Start.
-        record("Moka Home UID inventory verified; PREVIEW_ONLY; no UID policy");
+        RootMokaHomePolicySafetyCase.Gate policyGate =
+                RootMokaHomePolicySafetyCase.currentLabGate(
+                        Integer.parseInt(mokaUid), true);
+        record("Moka Home UID inventory verified; policy gate="
+                + policyGate.name() + "; PREVIEW_ONLY; no UID policy");
         return "MOKA -> HOME READ-ONLY PREFLIGHT\n"
                 + "Installed Moka candidate: unique; UID " + mokaUid + "\n"
                 + "Home profile, identity, exact-owned journal: VERIFIED\n"
                 + "Home private table 51002 and route to 10.0.0.169: VERIFIED\n"
                 + "Planned destination: TCP 10.0.0.169:4533 only\n"
+                + "FAIL-CLOSED POLICY GATE: " + policyGate.name() + "\\n"
+                + "Failure simulations: IPv4/IPv6 deny, underlay, TCP scope, "
+                + "DNS, crash recovery, Safe Stop, link loss (CI only).\\n"
                 + "ACTIVATION LOCKED: no exact-owned UID policy, dual-stack "
                 + "fail-closed firewall, underlay protection or crash recovery "
                 + "proof in this lab.\n"
