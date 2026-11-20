@@ -17,6 +17,29 @@ ET.parse(debug_manifest)
 manifest = debug_manifest.read_text()
 source = debug_activity.read_text()
 assert 'RootlabReadinessActivity' in manifest
+assert 'RootlabTwoPeerActivity' in manifest
+assert 'android:label="Wonhee Two-Peer Lab"' in manifest
+assert 'RootlabTwoPeerActivity' not in production_manifest
+two_peer = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerActivity.java").read_text()
+session = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSession.java").read_text()
+gate = (repo / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSafetyGate.java").read_text()
+link_plan = (repo / "app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedTwoPeerLinkPlan.java").read_text()
+assert 'ACTION_OPEN_DOCUMENT' in two_peer and 'ACTION_CREATE_DOCUMENT' in two_peer
+assert 'RootIsolatedWireGuardTransaction.start(' in session
+assert 'RootIsolatedWireGuardTransaction.recover(' in session
+assert 'new RootIsolatedWireGuardPreferencesJournal(' in session
+assert 'new SecureTunnelProfileStore(app).save(' in session
+assert 'RootIsolatedTwoPeerLinkPlan.compile(routes)' in session
+assert 'RootlabTwoPeerSafetyGate(app, shell)' in session
+assert 'Settings.Global.getString' in gate
+assert '"off".equals(privateDns)' in gate
+assert '5100[0-7]' in gate
+assert 'RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown' in gate
+assert 'ip rule add' not in link_plan and 'iptables' not in link_plan
+assert 'connmark' not in session and 'set-mark' not in session
+assert 'RootIsolatedUidPolicyTransaction.start(' not in two_peer + session
+assert 'does NOT route phone apps' in two_peer
+
 assert 'android:label="Wonhee Multi-Exit Readiness"' in manifest
 assert 'android:name=".WonheeDashboardPreviewActivity"' in manifest
 assert 'android:enabled="false"' in manifest, (
@@ -27,9 +50,9 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(109)" in gradle
-assert "output.versionName.set('0.15.62-rootlab-readiness')" in gradle
-assert "applicationIdSuffix '.rootlab01562'" in gradle
+assert "output.versionCode.set(110)" in gradle
+assert "output.versionName.set('0.15.62-two-peer-lab')" in gradle
+assert "applicationIdSuffix '.rootlab01562peers'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
 assert "Private DNS" in source and "READ-ONLY" in source
