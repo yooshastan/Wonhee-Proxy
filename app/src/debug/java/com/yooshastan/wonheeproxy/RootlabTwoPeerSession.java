@@ -228,6 +228,22 @@ final class RootlabTwoPeerSession {
         Pair pair = loadPair();
         RootIsolatedWireGuardPreferencesJournal journal =
                 new RootIsolatedWireGuardPreferencesJournal(app, pair.plan);
+        boolean stagingClean = true;
+        // A process crash during wg setconf may leave a temporary private
+        // config file. Never abandon those secrets when Safe Stop is called;
+        // only names from the exact stored plan may be removed.
+        if (!journal.empty()) {
+            for (RootMultiTunnelPlan.Entry entry : pair.entries) {
+                try {
+                    RootIsolatedWireGuardConfigHandoff.cleanupStaleOwnedFile(
+                            app, entry.device);
+                } catch (Exception uncertain) {
+                    stagingClean = false;
+                    record("Owned staging cleanup uncertain ("
+                            + uncertain.getClass().getSimpleName() + ")");
+                }
+            }
+        }
         RootShell shell = new RootShell(app);
         shell.start();
         new ToolsInstaller(app, shell).ensureToolsAvailable();
@@ -236,9 +252,14 @@ final class RootlabTwoPeerSession {
                         new RootlabTwoPeerSafetyGate(app, shell));
         RootIsolatedWireGuardTransaction.Outcome result =
                 RootIsolatedWireGuardTransaction.recover(backend, journal);
+        if (!stagingClean) {
+            record("Staging file audit required; do not delete lab data");
+        }
         record("Safe Stop: " + result.stage + "; cleanup="
                 + result.cleanupComplete + "; journal=" + result.remainingJournalEntries);
         return result.summary() + "\n"
+                + (stagingClean ? "" : "STAGED PRIVATE KEY FILE NEEDS AUDIT. "
+                        + "Do not uninstall this lab.\n")
                 + (result.cleanupComplete
                         ? "Owned link stages stopped; ordinary Android networking untouched."
                         : "STOP PAUSED. Do not change imported profiles or uninstall RootLab. "
