@@ -262,8 +262,11 @@ final class RootlabTwoPeerSession {
                         new RootlabTwoPeerSafetyGate(app, shell));
         RootIsolatedWireGuardTransaction.Outcome result =
                 RootIsolatedWireGuardTransaction.start(pair.plan, backend, journal);
-        record("Two-peer Start: " + result.stage + "; connected stages="
-                + result.connected + "; cleanup=" + result.cleanupComplete
+        record("Two-peer Start: " + result.stage
+                + "; phase=" + result.failurePhase
+                + "; reason=" + result.failureCode
+                + "; connected stages=" + result.connected
+                + "; cleanup=" + result.cleanupComplete
                 + "; journal=" + result.remainingJournalEntries);
         return (result.connected
                 ? "TWO PEER LINKS CONFIGURED. No Android apps are routed. "
