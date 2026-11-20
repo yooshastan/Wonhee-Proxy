@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.62 · Multi-Link Lab", 21, true);
+        TextView heading = text("Wonhee 0.15.64 · Multi-Link & Routing Readiness Lab", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -138,6 +138,21 @@ public final class RootlabTwoPeerActivity extends Activity {
         action(layout, "Probe Home Navidrome TCP/HTTP · bound (optional)", () ->
                 confirmTcpProbe(RootlabTwoPeerSession.HOME,
                         homeTarget.getText().toString().trim() + ":4533"));
+        action(layout, "Moka → Home routing readiness (read-only)", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Moka / Home routing preflight")
+                        .setMessage("Read-only: identify the installed Moka UID "
+                                + "and verify the three owned WireGuard links, "
+                                + "Home identity and Navidrome route. "
+                                + "This does NOT route any app, open ports or "
+                                + "install DNS, UID or firewall rules. "
+                                + "Activation remains locked until the "
+                                + "fail-closed policy is independently tested.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Check", (dialog, which) ->
+                                execute("Moka Home routing readiness",
+                                        session::previewMokaHomeRouting))
+                        .show());
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
