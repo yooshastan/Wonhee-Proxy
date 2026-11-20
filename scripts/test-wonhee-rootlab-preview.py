@@ -45,6 +45,24 @@ assert 'RootIsolatedWireGuardTransaction.recover(' in session
 assert 'new RootIsolatedWireGuardPreferencesJournal(' in session
 assert 'new SecureTunnelProfileStore(app).save(' in session
 assert 'RootIsolatedTwoPeerLinkPlan.compile(routes)' in session
+assert 'RootIsolatedThreePeerLinkPlan.compile(routes, homeRoute)' in session
+assert 'RootTwoExitHomeRoutingPreview.permitsHomeTarget(' in session
+assert 'ip -4 route show table 51002' in session
+assert 'RootIsolatedWireGuardKernelListing.privateRoute(' in session
+assert 'RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown' in session
+assert 'new SecureTunnelProfileStore(app).delete(HOME)' in session
+assert 'removeHomeProfile()' in session
+assert 'Import optional Home WireGuard .conf' in two_peer
+assert 'Probe Home host over Home interface' in two_peer
+assert 'Safe Stop ALL selected test links' in two_peer
+third_link = (repo / "app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedThreePeerLinkPlan.java").read_text()
+assert '"PRIVATE_ROUTE"' in third_link and 'HOME_TABLE' in third_link
+assert 'new RootIsolatedWireGuardBootstrapPlan.Plan(' in third_link
+assert '"ip rule add' not in third_link
+assert '"iptables' not in third_link
+assert 'RootIsolatedThreePeerLinkPlanTest.java' in (
+    repo / ".github/workflows/build.yml").read_text()
+
 assert 'RootlabTwoPeerSafetyGate(app, shell)' in session
 assert 'Settings.Global.getString' in gate
 assert '"off".equals(privateDns)' in gate
@@ -54,7 +72,7 @@ assert '"ip rule add' not in link_plan and '"iptables ' not in link_plan
 assert 'connmark' not in session and 'set-mark' not in session
 assert 'RootIsolatedUidPolicyTransaction.start(' not in two_peer + session
 assert 'does NOT route phone apps' in two_peer
-assert 'Check both profiles (no root changes)' in two_peer
+assert 'Check selected profiles (no root changes)' in two_peer
 assert 'session::profileReadiness' in two_peer
 assert 'RootTwoPeerProfileReadiness.assess(' in session
 assert 'routes, differentEndpoints, differentClientKeys' in session
@@ -69,7 +87,7 @@ assert 'NO JOURNALED TUNNEL STAGES' in session
 assert 'PEER_SETCONF_FORMAT_UNSUPPORTED' in session
 assert 'parsed.toWgQuickString()' in session
 assert 'RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(' in session
-assert 'PROBE SKIPPED: two peer links are not active' in session
+assert 'PROBE SKIPPED: selected peer links are not active' in session
 assert 'No probe packets were sent.' in session
 
 assert 'result.failurePhase' in session and 'result.failureCode' in session
