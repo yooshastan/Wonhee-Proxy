@@ -18,6 +18,7 @@ final class RootTwoPeerProfileReadiness {
         SAME_SERVER_PEER, // Legacy diagnostic label, no longer a Start condition.
         SAME_SERVER_ENDPOINT,
         SAME_CLIENT_IDENTITY,
+        PEER_SETCONF_FORMAT_UNSUPPORTED,
         OVERLAPPING_INTERFACE_ADDRESSES,
         INTERFACE_HOST_PREFIX_REQUIRED,
         IPV4_DEFAULT_ALLOWEDIPS_REQUIRED,
@@ -108,6 +109,11 @@ final class RootTwoPeerProfileReadiness {
                         + "pair. Generate a second provider-registered device/key "
                         + "identity with its own assigned tunnel addresses; "
                         + "do not edit the private key or interface IP by hand.";
+            case PEER_SETCONF_FORMAT_UNSUPPORTED:
+                return "At least one imported WireGuard profile uses a peer "
+                        + "setting that this strict link-only serializer does "
+                        + "not support. No root networking was attempted. "
+                        + "Export the redacted report; never post private keys.";
             case OVERLAPPING_INTERFACE_ADDRESSES:
                 return "Exit A and Exit B have overlapping internal WireGuard "
                         + "interface addresses. Generate two provider-assigned "
