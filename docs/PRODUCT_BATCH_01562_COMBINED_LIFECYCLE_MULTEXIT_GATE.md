@@ -421,6 +421,63 @@ safety gate, exact post-crash journal ownership and explicit Safe Stop.
 Only after two peer handshakes are proven should app UID routing and
 leak testing be turned on. Keep the released 0.15.61 package untouched.
 
+## 0.15.62 Two-Peer Lab APK: first manually controlled kernel-link build
+
+**New debug APK only**: `com.yooshastan.wonheeproxy.rootlab01562peers`,
+versionCode **110**, versionName `0.15.62-two-peer-lab`. This has a unique
+package identity so it installs alongside the official 0.15.61/versionCode
+108 and the earlier RootLab readiness diagnostic without depending on the
+ephemeral CI debug signing key.
+
+- `RootlabTwoPeerActivity` provides **Import Exit A / Import Exit B** via
+  Android's document picker, explicit **Start TWO independent peers**,
+  **Read handshake & counters**, optional per-interface bound numeric ICMP
+  probes, **Safe Stop**, and **Export redacted diagnostics (.txt)**.
+- `RootlabTwoPeerSession` stores imported configurations in the separate
+  lab package's AndroidKeyStore-encrypted `SecureTunnelProfileStore`;
+  configs and keys never enter journals or exported logs. Local and peer
+  public identities must differ, and `RootIsolatedTwoPeerLinkPlan` requires
+  independently allocated /32-/128 interface hosts. Peer routes are
+  limited to full IPv4 (optional IPv6) defaults, stored in independently
+  owned private tables, with NO `ip rule` selectors.
+- `RootlabTwoPeerSafetyGate` checks Private DNS **off**, no prior isolated
+  ownership ledgers, a present non-VPN Android physical network, both
+  families' existing routing policy for any references to the reserved
+  tables and priorities, then defers to the kernel adapter's strict
+  interface/route inventory. This is a *link-only* safety scope, NOT a
+  production Android-app leak proof or protected peer endpoint proof.
+- The debug manifest uses `RootlabApplication` instead of
+  `WonheeApplication`, disables the ordinary VPN dashboard, and removes
+  Android's VPN service, boot receiver, scheduled recovery services and
+  quick-setting/traffic services from this standalone test package.
+  There is no automatic connection, background VPN restoration, or
+  untargeted system route/firewall/DNS mutation.
+- Startup uses the verified `RootIsolatedWireGuardKernelAdapter` and
+  `RootIsolatedWireGuardTransaction` with a durable,
+  plan-fingerprint-bound, app-private journal. Stop performs exact LIFO
+  inspection and rollback, including after a new Activity/process
+  reconstructs the encrypted profiles. If an ambiguous object is found
+  recovery **pauses** and retains the journal instead of deleting it.
+- The optional numeric bound ICMP probe first checks `ip route get
+  1.1.1.1 oif <named-interface>`; if the kernel does not explicitly
+  report that same interface, **no probe is sent**. A packet reply is
+  not a per-app routing proof. The handshake/counter report exports
+  labels, verified state, age and counts only; no keys/endpoints.
+
+**Manual test protocol:** with no existing official Wonhee tunnels and
+Private DNS OFF, import two *independently provisioned* WireGuard configs,
+Start both, inspect kernel link/handshake report, optionally probe, Safe
+Stop, then verify both interfaces/routes removed and Stop again
+(idempotence). Export the redacted report if any operation refuses or
+recovery pauses. Never delete the lab app or change imported config while
+ownership remains pending.
+
+**NOT YET COMPLETE:** this live pilot must not be marketed as a multi-exit
+VPN. It does not route or protect Android applications, DNS, GPS, TCP/UDP
+protocol overrides or Home traffic. Release 0.15.62 still requires
+real-device successful simultaneous peer handshakes, exact stop/resume
+and independent UID/DNS/leak-proof safety before official release.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
