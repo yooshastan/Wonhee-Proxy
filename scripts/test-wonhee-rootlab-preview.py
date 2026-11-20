@@ -58,6 +58,13 @@ assert 'Probe Exit A TCP/HTTPS' in two_peer
 assert 'Probe Exit B TCP/HTTPS' in two_peer
 assert 'Probe Home Navidrome TCP/HTTP' in two_peer
 assert 'session.probeTcp(slot, target)' in two_peer
+assert 'Moka → Home routing readiness (read-only)' in two_peer
+assert 'session::previewMokaHomeRouting' in two_peer
+assert 'String previewMokaHomeRouting()' in session
+assert 'pm list packages -U' in session
+assert 'RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)' in session
+assert 'ACTIVATION LOCKED:' in session
+assert 'RootIsolatedUidPolicyTransaction.start(' not in session
 assert 'String probeTcp(String slot, String target)' in session
 assert 'RootTcpProbeTarget.parse(target)' in session
 assert 'command -v curl >/dev/null' in session
@@ -123,8 +130,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(117)" in gradle
-assert "output.versionName.set('0.15.63-rootlab-bound-tcp-fix1')" in gradle
+assert "output.versionCode.set(118)" in gradle
+assert "output.versionName.set('0.15.64-rootlab-moka-readiness')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
