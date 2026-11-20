@@ -20,9 +20,10 @@ import java.util.ArrayList;
  * exact ownership verification are implemented.
  *
  * The config is held briefly in an app-private, owner-readable file.
- * No private keys or endpoints appear in a shell argument, journal, log,
- * callback, or diagnostics. Only 'wg-quick strip' runs, piped directly
- * into 'wg setconf'; neither command adds routes or changes Android DNS.
+ * No private keys or endpoints appear in shell arguments, journals, logs,
+ * callbacks or diagnostics. The WireGuard-library-parsed configuration
+ * is converted to strict wg setconf syntax in Java. We do NOT invoke
+ * wg-quick, shell pipes, routes, DNS commands or Android VPN services.
  */
 final class RootIsolatedWireGuardConfigHandoff {
     private RootIsolatedWireGuardConfigHandoff() { }
@@ -63,7 +64,8 @@ final class RootIsolatedWireGuardConfigHandoff {
         }
         File directory = new File(context.getCacheDir(), "isolated-peer-handoff");
         if (!directory.isDirectory() && !directory.mkdir()) {
-            throw new IllegalStateException("Cannot create isolated peer directory.");
+            throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                    "STAGING_DIR_CREATE_FAILED");
         }
         // Android normally aliases /data/user/0 through /data/data; do not
         // reject that trusted parent alias. Refuse a symlink at our OWN
@@ -75,13 +77,15 @@ final class RootIsolatedWireGuardConfigHandoff {
                 || !directory.setReadable(true, true)
                 || !directory.setWritable(true, true)
                 || !directory.setExecutable(true, true)) {
-            throw new IllegalStateException("Isolated peer directory permissions unsafe.");
+            throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                    "STAGING_DIR_PERMISSIONS_FAILED");
         }
         File config = new File(directory, device + ".conf");
         if (!config.createNewFile()) {
             // A crashed helper may have left secrets. Never overwrite it,
             // follow a symlink, or silently adopt its contents.
-            throw new IllegalStateException("Stale isolated peer file requires manual audit.");
+            throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                    "STAGING_FILE_ALREADY_EXISTS");
         }
         try {
             if (!config.setReadable(false, false)
@@ -89,12 +93,23 @@ final class RootIsolatedWireGuardConfigHandoff {
                     || !config.setReadable(true, true)
                     || !config.setWritable(true, true)
                     || java.nio.file.Files.isSymbolicLink(config.toPath())) {
-                throw new IllegalStateException("Peer file permissions unavailable.");
+                throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                        "STAGING_FILE_PERMISSIONS_FAILED");
             }
             // Config is parsed and canonicalized by the WireGuard library.
             // Never interpolate this string directly in the root shell.
-            byte[] clear = configuration.toWgQuickString()
-                    .getBytes(StandardCharsets.UTF_8);
+            // wg setconf DOES NOT accept wg-quick Address/DNS/MTU.
+            // Generate a strict peer-only wg configuration in Java rather
+            // than relying on wg-quick strip and a shell pipe on Android.
+            String canonical;
+            try {
+                canonical = RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(
+                        configuration.toWgQuickString());
+            } catch (IllegalArgumentException unsafe) {
+                throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                        "PEER_CONFIG_FORMAT_REJECTED");
+            }
+            byte[] clear = canonical.getBytes(StandardCharsets.UTF_8);
             try (FileOutputStream stream = new FileOutputStream(config, false)) {
                 try {
                     stream.write(clear);
@@ -105,14 +120,15 @@ final class RootIsolatedWireGuardConfigHandoff {
             }
             String path = config.getCanonicalPath();
             if (!path.matches("[A-Za-z0-9_./-]+")) {
-                throw new IllegalStateException("Unsafe app-private peer path.");
+                throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                        "STAGING_PATH_REJECTED");
             }
-            // wg-quick STRIP strips Address/DNS/Table without doing UP.
-            // Only wg setconf configures the previously owned kernel link.
-            String command = "wg-quick strip '" + path
-                    + "' | wg setconf " + device + " /dev/stdin";
+            // Direct wg setconf reads a standard wg-only private file.
+            // No wg-quick script, shell pipe, argv key, DNS or route changes.
+            String command = "wg setconf " + device + " '" + path + "'";
             if (shell.run(null, command) != 0) {
-                throw new IllegalStateException("Kernel WireGuard peer setup failed.");
+                throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                        "WG_SETCONF_COMMAND_FAILED");
             }
             List<String> publicKey = new ArrayList<>();
             List<String> peers = new ArrayList<>();
@@ -123,13 +139,15 @@ final class RootIsolatedWireGuardConfigHandoff {
                             .getPublicKey().toBase64().equals(publicKey.get(0).trim())
                     || !configuration.getPeers().get(0)
                             .getPublicKey().toBase64().equals(peers.get(0).trim())) {
-                throw new IllegalStateException("Kernel WireGuard identity differs.");
+                throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                        "WG_SETCONF_READBACK_MISMATCH");
             }
         } finally {
             // If unlink fails, do not return success. Never leave a reusable
             // plaintext peer file in application cache.
             if (config.exists() && !config.delete()) {
-                throw new IllegalStateException("Private peer staging file could not be removed.");
+                throw new RootIsolatedWireGuardTransaction.SafeFailure(
+                        "STAGING_FILE_CLEANUP_FAILED");
             }
         }
     }
