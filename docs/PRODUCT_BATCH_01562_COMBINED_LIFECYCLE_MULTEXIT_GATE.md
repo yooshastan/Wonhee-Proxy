@@ -480,6 +480,45 @@ protocol overrides or Home traffic. Release 0.15.62 still requires
 real-device successful simultaneous peer handshakes, exact stop/resume
 and independent UID/DNS/leak-proof safety before official release.
 
+## RootLab two-peer PEER_CONFIG failure and direct setconf fix
+
+User device test with `com.yooshastan.wonheeproxy.rootlab01562peersfix2`
+passed `PROFILE_CHECK=READY`, reached `PEER_CONFIG`, reported
+`REFUSED/FAILED; EXACT ROLLBACK COMPLETE (persistent entries=0)`
+and `Own journal stages: 0/14`. No handshake or app-routing proof exists.
+A separate screenshot with a generic `IllegalArgumentException` has no
+sufficient context to assign it to this same failure.
+
+`RootIsolatedWireGuardConfigHandoff` previously ran a shell
+`wg-quick strip <app-private-file> | wg setconf <device> /dev/stdin`
+pipeline. This was fragile on Android and the transaction hid the
+underlying failure class. The updated app generates a strict **wg-only**
+peer configuration in Java from `Config.toWgQuickString()`, omitting
+`Address`, `DNS`, `MTU`, `Table`, app lists and all unknown commands,
+then supplies its private staging path to direct
+`wg setconf <interface> <private-file>`. No keys or endpoints are shell
+arguments, persist in journals, or appear in exported diagnostics.
+All private file cleanup remains exact-owned.
+
+`RootIsolatedWireGuardTransaction` now reports a separate sanitized
+`phase` and `reason`, including `WG_SETCONF_COMMAND_FAILED` vs
+`WG_SETCONF_READBACK_MISMATCH`; it never exports shell stderr or secret
+profile values. Pure-Java tests cover canonicalization, rejected unknown
+fields, no DNS/route/mangle outputs and exact rollback on peer failure.
+
+The replacement side-by-side debug package
+`com.yooshastan.wonheeproxy.rootlab01562peersfix3`, versionCode 113,
+versionName `0.15.62-two-peer-setconf`, is NOT a signed production update.
+The old test package stays installed until phone-side inspection confirms
+its ledger is empty. Before trying peer Start, ensure Private DNS OFF,
+no simultaneous Android VPN, and two independently provisioned local
+AirVPN identities with disjoint interface addresses.
+
+This code change is a plausible correction to the PEER_CONFIG failure
+mechanism, **not proof** that the pipeline was the sole cause, nor a
+successful live handshake. Treat the next exported redacted
+`stage/phase/reason` as decisive evidence.
+
 ## Mandatory unfinished engine work — blocks release
 
 1. Start **multiple independent full Internet exits**, not only one default plus specific destination tunnels. Each must have an isolated IPv4 and IPv6 routing table, stable owned interface identity, encrypted DNS policy, correct WireGuard UDP endpoint path, and tracked kernel ownership. Avoid conflicts with Android netd and other VPN apps.
