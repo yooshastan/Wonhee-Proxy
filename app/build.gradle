@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(120)
-            output.versionName.set('0.15.66-rootlab-firewall-pilot')
+            output.versionCode.set(121)
+            output.versionName.set('0.15.67-rootlab-detached-firewall')
         }
     }
 }
