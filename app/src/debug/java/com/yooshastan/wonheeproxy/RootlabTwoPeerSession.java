@@ -341,6 +341,10 @@ final class RootlabTwoPeerSession {
             return "START REFUSED: detached firewall journal pending. "
                     + "Use Exact-owned Safe Stop first.";
         }
+        if (RootlabMokaIpv6OutputTest.pendingOrUnknown(app)) {
+            return "START REFUSED: IPv6 Moka OUTPUT hook journal pending. "
+                    + "Use Exact-owned Safe Stop first.";
+        }
         RootShell shell = new RootShell(app);
         RootIsolatedWireGuardKernelAdapter backend =
                 new RootIsolatedWireGuardKernelAdapter(app, shell, pair.configurations,
@@ -379,6 +383,15 @@ final class RootlabTwoPeerSession {
     }
 
     private String stopImpl() throws Exception {
+        // Revoke the Moka-only IPv6 OUTPUT hook first. Never delete the
+        // referenced chain or a Home WG link while this journal is pending.
+        String hookStatus = new RootlabMokaIpv6OutputTest(app).recover();
+        if (RootlabMokaIpv6OutputTest.pendingOrUnknown(app)) {
+            record("Safe Stop paused: IPv6 Moka OUTPUT hook uncertain");
+            return "SAFE STOP PAUSED: " + hookStatus
+                    + "\nDetached firewall chains and WireGuard links were "
+                    + "left intact. Do not uninstall or clear app data.";
+        }
         // Recover the detached, never-hooked firewall stage BEFORE removing
         // the Home WireGuard link. A foreign/changed stage must retain journal.
         String detachedStatus = new RootlabDetachedMokaFirewall(app).recover();
@@ -541,6 +554,32 @@ final class RootlabTwoPeerSession {
      * Explicitly requested root experiment. Stage only detached filter
      * chains; never attach OUTPUT or send real application packets.
      */
+    /**
+     * Real IPv6-only OUTPUT hook; user expressly opts into temporary Moka
+     * IPv6 blocking. Never enables IPv4 app selection or DNS/routing changes.
+     */
+    String attachMokaIpv6Hook() throws Exception {
+        if (RootlabMokaIpv6OutputTest.pendingOrUnknown(app)) {
+            return "IPv6 MOKA HOOK REFUSED: existing journal needs Safe Stop.";
+        }
+        String readiness = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(readiness);
+        if (!readiness.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "IPv6 MOKA HOOK REFUSED: read-only Home preflight changed.";
+        }
+        Pair pair = loadPair();
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        String result = new RootlabMokaIpv6OutputTest(app).attach(uid, device);
+        record("Moka IPv6 OUTPUT trial: "
+                + (result.startsWith("MOKA IPv6 OUTPUT HOOK VERIFIED")
+                        ? "ATTACHED_UID_IPV6_ONLY" : "REFUSED_OR_RECOVERY_REQUIRED"));
+        return result;
+    }
+
     String stageDetachedMokaFirewall() throws Exception {
         String inventory = auditMokaHomeFirewall();
         if (!inventory.contains("DEVICE PRECHECK: NO IMMEDIATE COLLISION OBSERVED")) {
