@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -29,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class RootlabTwoPeerActivity extends Activity {
     private static final int PICK_FIRST = 141;
     private static final int PICK_SECOND = 142;
+    private static final int PICK_HOME = 144;
     private static final int SAVE_LOG = 143;
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
     private static final AtomicBoolean WORKING = new AtomicBoolean(false);
@@ -37,10 +39,12 @@ public final class RootlabTwoPeerActivity extends Activity {
     private TextView statusText;
     private TextView aStatus;
     private TextView bStatus;
+    private TextView homeStatus;
+    private EditText homeTarget;
     private Button startButton;
     private Button stopButton;
-    private String report = "Import two independent WireGuard profiles. "
-            + "No app traffic will be routed through these links.";
+    private String report = "Import Exit A and Exit B. Optionally import "
+            + "a separate Home WireGuard .conf. No Android apps are routed.";
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -51,13 +55,16 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.62 · Two-Peer PSK Fix", 21, true);
+        TextView heading = text("Wonhee 0.15.62 · Multi-Link Lab", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
-                + "This starts two independent WireGuard links and private "
+                + "This starts two independent Internet WireGuard links "
+                + "plus an optional third Home WireGuard link in private "
                 + "routing tables. It does NOT route phone apps, DNS or "
-                + "system traffic into either tunnel.\n"
+                + "system traffic into any tunnel.\n"
+                + "Home requires its own WireGuard .conf; a Tailscale "
+                + "connection cannot be imported as a WireGuard profile.\n"
                 + "Private DNS must stay OFF. Do not run the official Wonhee "
                 + "VPN simultaneously. Always use Safe Stop before closing "
                 + "the lab or updating the app.\n"
@@ -67,15 +74,19 @@ public final class RootlabTwoPeerActivity extends Activity {
 
         aStatus = text("Exit A: not imported", 14, true);
         bStatus = text("Exit B: not imported", 14, true);
+        homeStatus = text("Home (optional): not imported", 14, true);
         layout.addView(aStatus);
         layout.addView(bStatus);
+        layout.addView(homeStatus);
         Button a = action(layout, "Import WireGuard configuration · Exit A",
                 () -> choose(PICK_FIRST));
         Button b = action(layout, "Import WireGuard configuration · Exit B",
                 () -> choose(PICK_SECOND));
-        action(layout, "Check both profiles (no root changes)", () ->
-                execute("Two-peer profile compatibility", session::profileReadiness));
-        startButton = action(layout, "Start TWO independent peers", this::confirmStart);
+        action(layout, "Import optional Home WireGuard .conf",
+                () -> choose(PICK_HOME));
+        action(layout, "Check selected profiles (no root changes)", () ->
+                execute("Two-exit/Home profile compatibility", session::profileReadiness));
+        startButton = action(layout, "Start 2 exits + optional Home", this::confirmStart);
         action(layout, "Read handshake & counters", () ->
                 execute("Handshake status", session::status));
         action(layout, "Probe two peers · bound ICMP (optional)", () ->
@@ -90,7 +101,26 @@ public final class RootlabTwoPeerActivity extends Activity {
                         .setPositiveButton("Probe", (dialog, which) ->
                                 execute("Bound test probes", session::probe))
                         .show());
-        stopButton = action(layout, "Safe Stop both test links", () ->
+        homeTarget = new EditText(this);
+        homeTarget.setSingleLine(true);
+        homeTarget.setHint("Numeric Home LAN host · e.g. 10.0.0.169");
+        homeTarget.setText("10.0.0.169");
+        layout.addView(homeTarget);
+        action(layout, "Probe Home host over Home interface (optional)", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Explicit private Home probe")
+                        .setMessage("Send one ICMP request only after verifying "
+                                + "the imported Home AllowedIPs, Home private "
+                                + "route and named WireGuard interface. "
+                                + "No Android app routing is enabled.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Probe Home", (dialog, which) -> {
+                            final String target =
+                                    homeTarget.getText().toString().trim();
+                            execute("Bound Home test probe",
+                                    () -> session.probeHome(target));
+                        }).show());
+        stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
         action(layout, "Copy redacted diagnostics", () -> {
@@ -98,7 +128,7 @@ public final class RootlabTwoPeerActivity extends Activity {
                     getSystemService(Context.CLIPBOARD_SERVICE);
             if (clipboard != null) {
                 clipboard.setPrimaryClip(ClipData.newPlainText(
-                        "Wonhee 0.15.62 Two-Peer Lab",
+                        "Wonhee 0.15.62 Multi-Link Lab",
                         report + "\n\n" + session.diagnostics()));
             }
         });
@@ -118,7 +148,9 @@ public final class RootlabTwoPeerActivity extends Activity {
                     ? "imported" : "not imported") + "\n"
                 + "Exit B: " + (session.hasProfile(RootlabTwoPeerSession.SECOND)
                     ? "imported" : "not imported") + "\n"
-                + "This screen does not automatically connect anything.");
+                + "Home: " + (session.hasProfile(RootlabTwoPeerSession.HOME)
+                    ? "imported (third WireGuard link)" : "optional / not imported")
+                + "\nThis screen does not automatically connect anything.");
     }
 
     private TextView text(String value, int sp, boolean bold) {
@@ -164,9 +196,11 @@ public final class RootlabTwoPeerActivity extends Activity {
             }
             return;
         }
-        if (requestCode != PICK_FIRST && requestCode != PICK_SECOND) return;
+        if (requestCode != PICK_FIRST && requestCode != PICK_SECOND
+                && requestCode != PICK_HOME) return;
         final String slot = requestCode == PICK_FIRST
-                ? RootlabTwoPeerSession.FIRST : RootlabTwoPeerSession.SECOND;
+                ? RootlabTwoPeerSession.FIRST : requestCode == PICK_SECOND
+                ? RootlabTwoPeerSession.SECOND : RootlabTwoPeerSession.HOME;
         Uri input = data.getData();
         execute("Encrypted import " + slot, () -> {
             try (InputStream stream = getContentResolver().openInputStream(input)) {
@@ -179,16 +213,16 @@ public final class RootlabTwoPeerActivity extends Activity {
     private void confirmStart() {
         if (WORKING.get()) return;
         new AlertDialog.Builder(this)
-                .setTitle("Start two isolated WireGuard links?")
+                .setTitle("Start 2 exits + optional Home?")
                 .setMessage("This is a ROOT experimental network operation. "
-                        + "Only the two selected WireGuard links and their "
-                        + "private route tables are changed. No Android apps "
+                        + "Only selected WireGuard links and their private "
+                        + "routing tables are changed. No Android apps "
                         + "or DNS are switched.\n\n"
                         + "Do not enable official Wonhee while this test runs. "
                         + "Use Safe Stop before uninstalling this RootLab APK.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Start links", (dialog, which) ->
-                        execute("Two-peer kernel Start", session::start))
+                        execute("Multi-link kernel Start", session::start))
                 .show();
     }
 
@@ -197,7 +231,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         document.addCategory(Intent.CATEGORY_OPENABLE);
         document.setType("text/plain");
         document.putExtra(Intent.EXTRA_TITLE,
-                "wonhee-01562-two-peer-redacted-report.txt");
+                "wonhee-01562-multilink-redacted-report.txt");
         startActivityForResult(document, SAVE_LOG);
     }
 
@@ -242,16 +276,20 @@ public final class RootlabTwoPeerActivity extends Activity {
     private void updateLabels() {
         // UI names only; never show tunnel secrets, peer keys or endpoints.
         WORKER.execute(() -> {
-            boolean a = false, b = false;
+            boolean a = false, b = false, home = false;
             try {
                 a = session.hasProfile(RootlabTwoPeerSession.FIRST);
                 b = session.hasProfile(RootlabTwoPeerSession.SECOND);
+                home = session.hasProfile(RootlabTwoPeerSession.HOME);
             } catch (Exception ignored) { }
-            final boolean first = a, second = b;
+            final boolean first = a, second = b, third = home;
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 aStatus.setText("Exit A: " + (first ? "encrypted profile ready" : "not imported"));
                 bStatus.setText("Exit B: " + (second ? "encrypted profile ready" : "not imported"));
+                homeStatus.setText("Home: " + (third
+                        ? "encrypted WG profile ready (optional third link)"
+                        : "not imported (optional)"));
             });
         });
     }
