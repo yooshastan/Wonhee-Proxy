@@ -81,9 +81,10 @@ final class RootIsolatedWireGuardKernelAdapter
         safetyGate.proveIsolatedUnderlayDnsAndFailClosed();
         shell.start();
         tools.ensureToolsAvailable();
-        if (shell.run(null, "wg --version >/dev/null 2>&1") != 0
-                || shell.run(null, "command -v wg-quick >/dev/null 2>&1") != 0) {
-            throw new IllegalStateException("WireGuard kernel tools not available.");
+        // We use only wg setconf with a strict peer-only config. No
+        // wg-quick executable is required by the isolated adapter.
+        if (shell.run(null, "wg --version >/dev/null 2>&1") != 0) {
+            throw new IllegalStateException("WireGuard CLI not available.");
         }
         List<String> links = read("ip -o link show");
         for (String line : links) {
