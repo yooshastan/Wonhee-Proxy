@@ -73,6 +73,8 @@ public final class RootlabTwoPeerActivity extends Activity {
                 () -> choose(PICK_FIRST));
         Button b = action(layout, "Import WireGuard configuration · Exit B",
                 () -> choose(PICK_SECOND));
+        action(layout, "Check both profiles (no root changes)", () ->
+                execute("Two-peer profile compatibility", session::profileReadiness));
         startButton = action(layout, "Start TWO independent peers", this::confirmStart);
         action(layout, "Read handshake & counters", () ->
                 execute("Handshake status", session::status));
@@ -168,7 +170,8 @@ public final class RootlabTwoPeerActivity extends Activity {
         Uri input = data.getData();
         execute("Encrypted import " + slot, () -> {
             try (InputStream stream = getContentResolver().openInputStream(input)) {
-                return session.importProfile(slot, stream);
+                return session.importProfile(slot, stream)
+                        + "\n" + session.profileReadiness();
             }
         });
     }
