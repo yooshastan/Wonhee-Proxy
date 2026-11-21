@@ -349,6 +349,10 @@ final class RootlabTwoPeerSession {
             return "START REFUSED: IPv4 Moka OUTPUT hook journal pending. "
                     + "Use Exact-owned Safe Stop first.";
         }
+        if (RootlabMokaHomeTerminalRoute.pendingOrUnknown(app)) {
+            return "START REFUSED: Home fallback terminal route journal pending. "
+                    + "Use Exact-owned Safe Stop first.";
+        }
         RootShell shell = new RootShell(app);
         RootIsolatedWireGuardKernelAdapter backend =
                 new RootIsolatedWireGuardKernelAdapter(app, shell, pair.configurations,
@@ -414,12 +418,22 @@ final class RootlabTwoPeerSession {
                     + "\nThe WireGuard link journal was not changed. "
                     + "Do not clear app data or update RootLab.";
         }
+        // Remove the exact-owned Home unreachable /32 before tearing down
+        // the Home interface. No Moka UID selector is installed in this lab.
+        String terminalStatus = new RootlabMokaHomeTerminalRoute(app).recover();
+        if (RootlabMokaHomeTerminalRoute.pendingOrUnknown(app)) {
+            record("Safe Stop paused: Home fallback terminal ownership uncertain");
+            return "SAFE STOP PAUSED: " + terminalStatus
+                    + "\nWireGuard links were left intact. "
+                    + "Preserve app data and diagnostics.";
+        }
         if (!RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)) {
             // A rejected profile plan cannot write a new ownership journal.
             // However no journal alone is not proof that the kernel is clean:
             // never attempt a broad name-pattern-based cleanup.
             record("Safe Stop found no owned journal steps; no kernel mutation");
-            return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus + "\n"
+            return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
+                    + "\n" + terminalStatus + "\n"
                     + "NO JOURNALED TUNNEL STAGES. No owned kernel links removed. "
                     + "Absence of a tunnel journal does NOT audit global networking.";
         }
@@ -455,7 +469,8 @@ final class RootlabTwoPeerSession {
         }
         record("Safe Stop: " + result.stage + "; cleanup="
                 + result.cleanupComplete + "; journal=" + result.remainingJournalEntries);
-        return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus + "\n"
+        return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
+                    + "\n" + terminalStatus + "\n"
                 + result.summary() + "\n"
                 + (stagingClean ? "" : "STAGED PRIVATE KEY FILE NEEDS AUDIT. "
                         + "Do not uninstall this lab.\n")
@@ -795,6 +810,40 @@ final class RootlabTwoPeerSession {
         record("Moka IPv4 packet counters read-only: "
                 + (result.startsWith("MOKA IPv4 FIREWALL PACKET COUNTERS")
                     ? "EXACT_COUNTER_READ" : "UNKNOWN_OR_REFUSED"));
+        return result;
+    }
+
+    /**
+     * Separate, exact-owned Home private table fallback stage. No Android
+     * policy rule is installed or changed by this operation.
+     */
+    String stageMokaHomeFallback() throws Exception {
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "HOME FALLBACK REFUSED: Moka UID/Home preflight changed.";
+        }
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
+            return "HOME FALLBACK REFUSED: exactly three link identities required.";
+        }
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        String result = new RootlabMokaHomeTerminalRoute(app).stage(uid, device);
+        record("Moka Home fallback stage: "
+                + (result.startsWith("MOKA HOME FALLBACK TERMINAL VERIFIED")
+                    ? "PRIVATE_TERMINAL_VERIFIED" : "REFUSED_OR_RECOVERY_REQUIRED"));
+        return result;
+    }
+
+    String auditMokaHomeFallback() throws Exception {
+        String result = new RootlabMokaHomeTerminalRoute(app).audit();
+        record("Moka Home fallback audit: "
+                + (result.startsWith("MOKA HOME FALLBACK TABLE AUDIT")
+                    ? "READ_ONLY" : "NOT_READY"));
         return result;
     }
 
