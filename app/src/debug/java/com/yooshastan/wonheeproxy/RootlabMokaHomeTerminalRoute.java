@@ -94,6 +94,22 @@ final class RootlabMokaHomeTerminalRoute {
         }
     }
 
+    /**
+     * Confirm the stage journal was committed and both exact destination /32
+     * routes still exist. A UID selector may be attached AFTER this check,
+     * so do not infer anything about Android application routing here.
+     */
+    boolean exactStaged(int uid, String device) throws Exception {
+        RootMokaHomeRouteSafetyPlan.Plan saved = load();
+        if (saved == null || saved.uid != uid
+                || !saved.homeDevice.equals(device)) return false;
+        RootShell shell = new RootShell(app);
+        shell.start();
+        RootMokaHomeTerminalRouteEvidence.Snapshot state =
+                inspect(shell, device);
+        return state.homePresent && state.terminalPresent && !state.collision;
+    }
+
     String stage(int uid, String device) throws Exception {
         if (pendingOrUnknown(app)) {
             return "MOKA HOME FALLBACK STAGE REFUSED: previous journal pending; "
