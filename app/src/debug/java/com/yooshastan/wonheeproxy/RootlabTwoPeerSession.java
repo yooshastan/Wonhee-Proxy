@@ -345,6 +345,10 @@ final class RootlabTwoPeerSession {
             return "START REFUSED: IPv6 Moka OUTPUT hook journal pending. "
                     + "Use Exact-owned Safe Stop first.";
         }
+        if (RootlabMokaIpv4OutputTest.pendingOrUnknown(app)) {
+            return "START REFUSED: IPv4 Moka OUTPUT hook journal pending. "
+                    + "Use Exact-owned Safe Stop first.";
+        }
         RootShell shell = new RootShell(app);
         RootIsolatedWireGuardKernelAdapter backend =
                 new RootIsolatedWireGuardKernelAdapter(app, shell, pair.configurations,
@@ -383,6 +387,15 @@ final class RootlabTwoPeerSession {
     }
 
     private String stopImpl() throws Exception {
+        // Remove the IPv4 app hook first, then IPv6, then private chains,
+        // then WG links. Never unlink a referenced chain on uncertain state.
+        String ipv4Status = new RootlabMokaIpv4OutputTest(app).recover();
+        if (RootlabMokaIpv4OutputTest.pendingOrUnknown(app)) {
+            record("Safe Stop paused: Moka IPv4 OUTPUT hook uncertain");
+            return "SAFE STOP PAUSED: " + ipv4Status
+                    + "\nIPv6 firewall, detached chains and WireGuard links "
+                    + "left untouched. Preserve RootLab app data.";
+        }
         // Revoke the Moka-only IPv6 OUTPUT hook first. Never delete the
         // referenced chain or a Home WG link while this journal is pending.
         String hookStatus = new RootlabMokaIpv6OutputTest(app).recover();
@@ -406,7 +419,7 @@ final class RootlabTwoPeerSession {
             // However no journal alone is not proof that the kernel is clean:
             // never attempt a broad name-pattern-based cleanup.
             record("Safe Stop found no owned journal steps; no kernel mutation");
-            return hookStatus + "\n" + detachedStatus + "\n"
+            return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus + "\n"
                     + "NO JOURNALED TUNNEL STAGES. No owned kernel links removed. "
                     + "Absence of a tunnel journal does NOT audit global networking.";
         }
@@ -442,7 +455,7 @@ final class RootlabTwoPeerSession {
         }
         record("Safe Stop: " + result.stage + "; cleanup="
                 + result.cleanupComplete + "; journal=" + result.remainingJournalEntries);
-        return hookStatus + "\n" + detachedStatus + "\n"
+        return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus + "\n"
                 + result.summary() + "\n"
                 + (stagingClean ? "" : "STAGED PRIVATE KEY FILE NEEDS AUDIT. "
                         + "Do not uninstall this lab.\n")
@@ -745,6 +758,44 @@ final class RootlabTwoPeerSession {
                 + exactHomeRoute + "; priority collision=" + priorityOccupied
                 + "; synthetic Home=" + syntheticHome);
         return out.toString();
+    }
+
+    /**
+     * Readable, opt-in IPv4 hook test. Does NOT install any policy rule,
+     * mark, new route or DNS configuration.
+     */
+    String attachMokaIpv4Hook() throws Exception {
+        if (RootlabMokaIpv4OutputTest.pendingOrUnknown(app)) {
+            return "MOKA IPv4 HOOK REFUSED: pending hook journal.";
+        }
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "MOKA IPv4 HOOK REFUSED: missing exact Home/UID identity.";
+        }
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
+            return "MOKA IPv4 HOOK REFUSED: three exact link identities required.";
+        }
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        String result = new RootlabMokaIpv4OutputTest(app).attach(uid, device);
+        record("Moka IPv4 firewall pilot: "
+                + (result.startsWith("MOKA DUAL-STACK FIREWALL HOOKS VERIFIED")
+                    ? "DUAL_STACK_HOOKS_STRUCTURAL_ONLY"
+                    : "REFUSED_OR_RECOVERY_REQUIRED"));
+        return result;
+    }
+
+    String readMokaIpv4Counters() throws Exception {
+        String result = new RootlabMokaIpv4OutputTest(app).readCounters();
+        record("Moka IPv4 packet counters read-only: "
+                + (result.startsWith("MOKA IPv4 FIREWALL PACKET COUNTERS")
+                    ? "EXACT_COUNTER_READ" : "UNKNOWN_OR_REFUSED"));
+        return result;
     }
 
     String stageDetachedMokaFirewall() throws Exception {
