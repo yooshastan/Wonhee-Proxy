@@ -67,6 +67,32 @@ assert 'String stageDetachedMokaFirewall()' in session
 assert 'String attachMokaIpv6Hook()' in session
 assert 'String attachMokaIpv4Hook()' in session
 assert 'String stageMokaHomeFallback()' in session
+assert 'String activateMokaHomeUidRoute()' in session
+assert 'String auditMokaHomeUidRoute()' in session
+assert 'session::activateMokaHomeUidRoute' in two_peer
+assert 'session::auditMokaHomeUidRoute' in two_peer
+assert 'Route Moka to Home' in two_peer
+uid_select = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaHomeUidSelector.java').read_text()
+assert 'commitIntent(plan);' in uid_select
+assert uid_select.index('commitIntent(plan);') < uid_select.index('shell.run(null, plan.candidateSelector)')
+assert 'requireFirstOutputHook(shell, uid, 4)' in uid_select
+assert 'requireFirstOutputHook(shell, uid, 6)' in uid_select
+assert 'new RootlabMokaHomeTerminalRoute(app)' in uid_select
+assert 'exactStaged(uid, device)' in uid_select
+assert 'requireCellularPhysical(app)' in uid_select
+assert 'RootMokaHomeUidRuleEvidence.inspect' in uid_select
+assert 'route get 10.0.0.169 uid ' in uid_select
+assert 'String recover() throws Exception' in uid_select
+assert 'candidateSelector.replace(' in uid_select
+assert 'new RootlabMokaHomeUidSelector(app).recover()' in session
+assert session.index('new RootlabMokaHomeUidSelector(app).recover()') < session.index('new RootlabMokaIpv4OutputTest(app).recover()')
+assert 'RootlabMokaHomeUidSelector.pendingOrUnknown(app)' in session
+assert 'RootlabMokaHomeUidSelector.pendingOrUnknown(app)' in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSafetyGate.java'
+).read_text()
+assert 'RootMokaHomeUidRuleEvidenceTest.java' in (repo / '.github/workflows/build.yml').read_text()
+assert 'RootIsolatedUidPolicyTransaction.start(' not in session
+
 assert 'String auditMokaHomeFallback()' in session
 assert 'session::stageMokaHomeFallback' in two_peer
 assert 'session::auditMokaHomeFallback' in two_peer
