@@ -353,6 +353,10 @@ final class RootlabTwoPeerSession {
             return "START REFUSED: Home fallback terminal route journal pending. "
                     + "Use Exact-owned Safe Stop first.";
         }
+        if (RootlabMokaHomeUidSelector.pendingOrUnknown(app)) {
+            return "START REFUSED: active Moka Home UID rule journal pending. "
+                    + "Run Exact-owned Safe Stop first.";
+        }
         RootShell shell = new RootShell(app);
         RootIsolatedWireGuardKernelAdapter backend =
                 new RootIsolatedWireGuardKernelAdapter(app, shell, pair.configurations,
@@ -391,6 +395,15 @@ final class RootlabTwoPeerSession {
     }
 
     private String stopImpl() throws Exception {
+        // Moka UID selector MUST be removed before either firewall hook,
+        // the destination-specific unreachable terminal, or any WG link.
+        String uidStatus = new RootlabMokaHomeUidSelector(app).recover();
+        if (RootlabMokaHomeUidSelector.pendingOrUnknown(app)) {
+            record("Safe Stop paused: exact Moka Home UID policy uncertain");
+            return "SAFE STOP PAUSED: " + uidStatus
+                    + "\nBoth firewall guards, private Home fallback, "
+                    + "and WG links remain. Do not clear app data.";
+        }
         // Remove the IPv4 app hook first, then IPv6, then private chains,
         // then WG links. Never unlink a referenced chain on uncertain state.
         String ipv4Status = new RootlabMokaIpv4OutputTest(app).recover();
@@ -432,7 +445,7 @@ final class RootlabTwoPeerSession {
             // However no journal alone is not proof that the kernel is clean:
             // never attempt a broad name-pattern-based cleanup.
             record("Safe Stop found no owned journal steps; no kernel mutation");
-            return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
+            return uidStatus + "\n" + ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
                     + "\n" + terminalStatus + "\n"
                     + "NO JOURNALED TUNNEL STAGES. No owned kernel links removed. "
                     + "Absence of a tunnel journal does NOT audit global networking.";
@@ -469,7 +482,7 @@ final class RootlabTwoPeerSession {
         }
         record("Safe Stop: " + result.stage + "; cleanup="
                 + result.cleanupComplete + "; journal=" + result.remainingJournalEntries);
-        return ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
+        return uidStatus + "\n" + ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
                     + "\n" + terminalStatus + "\n"
                 + result.summary() + "\n"
                 + (stagingClean ? "" : "STAGED PRIVATE KEY FILE NEEDS AUDIT. "
@@ -844,6 +857,45 @@ final class RootlabTwoPeerSession {
         record("Moka Home fallback audit: "
                 + (result.startsWith("MOKA HOME FALLBACK TABLE AUDIT")
                     ? "READ_ONLY" : "NOT_READY"));
+        return result;
+    }
+
+    /**
+     * The first deliberately live Moka/Home UID policy experiment. The
+     * private IPv4 destination, both firewall guards and fallback terminal
+     * must be exact-owned before the UID policy becomes visible to Android.
+     */
+    String activateMokaHomeUidRoute() throws Exception {
+        if (RootlabMokaHomeUidSelector.pendingOrUnknown(app)) {
+            return "HOME UID ROUTE REFUSED: previous exact-owned selector "
+                    + "journal pending. Use Safe Stop.";
+        }
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "HOME UID ROUTE REFUSED: Home link or Moka identity changed.";
+        }
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
+            return "HOME UID ROUTE REFUSED: independent Home profile required.";
+        }
+        int uid = Integer.parseInt(found.group(1));
+        String device = pair.entries.get(2).device;
+        String result = new RootlabMokaHomeUidSelector(app).activate(uid, device);
+        record("Moka Home UID selector: "
+                + (result.startsWith("MOKA HOME UID ROUTE ATTACHED")
+                    ? "ACTIVATED_DEVICE_TEST_ONLY" : "REFUSED_OR_RECOVERY_REQUIRED"));
+        return result;
+    }
+
+    String auditMokaHomeUidRoute() throws Exception {
+        String result = new RootlabMokaHomeUidSelector(app).audit();
+        record("Moka Home UID route audit: "
+                + (result.startsWith("MOKA HOME UID ROUTE AUDIT")
+                    ? "READ_ONLY" : "NOT_ACTIVE"));
         return result;
     }
 
