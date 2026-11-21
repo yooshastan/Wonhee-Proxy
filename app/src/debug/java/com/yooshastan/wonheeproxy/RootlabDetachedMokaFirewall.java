@@ -228,6 +228,54 @@ final class RootlabDetachedMokaFirewall {
         return true;
     }
 
+    /**
+     * Both OUTPUT anchors are installed and independently journaled in the
+     * two dedicated hook owners. This method checks exact references and
+     * exact chain contents, never treating arbitrary foreign jumps as owned.
+     */
+    boolean exactStagingPresentWithVerifiedDualHooks(int uid, String device)
+            throws Exception {
+        State state = load();
+        if (state == null || state.count != 5 || state.plan.uid != uid
+                || !state.plan.homeDevice.equals(device)
+                || !RootlabMokaIpv4OutputTest.pendingOrUnknown(context)
+                || !RootlabMokaIpv6OutputTest.pendingOrUnknown(context)) {
+            return false;
+        }
+        RootShell shell = new RootShell(context);
+        shell.start();
+        for (int family : new int[]{4, 6}) {
+            String binary = tool(family);
+            String ownedChain = chain(family);
+            String tag = family == 4 ? RootMokaHomeFirewallPilotPlan.TAG4
+                    : RootMokaHomeFirewallPilotPlan.TAG6;
+            String expected = "-A OUTPUT -m owner --uid-owner " + uid
+                    + " -m comment --comment " + tag + " -j " + ownedChain;
+            String listing = String.join("\n", read(shell,
+                    binary + " -w -t filter -S"));
+            int references = 0;
+            for (String line : listing.split("\n")) {
+                boolean relevant = line.contains(" -j " + ownedChain)
+                        || line.contains(" -g " + ownedChain)
+                        || line.contains(tag);
+                if (!relevant) continue;
+                String normalized = line.trim().replace("\"", "")
+                        .replaceAll("\\s+", " ");
+                if (!expected.equals(normalized)) {
+                    throw new IllegalStateException(
+                            "Unexpected IPv" + family + " private chain reference.");
+                }
+                references++;
+            }
+            if (references != 1) {
+                throw new IllegalStateException(
+                        "Expected exactly one owned IPv" + family + " hook.");
+            }
+            verifyChain(shell, state.plan, family, 5);
+        }
+        return true;
+    }
+
     String stage(int uid, String device) throws Exception {
         if (pendingOrUnknown(context)) {
             return "DETACHED FIREWALL STAGE REFUSED: existing ownership journal; "
