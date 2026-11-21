@@ -118,6 +118,16 @@ final class RootlabMokaIpv4OutputTest {
         return shell.run(null, check + " >/dev/null 2>&1") == 0;
     }
 
+    /** Read-only exact owned hook prerequisite for the Home fallback pilot. */
+    boolean exactAttached(int uid, String device) throws Exception {
+        RootMokaHomeFirewallPilotPlan.Plan saved = journalPlan();
+        if (saved == null || saved.uid != uid
+                || !saved.homeDevice.equals(device)) return false;
+        RootShell shell = new RootShell(app);
+        shell.start();
+        return exactHook(shell, saved);
+    }
+
     String attach(int uid, String device) throws Exception {
         if (pendingOrUnknown(app)) {
             return "MOKA IPv4 HOOK REFUSED: previous journal needs Safe Stop.";
