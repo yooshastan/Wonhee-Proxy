@@ -137,6 +137,19 @@ final class RootlabMokaIpv6OutputTest {
                 " -D OUTPUT ", " -C OUTPUT ") + " >/dev/null 2>&1") == 0;
     }
 
+    /**
+     * A separate dual-stack hook test may verify this exact installed IPv6
+     * prerequisite without mutating counters or installing new firewall rules.
+     */
+    boolean exactAttached(int uid, String device) throws Exception {
+        RootMokaHomeFirewallPilotPlan.Plan persisted = planFromJournal();
+        if (persisted == null || persisted.uid != uid
+                || !persisted.homeDevice.equals(device)) return false;
+        RootShell shell = new RootShell(app);
+        shell.start();
+        return exactHookExists(shell, persisted);
+    }
+
     String attach(int uid, String device) throws Exception {
         if (pendingOrUnknown(app)) {
             return "IPv6 HOOK REFUSED: a prior owner journal needs Safe Stop.";
