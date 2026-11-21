@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * DEBUG-ONLY supervised independent WireGuard link experiment.
- * No Android per-app routing or DNS changes are allowed by this activity.
+ * Exact Moka per-app routing requires deliberate opt-in and safe rollback.
  */
 public final class RootlabTwoPeerActivity extends Activity {
     private static final int PICK_FIRST = 141;
@@ -44,7 +44,7 @@ public final class RootlabTwoPeerActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private String report = "Import Exit A and Exit B. Optionally import "
-            + "a separate Home WireGuard .conf. No Android apps are routed.";
+            + "a separate Home WireGuard .conf. App routing needs explicit opt-in.";
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -55,14 +55,14 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.74 · Moka Home UID Pilot", 21, true);
+        TextView heading = text("Wonhee 0.15.75 · Moka/Browser Path Diagnostics", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
                 + "This starts two independent Internet WireGuard links "
                 + "plus an optional third Home WireGuard link in private "
                 + "routing tables. It does NOT route phone apps, DNS or "
-                + "system traffic into any tunnel.\n"
+                + "system traffic into any tunnel automatically.\n"
                 + "Home requires its own WireGuard .conf; a Tailscale "
                 + "connection cannot be imported as a WireGuard profile.\n"
                 + "Private DNS must stay OFF. Do not run the official Wonhee "
@@ -322,6 +322,27 @@ public final class RootlabTwoPeerActivity extends Activity {
         action(layout, "Inspect active Moka Home UID route · read-only", () ->
                 execute("Moka Home UID route audit",
                         session::auditMokaHomeUidRoute));
+        action(layout, "Diagnose Moka + browser Home path · read-only", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Inspect Moka, Chrome and Brave routing?")
+                        .setMessage("READ-ONLY SNAPSHOT. This compares the saved "
+                                + "Moka selector outcome with current Android "
+                                + "UID policy rules and private Home routes. "
+                                + "It reads per-app synthetic route lookups, "
+                                + "Moka firewall counters and TCP socket states "
+                                + "for 10.0.0.169:4533. "
+                                + "No networking changes, probe traffic, "
+                                + "packet capture or browser routing activation. "
+                                + "It does not prove whether a real app packet "
+                                + "reached Home. Capture once before an app "
+                                + "connection attempt, retry in Moka or a "
+                                + "browser, then capture again; use Exact-owned "
+                                + "Safe Stop afterward.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Inspect", (dialog, which) ->
+                                execute("Moka and browser connection path",
+                                        session::diagnoseMokaBrowserPath))
+                        .show());
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
