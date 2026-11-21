@@ -143,7 +143,8 @@ final class RootlabMokaHomeUidSelector {
                 || lines.isEmpty()) {
             return new Lookup(false, "UNAVAILABLE");
         }
-        String route = String.join(" ", lines).replaceAll("\\s+", " ");
+        String route = " " + String.join(" ", lines)
+                .replaceAll("\\s+", " ").trim() + " ";
         boolean home = route.contains(" dev " + device + " ")
                 && route.contains(" table 51002 ");
         String selection = home ? "HOME_TABLE_51002"
@@ -190,7 +191,15 @@ final class RootlabMokaHomeUidSelector {
             }
             RootMokaHomeUidRuleEvidence.Snapshot after = inspect(shell, uid);
             Lookup observed = lookup(shell, uid, device);
-            if (after.conflict || after.exact != 1 || !observed.home) {
+            boolean protectionsStillOwned = guard4.exactAttached(uid, device)
+                    && guard6.exactAttached(uid, device)
+                    && new RootlabMokaHomeTerminalRoute(app)
+                            .exactStaged(uid, device);
+            requireFirstOutputHook(shell, uid, 4);
+            requireFirstOutputHook(shell, uid, 6);
+            requireCellularPhysical(app);
+            if (after.conflict || after.exact != 1 || !observed.home
+                    || !protectionsStillOwned) {
                 throw new IllegalStateException(
                         "Moka UID rule installed but Home lookup not verified.");
             }
