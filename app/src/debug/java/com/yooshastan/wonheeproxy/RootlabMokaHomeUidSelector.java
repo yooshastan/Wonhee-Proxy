@@ -24,6 +24,7 @@ import java.util.List;
 final class RootlabMokaHomeUidSelector {
     private static final String PREF = "wonhee_rootlab_moka_home_uid_selector_v1";
     private static final String KEY = "pending";
+    private static final String LAST_OUTCOME = "last_outcome";
     private static final String VERSION = "WMHR1";
     private final Context app;
 
@@ -42,6 +43,23 @@ final class RootlabMokaHomeUidSelector {
 
     private SharedPreferences prefs() {
         return app.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+    }
+
+    String lastOutcome() {
+        return prefs().getString(LAST_OUTCOME, "NEVER_REQUESTED");
+    }
+
+    void noteRefusal(String reason) {
+        if (reason == null || !reason.matches("[A-Z_]{3,64}")) {
+            throw new IllegalArgumentException("Invalid diagnostic refusal code.");
+        }
+        persistOutcome("REFUSED_" + reason);
+    }
+
+    private void persistOutcome(String status) {
+        if (!prefs().edit().putString(LAST_OUTCOME, status).commit()) {
+            throw new IllegalStateException("Cannot persist redacted UID selector outcome.");
+        }
     }
 
     private RootMokaHomeRouteSafetyPlan.Plan journalPlan() {
@@ -159,9 +177,19 @@ final class RootlabMokaHomeUidSelector {
      */
     String activate(int uid, String device) throws Exception {
         if (pendingOrUnknown(app)) {
+            noteRefusal("PREEXISTING_JOURNAL");
             return "MOKA HOME UID ROUTE REFUSED: previous journal needs Safe Stop.";
         }
-        requireCellularPhysical(app);
+        try {
+            requireCellularPhysical(app);
+        } catch (IllegalStateException preflight) {
+            String code = preflight.getMessage() != null
+                    && preflight.getMessage().contains("Private DNS")
+                    ? "PRIVATE_DNS_NOT_OFF" : "CELLULAR_REQUIRED";
+            noteRefusal(code);
+            return "MOKA HOME UID ROUTE REFUSED: " + code
+                    + ". No UID policy was installed.";
+        }
         RootMokaHomeRouteSafetyPlan.Plan plan =
                 RootMokaHomeRouteSafetyPlan.compile(uid, device);
         RootlabMokaIpv4OutputTest guard4 = new RootlabMokaIpv4OutputTest(app);
@@ -172,20 +200,29 @@ final class RootlabMokaHomeUidSelector {
                         .exactStagingPresentWithVerifiedDualHooks(uid, device)
                 || !new RootlabMokaHomeTerminalRoute(app)
                         .exactStaged(uid, device)) {
+            noteRefusal("DUAL_STACK_OR_HOME_TERMINAL_MISSING");
             return "MOKA HOME UID ROUTE REFUSED: dual-stack guards, "
                     + "Home route and exact unreachable terminal required.";
         }
 
         RootShell shell = new RootShell(app);
         shell.start();
-        requireFirstOutputHook(shell, uid, 4);
-        requireFirstOutputHook(shell, uid, 6);
+        try {
+            requireFirstOutputHook(shell, uid, 4);
+            requireFirstOutputHook(shell, uid, 6);
+        } catch (IllegalStateException invalidHook) {
+            noteRefusal("OUTPUT_HOOK_ORDER");
+            return "MOKA HOME UID ROUTE REFUSED: OUTPUT_HOOK_ORDER. "
+                    + "No UID policy was installed.";
+        }
         RootMokaHomeUidRuleEvidence.Snapshot before = inspect(shell, uid);
         if (before.conflict || before.exact != 0) {
+            noteRefusal("POLICY_COLLISION");
             return "MOKA HOME UID ROUTE REFUSED: Android priority/table collision.";
         }
         try {
             commitIntent(plan); // durable intent BEFORE making app routing visible
+            persistOutcome("ACTIVATING");
             if (shell.run(null, plan.candidateSelector) != 0) {
                 throw new IllegalStateException("Android UID rule insertion failed.");
             }
@@ -203,6 +240,7 @@ final class RootlabMokaHomeUidSelector {
                 throw new IllegalStateException(
                         "Moka UID rule installed but Home lookup not verified.");
             }
+            persistOutcome("ACTIVE_VERIFIED");
             return "MOKA HOME UID ROUTE ATTACHED (DEVICE EXPERIMENT)\n"
                     + "Exact UID " + uid + ", 10.0.0.169/32, priority 12700, "
                     + "private table 51002: VERIFIED\n"
@@ -215,6 +253,8 @@ final class RootlabMokaHomeUidSelector {
                     + "Use Exact-owned Safe Stop immediately after the test.";
         } catch (Exception error) {
             String cleanup = recover();
+            persistOutcome(pendingOrUnknown(app)
+                    ? "RECOVERY_PAUSED" : "ROLLED_BACK");
             return "MOKA HOME UID ROUTE FAILED ("
                     + error.getClass().getSimpleName() + "): " + cleanup;
         }
@@ -266,9 +306,14 @@ final class RootlabMokaHomeUidSelector {
                 throw new IllegalStateException("UID selector remains or changed.");
             }
             clearExact();
+            persistOutcome("CLEAN_STOPPED");
             return "MOKA HOME UID ROUTE CLEAN_STOPPED; selector journal=0; "
                     + "reserved priority 12700 and private-table selector absent.";
         } catch (Exception uncertain) {
+            // Preserve the original exact-owned journal; never treat an
+            // inconclusive inverse as success.
+            try { persistOutcome("RECOVERY_PAUSED"); }
+            catch (IllegalStateException ignored) { /* report pause */ }
             return "MOKA HOME UID ROUTE RECOVERY PAUSED; journal retained. "
                     + "Do not uninstall or clear app data.";
         }
