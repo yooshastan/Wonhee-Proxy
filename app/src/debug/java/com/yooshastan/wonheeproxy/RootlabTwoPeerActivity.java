@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.73 · Home Fallback Route Pilot", 21, true);
+        TextView heading = text("Wonhee 0.15.74 · Moka Home UID Pilot", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -292,6 +292,36 @@ public final class RootlabTwoPeerActivity extends Activity {
         action(layout, "Inspect Home /32 fallback · read-only", () ->
                 execute("Moka Home fallback route audit",
                         session::auditMokaHomeFallback));
+        action(layout, "Route Moka to Home · opt-in live UID test", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Temporarily route Moka through Home?")
+                        .setMessage("ROOTED CELLULAR EXPERIMENT. This WILL "
+                                + "install one IPv4 policy rule for Moka UID "
+                                + "10300 and ONLY destination 10.0.0.169/32. "
+                                + "It requires the staged unreachable route, "
+                                + "both exact Moka IPv4/IPv6 firewall hooks, "
+                                + "a live Home WireGuard interface, and "
+                                + "Android Private DNS OFF. It refuses other "
+                                + "Android VPNs and non-cellular networks. "
+                                + "The Home route and synthetic UID lookup "
+                                + "will be checked immediately. Moka may "
+                                + "connect to Navidrome or may fail. "
+                                + "This is NOT yet proven safe during "
+                                + "Home loss, external Android route changes "
+                                + "or DNS/mark variations. Do NOT disconnect "
+                                + "Home or reboot for this first test. "
+                                + "Save the results and run Exact-owned "
+                                + "Safe Stop immediately afterward; it must "
+                                + "remove the UID rule FIRST. Never uninstall "
+                                + "or clear app data if recovery pauses.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Enable Moka-only test", (dialog, which) ->
+                                execute("Moka Home UID selector",
+                                        session::activateMokaHomeUidRoute))
+                        .show());
+        action(layout, "Inspect active Moka Home UID route · read-only", () ->
+                execute("Moka Home UID route audit",
+                        session::auditMokaHomeUidRoute));
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
