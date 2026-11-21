@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.72 · Moka Dual-Stack Firewall Pilot", 21, true);
+        TextView heading = text("Wonhee 0.15.73 · Home Fallback Route Pilot", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -270,6 +270,28 @@ public final class RootlabTwoPeerActivity extends Activity {
                                 execute("Moka IPv4 firewall counters",
                                         session::readMokaIpv4Counters))
                         .show());
+        action(layout, "Stage Home /32 fallback blocker · opt-in test", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Add exact private Home fallback route?")
+                        .setMessage("ROOT NETWORK ROUTE TEST. Requires three "
+                                + "working links and both owned Moka IPv4/IPv6 "
+                                + "OUTPUT guards. Adds a high-metric UNREACHABLE "
+                                + "route for ONLY 10.0.0.169/32 in private "
+                                + "Home table 51002. No Android UID selector, "
+                                + "mark, DNS, or global route is installed. "
+                                + "It should not affect normal app networking. "
+                                + "This DOES NOT prove fail-closed behavior "
+                                + "or make Moka work over cellular. "
+                                + "Use Exact-owned Safe Stop after inspecting. "
+                                + "Do not clear data if recovery pauses.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Stage fallback route", (dialog, which) ->
+                                execute("Moka Home fallback blocker",
+                                        session::stageMokaHomeFallback))
+                        .show());
+        action(layout, "Inspect Home /32 fallback · read-only", () ->
+                execute("Moka Home fallback route audit",
+                        session::auditMokaHomeFallback));
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
