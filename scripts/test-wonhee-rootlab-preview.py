@@ -65,6 +65,30 @@ assert 'scroll.setFitsSystemWindows(true)' in two_peer
 assert 'String auditMokaHomeFirewall()' in session
 assert 'String stageDetachedMokaFirewall()' in session
 assert 'String attachMokaIpv6Hook()' in session
+assert 'String attachMokaIpv4Hook()' in session
+assert 'String readMokaIpv4Counters()' in session
+assert 'session::attachMokaIpv4Hook' in two_peer
+assert 'session::readMokaIpv4Counters' in two_peer
+assert 'Attach Moka IPv4 OUTPUT guard' in two_peer
+ipv4_hook = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaIpv4OutputTest.java').read_text()
+assert 'exactAttached(uid, device)' in ipv4_hook
+assert 'exactStagingPresentWithVerifiedIpv6Hook(uid, device)' in ipv4_hook
+assert 'exactStagingPresentWithVerifiedDualHooks(uid, device)' in ipv4_hook
+assert 'recordIntent(plan);' in ipv4_hook
+assert ipv4_hook.index('recordIntent(plan);') < ipv4_hook.index('shell.run(null, step.install)')
+assert 'canonicalHook(plan).inverse' in ipv4_hook
+assert 'RootMokaIpv6CounterParser.target(' in ipv4_hook
+assert 'String recover() throws Exception' in ipv4_hook
+assert 'exactStagingPresentWithVerifiedDualHooks' in (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabDetachedMokaFirewall.java').read_text()
+assert 'new RootlabMokaIpv4OutputTest(app).recover()' in session
+assert session.index('new RootlabMokaIpv4OutputTest(app).recover()') < session.index('new RootlabMokaIpv6OutputTest(app).recover()')
+assert session.index('new RootlabMokaIpv6OutputTest(app).recover()') < session.index('new RootlabDetachedMokaFirewall(app).recover()')
+assert 'RootlabMokaIpv4OutputTest.pendingOrUnknown(app)' in session
+assert 'RootlabMokaIpv4OutputTest.pendingOrUnknown(app)' in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSafetyGate.java'
+).read_text()
+assert 'RootIsolatedUidPolicyTransaction.start(' not in session
+
 assert 'String readMokaIpv6Counters()' in session
 assert 'String previewMokaIpv4Order()' in session
 assert 'String auditMokaHomeRouteSelection()' in session
@@ -209,8 +233,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(125)" in gradle
-assert "output.versionName.set('0.15.71-rootlab-home-route-audit')" in gradle
+assert "output.versionCode.set(126)" in gradle
+assert "output.versionName.set('0.15.72-rootlab-ipv4-output-pilot')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
