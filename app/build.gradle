@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(125)
-            output.versionName.set('0.15.71-rootlab-home-route-audit')
+            output.versionCode.set(126)
+            output.versionName.set('0.15.72-rootlab-ipv4-output-pilot')
         }
     }
 }
