@@ -66,6 +66,29 @@ assert 'String auditMokaHomeFirewall()' in session
 assert 'String stageDetachedMokaFirewall()' in session
 assert 'String attachMokaIpv6Hook()' in session
 assert 'String attachMokaIpv4Hook()' in session
+assert 'String stageMokaHomeFallback()' in session
+assert 'String auditMokaHomeFallback()' in session
+assert 'session::stageMokaHomeFallback' in two_peer
+assert 'session::auditMokaHomeFallback' in two_peer
+assert 'Stage Home /32 fallback blocker' in two_peer
+home_terminal = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaHomeTerminalRoute.java').read_text()
+assert 'commitIntent(plan);' in home_terminal
+assert home_terminal.index('commitIntent(plan);') < home_terminal.index('shell.run(null, plan.candidateTerminal)')
+assert 'new RootlabMokaIpv4OutputTest(app).exactAttached(uid, device)' in home_terminal
+assert 'new RootlabMokaIpv6OutputTest(app).exactAttached(uid, device)' in home_terminal
+assert 'requireNoUidSelector(shell)' in home_terminal
+assert 'plan.candidateTerminal.replace(' in home_terminal
+assert 'boolean activationAllowed() { return false; }' in (repo / 'app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeRouteSafetyPlan.java').read_text()
+assert 'RootMokaHomeTerminalRouteEvidenceTest.java' in (repo / '.github/workflows/build.yml').read_text()
+assert 'new RootlabMokaHomeTerminalRoute(app).recover()' in session
+assert session.index('new RootlabMokaIpv4OutputTest(app).recover()') < session.index('new RootlabMokaHomeTerminalRoute(app).recover()')
+assert session.index('new RootlabMokaHomeTerminalRoute(app).recover()') < session.index('RootIsolatedWireGuardTransaction.recover(')
+assert 'RootlabMokaHomeTerminalRoute.pendingOrUnknown(app)' in session
+assert 'RootlabMokaHomeTerminalRoute.pendingOrUnknown(app)' in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSafetyGate.java'
+).read_text()
+assert 'RootIsolatedUidPolicyTransaction.start(' not in session
+
 assert 'String readMokaIpv4Counters()' in session
 assert 'session::attachMokaIpv4Hook' in two_peer
 assert 'session::readMokaIpv4Counters' in two_peer
@@ -234,8 +257,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(126)" in gradle
-assert "output.versionName.set('0.15.72-rootlab-ipv4-output-pilot')" in gradle
+assert "output.versionCode.set(127)" in gradle
+assert "output.versionName.set('0.15.73-rootlab-home-terminal')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
