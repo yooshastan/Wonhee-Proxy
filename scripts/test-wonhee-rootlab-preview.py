@@ -68,6 +68,30 @@ assert 'String attachMokaIpv6Hook()' in session
 assert 'String attachMokaIpv4Hook()' in session
 assert 'String stageMokaHomeFallback()' in session
 assert 'String activateMokaHomeUidRoute()' in session
+assert 'String diagnoseMokaBrowserPath()' in session
+assert 'session::diagnoseMokaBrowserPath' in two_peer
+assert 'Diagnose Moka + browser Home path' in two_peer
+app_path = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaConnectionPathDiagnostics.java').read_text()
+selector = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaHomeUidSelector.java').read_text()
+assert 'RootMokaConnectionPathEvidence.selectorState(' in app_path
+assert 'RootMokaConnectionPathEvidence.syntheticRoute(' in app_path
+assert 'packageUid(shell, MOKA)' in app_path
+assert 'packageUid(shell, CHROME)' in app_path
+assert 'packageUid(shell, BRAVE)' in app_path
+assert 'RootMokaIpv6CounterParser.target(' in app_path
+assert 'ss -tn' in app_path
+for forbidden in ('shell.run(null,', 'ip -4 rule add', 'ip -4 rule del',
+                  'ip -4 route add', 'iptables -A', 'iptables -I',
+                  'ip6tables -I', 'curl', 'tcpdump', 'logcat -d'):
+    assert forbidden not in app_path, f'Unexpected diagnostic operation: {forbidden}'
+for outcome in ('ACTIVE_VERIFIED', 'ROLLED_BACK', 'CLEAN_STOPPED',
+                'RECOVERY_PAUSED', 'REFUSED_CELLULAR_REQUIRED'):
+    assert outcome in selector or outcome in (
+        repo / 'app/src/main/java/com/yooshastan/wonheeproxy/RootMokaConnectionPathEvidence.java'
+    ).read_text()
+assert 'RootMokaConnectionPathEvidenceTest.java' in (
+    repo / '.github/workflows/build.yml').read_text()
+
 assert 'String auditMokaHomeUidRoute()' in session
 assert 'session::activateMokaHomeUidRoute' in two_peer
 assert 'session::auditMokaHomeUidRoute' in two_peer
