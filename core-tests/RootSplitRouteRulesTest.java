@@ -42,6 +42,57 @@ public final class RootSplitRouteRulesTest {
         String kernelLine = "12500: from all to 10.0.0.0/24 fwmark 0x0/0x20000 "
                 + "iif lo uidrange 0-99999 lookup " + home.device;
         check(rules.get(0).matchesListing(kernelLine), "Owned rule must match exact listing");
+        // Pixel 8a 2026-11-19: the kernel prints a /32 destination without
+        // /32. The prior parser refused Safe Stop even when the rule was owned.
+        RootSplitRouteRules.Rule host = new RootSplitRouteRules.Rule(
+                4, 12500, "10.0.0.169/32", home.device, "10.0.0.169");
+        String liveHost = "12500:  from all to 10.0.0.169 fwmark 0x0/0x20000 "
+                + "iif lo uidrange 0-99999 lookup " + home.device + " ";
+        check(host.matchesListing(liveHost),
+                "Bare kernel host route must match exactly owned /32");
+        check(RootSplitRouteRules.verifyRollbackCandidates(
+                Arrays.asList(host, new RootSplitRouteRules.Rule(4, 12501,
+                        "10.77.0.0/24", home.device, "10.77.0.1")),
+                Collections.singletonList(liveHost), Collections.emptyList()) == 1,
+                "Interrupted Safe Stop must tolerate already removed second route");
+        check(RootSplitRouteRules.verifyRollbackCandidates(
+                Collections.singletonList(host), Collections.emptyList(),
+                Collections.emptyList()) == 0,
+                "Retry must tolerate an already removed host rule");
+        check(!host.matchesListing(liveHost.replace("10.0.0.169", "10.0.0.170")),
+                "A different host must never pass rollback ownership");
+        check(!host.matchesListing(liveHost.replace("0x0/0x20000", "0x0/0x2ffff")),
+                "Different fwmark selector must still refuse");
+        check(!host.matchesListing(liveHost.replace(home.device, internet.device)),
+                "Different tunnel must still refuse");
+        check(!host.matchesListing(liveHost.replace("lookup " + home.device,
+                "lookup " + home.device + "garbage")),
+                "A foreign table cannot match by string prefix");
+        check(!host.matchesListing(liveHost.replace("iif lo", "iif localhost")),
+                "A different interface must not match by substring");
+        check(!host.matchesListing(liveHost.replace("uidrange 0-99999",
+                "uidrange 0-999990")),
+                "A broader UID range must not match by substring");
+        check(!host.matchesListing(liveHost.replace("uidrange 0-99999",
+                "uidrange 10000-99999")), "Different UID selector must refuse");
+        check(!host.matchesListing(liveHost.replace("12500:", "12501:")),
+                "Different reserved priority must refuse");
+        check(!rules.get(0).matchesListing(
+                kernelLine.replace("10.0.0.0/24", "10.0.0.0")),
+                "A bare host address must never impersonate an owned /24");
+        RootSplitRouteRules.Rule ipv6Host = new RootSplitRouteRules.Rule(
+                6, 12500, "fdce:c9b7:3021:111::2/128",
+                home.device, "fdce:c9b7:3021:111::2");
+        String liveIpv6Host = "12500: from all to fdce:c9b7:3021:111::2 "
+                + "fwmark 0x0/0x20000 iif lo uidrange 0-99999 lookup " + home.device;
+        check(ipv6Host.matchesListing(liveIpv6Host),
+                "Bare kernel IPv6 host must match owned /128");
+        check(!ipv6Host.matchesListing(
+                liveIpv6Host.replace("fdce:c9b7:3021:111::2", "fdce:c9b7:3021:111::3")),
+                "Other IPv6 host must refuse");
+        check(!ipv6Host.matchesListing(
+                liveIpv6Host.replace("fdce:c9b7:3021:111::2", "host.invalid")),
+                "Non-numeric kernel route token must refuse without DNS lookup");
 
         String homeDevice = home.device;
         String k12500 = "12500:\tfrom all to 10.0.0.0/24 fwmark 0x0/0x20000 "

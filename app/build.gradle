@@ -23,7 +23,7 @@ android {
     buildTypes {
         debug {
             // Side-by-side experiment; never replace the user's signed stable app.
-            applicationIdSuffix '.rootlab'
+            applicationIdSuffix '.rootlab01562triple1'
         }
         release {
             if (hasReleaseSigning) {
@@ -45,6 +45,18 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
         coreLibraryDesugaringEnabled true
+    }
+}
+
+// Deliberately package only the side-by-side debug lab as 0.15.62.
+// The official signed release stays at 0.15.61/versionCode 108 until
+// real multi-exit fail-closed operation passes device acceptance.
+androidComponents {
+    onVariants(selector().withBuildType('debug')) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionCode.set(127)
+            output.versionName.set('0.15.73-rootlab-home-terminal')
+        }
     }
 }
 

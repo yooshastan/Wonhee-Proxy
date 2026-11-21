@@ -204,6 +204,9 @@ final class RootPerAppUidPolicyPlan {
                         + "must include both IPv4 and IPv6 default routes.");
             }
         }
+        // Separate lookup tables isolate peer AllowedIPs, not the local
+        // interface addresses. Those all share Android's kernel namespace.
+        RootMultiTunnelPlan.validateIndependentInterfaceAddresses(tunnels);
         RootMultiTunnelPlan.Entry defaultTunnel = byName.get(defaultExitName);
         if (defaultTunnel == null || !fullDualStack(defaultTunnel)) {
             throw new IllegalArgumentException("Default exit needs dual-stack "

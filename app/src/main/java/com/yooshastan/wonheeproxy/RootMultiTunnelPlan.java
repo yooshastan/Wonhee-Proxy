@@ -152,6 +152,44 @@ final class RootMultiTunnelPlan {
         }
     }
 
+    /**
+     * Independent UID policy tables permit multiple Internet /0 routes,
+     * but WireGuard interface addresses still coexist in the same Android
+     * kernel namespace. Never assign overlapping local interface subnets.
+     *
+     * Pure preflight: no shell, no profile mutation and no DNS lookups.
+     */
+    static void validateIndependentInterfaceAddresses(List<Entry> entries) {
+        if (entries == null || entries.isEmpty() || entries.size() > MAX_TUNNELS) {
+            throw new IllegalArgumentException("Select 1–8 saved tunnels.");
+        }
+        Set<String> names = new HashSet<>();
+        Set<String> devices = new HashSet<>();
+        List<List<Cidr>> byTunnel = new ArrayList<>();
+        for (Entry entry : entries) {
+            if (entry == null || !names.add(entry.name.toLowerCase(Locale.ROOT))
+                    || !devices.add(entry.device) || entry.interfaceAddresses.isEmpty()) {
+                throw new IllegalArgumentException("Tunnels need unique identities and addresses.");
+            }
+            List<Cidr> networks = new ArrayList<>();
+            for (String address : entry.interfaceAddresses) networks.add(new Cidr(address));
+            byTunnel.add(networks);
+        }
+        for (int i = 0; i < byTunnel.size(); i++) {
+            for (int j = i + 1; j < byTunnel.size(); j++) {
+                for (Cidr first : byTunnel.get(i)) {
+                    for (Cidr second : byTunnel.get(j)) {
+                        if (first.overlaps(second)) {
+                            throw new IllegalArgumentException(
+                                    "Independent tunnel interfaces have overlapping "
+                                    + "addresses or subnets; refusing multi-exit planning.");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     static String preview(List<Entry> entries) {
         validate(entries);
         StringBuilder summary = new StringBuilder("READ-ONLY MULTI-TUNNEL ROUTE PREVIEW\n");

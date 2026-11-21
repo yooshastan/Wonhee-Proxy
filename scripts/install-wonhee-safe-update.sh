@@ -64,9 +64,43 @@ audit_clean() {
     fi
     rules4="$(root_read 'ip -4 rule show')" || fail "Cannot audit IPv4 policy rules."
     rules6="$(root_read 'ip -6 rule show')" || fail "Cannot audit IPv6 policy rules."
-    if grep -Eq '(^|[[:space:]])12[567][0-9]{2}:' <<< "$rules4"$'\n'"$rules6"; then
-        fail "Reserved Wonhee routing rule priority remains (12500-12799)."
+    if grep -Eq '(^|[[:space:]])12[5-9][0-9]{2}:' <<< "$rules4"$'\n'"$rules6"; then
+        fail "Reserved Wonhee routing rule priority remains (12500-12999)."
     fi
+    # A missing wnm link does not establish an empty isolated owner journal.
+    local ledger_file ledger_probe net_family all_routes
+    ledger_file="/data/user/0/$pkg/shared_prefs/wonhee_isolated_bootstrap_ownership_v1.xml"
+    ledger_probe="$(root_read "if [ -f $ledger_file ]; then echo exists; else echo absent; fi")" ||
+        fail "Cannot check isolated bootstrap ownership journal."
+    if [[ "$ledger_probe" == exists ]]; then
+        root_read "cat $ledger_file" > "$tmp/isolated_ownership.xml" ||
+            fail "Cannot inspect isolated bootstrap ownership journal."
+        python3 "$(dirname "$0")/check-wonhee-isolated-ledger.py" "$tmp/isolated_ownership.xml" ||
+            fail "Isolated multi-exit ownership is pending or unknown."
+    elif [[ "$ledger_probe" != absent ]]; then
+        fail "Cannot verify isolated bootstrap ownership journal state."
+    fi
+    local uid_ledger_file uid_ledger_probe
+    uid_ledger_file="/data/user/0/$pkg/shared_prefs/wonhee_isolated_uid_ownership_v1.xml"
+    uid_ledger_probe="$(root_read "if [ -f $uid_ledger_file ]; then echo exists; else echo absent; fi")" ||
+        fail "Cannot check isolated UID policy journal."
+    if [[ "$uid_ledger_probe" == exists ]]; then
+        root_read "cat $uid_ledger_file" > "$tmp/isolated_uid_ownership.xml" ||
+            fail "Cannot inspect isolated UID policy journal."
+        python3 "$(dirname "$0")/check-wonhee-isolated-ledger.py" \
+            "$tmp/isolated_uid_ownership.xml" pending_or_installed_uid_rules_v1 ||
+            fail "Isolated UID policy ownership is pending or unknown."
+    elif [[ "$uid_ledger_probe" != absent ]]; then
+        fail "Cannot verify isolated UID policy journal state."
+    fi
+    # Refuse abandoned private-table routes even if the interface vanished.
+    for net_family in 4 6; do
+        all_routes="$(root_read "ip -$net_family route show table all")" ||
+            fail "Cannot inspect IPv$net_family private routing tables."
+        if grep -Eq '(^|[[:space:]])table[[:space:]]+5100[0-7]([[:space:]]|$)' <<< "$all_routes"; then
+            fail "Private multi-exit routing table 51000-51007 is not empty."
+        fi
+    done
     fw4="$(root_read 'iptables-save')" || fail "Cannot inventory IPv4 firewall."
     fw6="$(root_read 'ip6tables-save')" || fail "Cannot inventory IPv6 firewall."
     if grep -Eqi 'WN_|WN-MULTI' <<< "$fw4"$'\n'"$fw6"; then

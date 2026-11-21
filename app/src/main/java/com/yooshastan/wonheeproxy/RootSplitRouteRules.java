@@ -70,9 +70,9 @@ final class RootSplitRouteRules {
             return line != null && parsePriority(line) == priority
                     && sameCidr(destination, wordAfter(line, "to"))
                     && mark.equals(wordAfter(line, "fwmark"))
-                    && line.contains("iif lo")
-                    && line.contains("uidrange " + UIDS)
-                    && line.contains("lookup " + device);
+                    && "lo".equals(wordAfter(line, "iif"))
+                    && UIDS.equals(wordAfter(line, "uidrange"))
+                    && device.equals(wordAfter(line, "lookup"));
         }
     }
 
@@ -368,17 +368,36 @@ final class RootSplitRouteRules {
         return "";
     }
 
-    /** A kernel may canonicalize a host-form CIDR to its network address. */
+    /** Accept only numeric addresses; never resolve an untrusted rule token as DNS. */
+    private static boolean numericIp(String value) {
+        if (value == null || value.isEmpty()) return false;
+        return value.contains(":") ? value.matches("[0-9a-fA-F:.]+")
+                : value.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}");
+    }
+
+    /**
+     * Android ip rule show omits /32 or /128 for exact host destinations.
+     * Treat a bare numeric address as a host ONLY; never widen /24 or /64
+     * ownership. All other selectors are still checked by matchesListing.
+     */
     private static boolean sameCidr(String expected, String shown) {
         try {
-            if (prefix(expected) != prefix(shown)) return false;
-            String left = expected.substring(0, expected.indexOf('/'));
-            String right = shown.substring(0, shown.indexOf('/'));
-            if (!left.matches("[0-9a-fA-F:.]+") || !right.matches("[0-9a-fA-F:.]+")) return false;
+            if (expected == null || shown == null) return false;
+            int leftSlash = expected.indexOf('/');
+            int rightSlash = shown.indexOf('/');
+            if (leftSlash <= 0 || expected.lastIndexOf('/') != leftSlash
+                    || shown.lastIndexOf('/') != rightSlash) return false;
+            String left = expected.substring(0, leftSlash);
+            String right = rightSlash < 0 ? shown : shown.substring(0, rightSlash);
+            if (!numericIp(left) || !numericIp(right)) return false;
             byte[] l = InetAddress.getByName(left).getAddress();
             byte[] r = InetAddress.getByName(right).getAddress();
-            if (l.length != r.length || prefix(expected) > l.length * 8) return false;
-            for (int bit = 0; bit < prefix(expected); bit++) {
+            if (l.length != r.length) return false;
+            int bits = prefix(expected);
+            if (bits < 0 || bits > l.length * 8) return false;
+            int displayedBits = rightSlash < 0 ? r.length * 8 : prefix(shown);
+            if (bits != displayedBits) return false;
+            for (int bit = 0; bit < bits; bit++) {
                 int mask = 1 << (7 - bit % 8);
                 if ((l[bit / 8] & mask) != (r[bit / 8] & mask)) return false;
             }

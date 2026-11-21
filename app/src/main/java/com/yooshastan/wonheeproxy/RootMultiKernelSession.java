@@ -440,6 +440,11 @@ final class RootMultiKernelSession {
     private String dnsRecord() { return dnsLedger.getString(DNS_LEDGER_KEY, ""); }
 
     private void requireDnsDisabledForTunnelMutation() throws Exception {
+        if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
+            throw new IllegalStateException("Isolated multi-exit ownership journal "
+                    + "still pending or unreadable. Do not use legacy tunnel operations.");
+        }
         if (guardRecord() != null && !guardRecord().isEmpty()) {
             throw new IllegalStateException("Disable and audit Batch F's owned kill switch "
                     + "before modifying tunnels or split routes. Keep USB ADB available.");
@@ -457,6 +462,7 @@ final class RootMultiKernelSession {
                     + "recorded. Use the emergency DNS recovery controls first.");
         }
         shell.start();
+        ensureNoIsolatedRoutingResidue();
         if (countAllWonheeDnsTags() != 0) {
             throw new IllegalStateException("Live Wonhee DNS firewall rules remain "
                     + "despite an empty ownership ledger. Use Orphan DNS Audit "
@@ -4190,6 +4196,36 @@ final class RootMultiKernelSession {
         return count;
     }
 
+    /**
+     * Never treat an empty isolated journal as proof of empty kernel state.
+     * Priority 12800-12999 and private route tables 51000-51007 belong to
+     * the future isolated UID engine, not the old split-route lifecycle.
+     * Both families must be inventoried without modifying Android routes.
+     */
+    private void ensureNoIsolatedRoutingResidue() throws Exception {
+        for (int family : new int[] {4, 6}) {
+            for (String rule : readRules(family)) {
+                int priority = RootSplitRouteRules.parsePriority(rule);
+                if (priority >= RootPerAppUidPolicyPlan.FIRST_PRIORITY
+                        && priority <= RootPerAppUidPolicyPlan.LAST_PRIORITY) {
+                    throw new IllegalStateException("Isolated UID rule priority "
+                            + "is present without verified lifecycle ownership.");
+                }
+            }
+            List<String> routes = new ArrayList<>();
+            if (shell.run(routes, "ip -" + family + " route show table all") != 0) {
+                throw new IllegalStateException(
+                        "Cannot independently inspect isolated route tables.");
+            }
+            for (String route : routes) {
+                if (route.matches("(?s).*\\btable\\s+5100[0-7](?:\\s|$).*")) {
+                    throw new IllegalStateException("Private multi-exit route "
+                            + "table is not clean. Exact recovery required.");
+                }
+            }
+        }
+    }
+
     private boolean rulesMatchExactly(List<RootSplitRouteRules.Rule> expected) throws Exception {
         for (RootSplitRouteRules.Rule rule : expected) {
             int matches = 0;
@@ -4354,6 +4390,12 @@ final class RootMultiKernelSession {
      * DNS listener, foreign tags, or unknown reserved routing priorities.
      */
     private RootLifecycleRecoveryPlan inspectLifecycleRecoveryState() throws Exception {
+        if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
+            throw new IllegalStateException("Isolated multi-exit kernel journal still "
+                    + "owns or may own links and routes. Update and legacy Safe Stop "
+                    + "are blocked pending exact isolated recovery.");
+        }
         // All phases below are read-only. Stage-specific errors are intentionally
         // data-free: do not reveal resolver URLs, profiles, keys or full shell
         // command output in UI or persistent diagnostics.
@@ -4362,6 +4404,8 @@ final class RootMultiKernelSession {
             shell.start();
             stage = "ROOT_BACKEND";
             rootReady();
+            stage = "ISOLATED_KERNEL_RESIDUE";
+            ensureNoIsolatedRoutingResidue();
             stage = "SPLIT_LEDGER_DECODE";
             List<RootSplitRouteRules.Rule> routes =
                     RootSplitRouteRules.decode(savedRules());
@@ -4576,6 +4620,11 @@ final class RootMultiKernelSession {
             boolean success = false;
             String result;
             try {
+                if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
+                    throw new IllegalStateException("Isolated multi-exit ownership is "
+                            + "pending. Legacy Start cannot adopt isolated links.");
+                }
                 if (guardRecord() != null && !guardRecord().isEmpty()) {
                     throw new IllegalStateException("Experimental Batch F guard remains owned.");
                 }
@@ -4606,6 +4655,7 @@ final class RootMultiKernelSession {
                     throw new IllegalStateException("Selection has no HOME split-route correction.");
                 }
                 rootReady();
+                ensureNoIsolatedRoutingResidue();
                 if (countReservedRules() != 0) {
                     throw new IllegalStateException("Untracked priority-12500+ rules remain.");
                 }
@@ -4654,6 +4704,12 @@ final class RootMultiKernelSession {
             String result;
             StringBuilder completed = new StringBuilder();
             try {
+                if ((RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(appContext)
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(appContext))) {
+                    throw new IllegalStateException("Isolated multi-exit kernel journal "
+                            + "requires its exact-owned recovery. Legacy Safe Stop "
+                            + "will not delete or adopt those resources.");
+                }
                 if (guardRecord() != null && !guardRecord().isEmpty()) {
                     throw new IllegalStateException("Batch F guard is owned: disable and audit separately.");
                 }
@@ -4692,6 +4748,8 @@ final class RootMultiKernelSession {
                 // Read-only diagnostics with a distinct stage for every
                 // independently failing preflight. Never touch root state until
                 // BOTH policy families have completed their verification.
+                stage = "PREFLIGHT_ISOLATED_KERNEL_RESIDUE";
+                ensureNoIsolatedRoutingResidue();
                 stage = "PREFLIGHT_SPLIT_LEDGER_DECODE";
                 List<RootSplitRouteRules.Rule> planned =
                         RootSplitRouteRules.decode(savedRules());
