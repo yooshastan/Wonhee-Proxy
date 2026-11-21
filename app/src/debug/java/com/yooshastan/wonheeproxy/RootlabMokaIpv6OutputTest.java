@@ -202,9 +202,14 @@ final class RootlabMokaIpv6OutputTest {
         }
         RootShell shell = new RootShell(app);
         shell.start();
-        if (!exactHookExists(shell, plan)
-                || !new RootlabDetachedMokaFirewall(app)
-                        .exactStagingPresentWithVerifiedIpv6Hook(plan.uid, plan.homeDevice)) {
+        RootlabDetachedMokaFirewall staged =
+                new RootlabDetachedMokaFirewall(app);
+        boolean stagedExact = RootlabMokaIpv4OutputTest.pendingOrUnknown(app)
+                ? staged.exactStagingPresentWithVerifiedDualHooks(
+                        plan.uid, plan.homeDevice)
+                : staged.exactStagingPresentWithVerifiedIpv6Hook(
+                        plan.uid, plan.homeDevice);
+        if (!exactHookExists(shell, plan) || !stagedExact) {
             return "MOKA IPv6 COUNTERS REFUSED: missing or altered exact-owned "
                     + "hook/chain. Use Exact-owned Safe Stop; no counters reset.";
         }
