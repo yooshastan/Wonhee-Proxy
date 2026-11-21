@@ -85,10 +85,9 @@ for forbidden in ('shell.run(null,', 'ip -4 rule add', 'ip -4 rule del',
                   'ip6tables -I', 'curl', 'tcpdump', 'logcat -d'):
     assert forbidden not in app_path, f'Unexpected diagnostic operation: {forbidden}'
 for outcome in ('ACTIVE_VERIFIED', 'ROLLED_BACK', 'CLEAN_STOPPED',
-                'RECOVERY_PAUSED', 'REFUSED_CELLULAR_REQUIRED'):
-    assert outcome in selector or outcome in (
-        repo / 'app/src/main/java/com/yooshastan/wonheeproxy/RootMokaConnectionPathEvidence.java'
-    ).read_text()
+                'RECOVERY_PAUSED'):
+    assert outcome in selector
+assert 'noteRefusal(code)' in selector and '"CELLULAR_REQUIRED"' in selector
 assert 'RootMokaConnectionPathEvidenceTest.java' in (
     repo / '.github/workflows/build.yml').read_text()
 
