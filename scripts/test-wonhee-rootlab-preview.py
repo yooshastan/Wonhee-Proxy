@@ -125,7 +125,8 @@ assert 'exactReferences(shell, plan)' in hook
 assert 'hook(plan).inverse' in hook
 assert 'String recover() throws Exception' in hook
 detached = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabDetachedMokaFirewall.java').read_text()
-assert 'exactStagingPresentWithVerifiedIpv6Hook(plan.uid, plan.homeDevice)' in hook
+assert 'exactStagingPresentWithVerifiedIpv6Hook(' in hook
+assert 'exactStagingPresentWithVerifiedDualHooks(' in hook
 assert 'exactStagingPresent(plan.uid, plan.homeDevice)' not in hook
 assert 'requireDetached(shell, 4)' in detached
 assert 'verifyChain(shell, plan, 4, 5)' in detached
