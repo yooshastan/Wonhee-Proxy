@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(128)
-            output.versionName.set('0.15.74-rootlab-moka-home-uid')
+            output.versionCode.set(129)
+            output.versionName.set('0.15.75-rootlab-moka-browser-path')
         }
     }
 }
