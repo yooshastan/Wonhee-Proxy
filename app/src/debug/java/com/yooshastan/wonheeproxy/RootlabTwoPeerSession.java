@@ -876,10 +876,14 @@ final class RootlabTwoPeerSession {
                 .matcher(preflight);
         if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
                 || !found.find()) {
+            new RootlabMokaHomeUidSelector(app)
+                    .noteRefusal("HOME_OR_MOKA_PREFLIGHT");
             return "HOME UID ROUTE REFUSED: Home link or Moka identity changed.";
         }
         Pair pair = loadPair();
         if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
+            new RootlabMokaHomeUidSelector(app)
+                    .noteRefusal("INDEPENDENT_HOME_PROFILE_REQUIRED");
             return "HOME UID ROUTE REFUSED: independent Home profile required.";
         }
         int uid = Integer.parseInt(found.group(1));
@@ -889,6 +893,23 @@ final class RootlabTwoPeerSession {
                 + (result.startsWith("MOKA HOME UID ROUTE ATTACHED")
                     ? "ACTIVATED_DEVICE_TEST_ONLY" : "REFUSED_OR_RECOVERY_REQUIRED"));
         return result;
+    }
+
+    String diagnoseMokaBrowserPath() throws Exception {
+        String homeDevice = null;
+        try {
+            Pair pair = loadPair();
+            if (pair.entries.size() == 3 && HOME.equals(pair.entries.get(2).name)) {
+                homeDevice = pair.entries.get(2).device;
+            }
+        } catch (Exception missingProfile) {
+            // Even without imported profiles, collect active Android UID
+            // rules and route-get observations; do not invent a Home device.
+        }
+        String output = new RootlabMokaConnectionPathDiagnostics(app)
+                .inspect(homeDevice);
+        record("Moka/browser connection-path snapshot: READ_ONLY");
+        return output;
     }
 
     String auditMokaHomeUidRoute() throws Exception {
@@ -1311,10 +1332,10 @@ final class RootlabTwoPeerSession {
     String diagnostics() {
         String text = app.getSharedPreferences(LOG_PREF, Context.MODE_PRIVATE)
                 .getString(LOG_KEY, "");
-        return "Wonhee 0.15.74 · TWO EXITS + OPTIONAL HOME LAB (redacted)\n"
+        return "Wonhee 0.15.75 · TWO EXITS + OPTIONAL HOME LAB (redacted)\n"
                 + "Package: " + app.getPackageName() + "\n"
                 + "Android Private DNS: must remain OFF\n"
-                + "No app traffic is steered by this lab.\n"
+                + "App routing only during explicit Moka UID pilot.\n"
                 + (text == null ? "" : text);
     }
 }
