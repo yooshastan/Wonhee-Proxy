@@ -7,6 +7,35 @@ package com.yooshastan.wonheeproxy;
 final class RootMokaConnectionPathEvidence {
     private RootMokaConnectionPathEvidence() { }
 
+    /**
+     * READ-ONLY: a verified, separately journaled Brave selector may share
+     * Home table 51002 at a different priority (12699). Exclude ONLY that
+     * single exact rule from Moka's diagnostic inventory. Unknown rules still
+     * flag a conflict; never use this function to authorize kernel changes.
+     */
+    static RootMokaHomeUidRuleEvidence.Snapshot mokaWithBrave(
+            String policy, int mokaUid, int braveUid,
+            boolean braveJournalMatches) {
+        if (policy == null || mokaUid < 10000) {
+            throw new IllegalArgumentException("Missing UID routing evidence.");
+        }
+        if (!braveJournalMatches || braveUid < 10000
+                || braveUid == mokaUid
+                || RootBraveHomePilotPlan.exactSelector(policy, braveUid) != 1) {
+            return RootMokaHomeUidRuleEvidence.inspect(policy, mokaUid);
+        }
+        StringBuilder filtered = new StringBuilder();
+        for (String raw : policy.split("\\r?\\n")) {
+            String line = RootBraveHomePilotPlan.normalized(raw);
+            if (line.startsWith(RootBraveHomePilotPlan.PRIORITY + ":")) {
+                // Already verified to be the one exact Brave rule.
+                continue;
+            }
+            filtered.append(raw).append('\n');
+        }
+        return RootMokaHomeUidRuleEvidence.inspect(filtered.toString(), mokaUid);
+    }
+
     static String selectorState(boolean journalPresent,
             RootMokaHomeUidRuleEvidence.Snapshot rule, String lastOutcome) {
         if (rule == null || rule.conflict || rule.exact > 1) {
