@@ -90,6 +90,7 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootMokaIpv6CounterParser.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeTerminalRouteEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeUidRuleEvidence.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootBraveHomePilotPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMokaConnectionPathEvidence.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeRouteSafetyPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeFirewallPilotPlan.java \
@@ -186,6 +187,7 @@ jobs:
             core-tests/RootMokaHomePolicySafetyCaseTest.java \
             core-tests/RootMokaHomeTerminalRouteEvidenceTest.java \
             core-tests/RootMokaHomeUidRuleEvidenceTest.java \
+            core-tests/RootBraveHomePilotPlanTest.java \
             core-tests/RootMokaConnectionPathEvidenceTest.java \
             core-tests/RootMokaHomeRouteSafetyPlanTest.java \
             core-tests/RootMokaIpv6CounterParserTest.java \
@@ -287,6 +289,7 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomeRouteSafetyPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomeTerminalRouteEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomeUidRuleEvidenceTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootBraveHomePilotPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaConnectionPathEvidenceTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedThreePeerLinkPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardSetconfCodecTest
