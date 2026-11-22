@@ -172,8 +172,8 @@ final class RootlabBraveHomePilot {
     private static boolean chainValid(RootShell shell, String family,
             String chain, String dev, boolean v4) throws Exception {
         String raw = maybeChain(shell, family + " -w -t filter -S " + chain);
-        return raw == null || RootBraveHomePilotPlan.chainIsExactPrefix(
-                raw, chain, dev, v4);
+        return raw == null ? !chainExists(shell, family, chain)
+                : RootBraveHomePilotPlan.chainIsExactPrefix(raw, chain, dev, v4);
     }
 
     private static boolean chainExists(RootShell shell,
@@ -275,7 +275,9 @@ final class RootlabBraveHomePilot {
 
             // Routing last: at this point both firewall restrictions apply.
             requireCellular(app);
-            if (!chainValid(shell, "iptables", RootBraveHomePilotPlan.CHAIN4,
+            if (!chainExists(shell, "iptables", RootBraveHomePilotPlan.CHAIN4)
+                    || !chainExists(shell, "ip6tables", RootBraveHomePilotPlan.CHAIN6)
+                    || !chainValid(shell, "iptables", RootBraveHomePilotPlan.CHAIN4,
                     homeDev, true)
                     || !chainValid(shell, "ip6tables",
                     RootBraveHomePilotPlan.CHAIN6, homeDev, false)
