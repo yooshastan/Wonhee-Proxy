@@ -292,11 +292,11 @@ final class RootlabBraveHomePilot {
                     || !"SYNTHETIC_HOME".equals(targetRoute(shell, plan))) {
                 throw new IllegalStateException("Brave UID lookup did not select Home.");
             }
-            return "BRAVE NIGHTLY HOME ROUTE ATTACHED (EXPERIMENT)\\n"
+            return "BRAVE NIGHTLY HOME ROUTE ATTACHED (EXPERIMENT)\n"
                     + "Brave UID " + braveUid + "; 10.0.0.169:4533 via private "
-                    + "table 51002: synthetic route VERIFIED.\\n"
-                    + "Exact IPv4 Home-only and IPv6 REJECT hooks VERIFIED.\\n"
-                    + "All other Brave IPv4/IPv6 output is intentionally BLOCKED.\\n"
+                    + "table 51002: synthetic route VERIFIED.\n"
+                    + "Exact IPv4 Home-only and IPv6 REJECT hooks VERIFIED.\n"
+                    + "All other Brave IPv4/IPv6 output is intentionally BLOCKED.\n"
                     + "NOT PROVEN: live browser packet delivery or Home-loss safety. "
                     + "Try only http://10.0.0.169:4533/ on cellular; "
                     + "never disconnect Home during this experiment. "
@@ -319,12 +319,12 @@ final class RootlabBraveHomePilot {
         boolean v6 = exactHook(shell, "ip6tables",
                 RootBraveHomePilotPlan.CHAIN6, RootBraveHomePilotPlan.TAG6,
                 plan.hook6, true);
-        return "BRAVE NIGHTLY HOME AUDIT (READ-ONLY)\\n"
-                + "Owned Brave UID: " + plan.uid + "\\n"
-                + "Selector: " + (selector == 1 ? "EXACT" : "UNVERIFIED") + "\\n"
-                + "Brave IPv4 OUTPUT guard: " + (v4 ? "EXACT" : "UNVERIFIED") + "\\n"
-                + "Brave IPv6 OUTPUT guard: " + (v6 ? "EXACT" : "UNVERIFIED") + "\\n"
-                + "Synthetic UID route: " + targetRoute(shell, plan) + "\\n"
+        return "BRAVE NIGHTLY HOME AUDIT (READ-ONLY)\n"
+                + "Owned Brave UID: " + plan.uid + "\n"
+                + "Selector: " + (selector == 1 ? "EXACT" : "UNVERIFIED") + "\n"
+                + "Brave IPv4 OUTPUT guard: " + (v4 ? "EXACT" : "UNVERIFIED") + "\n"
+                + "Brave IPv6 OUTPUT guard: " + (v6 ? "EXACT" : "UNVERIFIED") + "\n"
+                + "Synthetic UID route: " + targetRoute(shell, plan) + "\n"
                 + "Brave IPv4 OUTPUT hook: "
                 + counter(shell, "iptables", "OUTPUT", RootBraveHomePilotPlan.CHAIN4)
                 + "\\nBrave Home TCP/4533 RETURN: "
@@ -333,7 +333,7 @@ final class RootlabBraveHomePilot {
                 + counter(shell, "iptables", RootBraveHomePilotPlan.CHAIN4, "REJECT")
                 + "\\nBrave IPv6 REJECT: "
                 + counter(shell, "ip6tables", RootBraveHomePilotPlan.CHAIN6, "REJECT")
-                + "\\n"
+                + "\n"
                 + "Real browser packets and Home-loss fail-closed behavior "
                 + "remain unproven. Use Exact-owned Safe Stop.";
     }
