@@ -119,12 +119,12 @@ final class RootBraveHomePilotPlan {
     }
 
     // Counting-only rule: no -j, no ACCEPT, no mark or routing action.
-    // Match exactly the six known terms plus two distinct -m extensions.
+    // Match exactly six key/value terms, including two distinct -m extensions.
     private static boolean isExactCountOnlyRule(String item) {
         String prefix = "-A " + CHAIN4 + " ";
         if (!item.startsWith(prefix)) return false;
         String[] t = item.substring(prefix.length()).split(" ");
-        if (t.length != 14) return false;
+        if (t.length != 12) return false;
         boolean d = false, p = false, port = false, comment = false;
         boolean mTcp = false, mComment = false;
         for (int i = 0; i < t.length; i += 2) {
