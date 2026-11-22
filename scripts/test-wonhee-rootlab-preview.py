@@ -69,6 +69,34 @@ assert 'String attachMokaIpv4Hook()' in session
 assert 'String stageMokaHomeFallback()' in session
 assert 'String activateMokaHomeUidRoute()' in session
 assert 'String diagnoseMokaBrowserPath()' in session
+brave = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabBraveHomePilot.java').read_text()
+brave_plan = (repo / 'app/src/main/java/com/yooshastan/wonheeproxy/RootBraveHomePilotPlan.java').read_text()
+assert 'String activateBraveHomePilot()' in session
+assert 'String auditBraveHomePilot()' in session
+assert 'session::activateBraveHomePilot' in two_peer
+assert 'session::auditBraveHomePilot' in two_peer
+assert 'String braveStatus = new RootlabBraveHomePilot(app).recover();' in session
+assert session.index('RootlabBraveHomePilot(app).recover()') < session.index('RootlabMokaHomeUidSelector(app).recover()')
+assert 'RootlabBraveHomePilot.pendingOrUnknown(app)' in session
+assert 'RootlabBraveHomePilot.pendingOrUnknown(app)' in gate
+assert 'RootlabBraveHomePilot.pendingOrUnknown(app)' in (
+    repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerSafetyGate.java'
+).read_text()
+assert 'RootBraveHomePilotPlan.exactSelector(' in brave
+assert 'RootBraveHomePilotPlan.chainIsExactPrefix(' in brave
+assert 'RootlabMokaHomeTerminalRoute(app).exactStaged(' in brave
+assert 'RootlabMokaIpv6OutputTest(app)' in brave
+assert 'RootlabMokaIpv4OutputTest(app)' in brave
+assert 'com.brave.browser_nightly' in brave
+assert 'ip6tables -w -t filter -I OUTPUT 1' in brave
+assert 'iptables -w -t filter -I OUTPUT 1' in brave
+assert 'persist(plan);' in brave
+assert brave.index('persist(plan);') < brave.index('run(shell, "ip6tables')
+assert brave.index('run(shell, plan.selector)') > brave.index('run(shell, "iptables -w -t filter -I OUTPUT 1')
+assert 'RootBraveHomePilotPlanTest.java' in (
+    repo / '.github/workflows/build.yml').read_text()
+assert '12699' in brave_plan and 'WN_BRAVE_HOME4' in brave_plan
+
 assert 'session::diagnoseMokaBrowserPath' in two_peer
 assert 'Diagnose Moka + browser Home path' in two_peer
 app_path = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabMokaConnectionPathDiagnostics.java').read_text()
@@ -306,8 +334,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(129)" in gradle
-assert "output.versionName.set('0.15.75-rootlab-moka-browser-path')" in gradle
+assert "output.versionCode.set(130)" in gradle
+assert "output.versionName.set('0.15.76-rootlab-brave-home-pilot')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
