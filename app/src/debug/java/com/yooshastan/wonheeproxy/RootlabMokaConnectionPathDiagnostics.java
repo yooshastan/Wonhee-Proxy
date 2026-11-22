@@ -142,7 +142,7 @@ final class RootlabMokaConnectionPathDiagnostics {
                 journal, rule, last);
 
         StringBuilder out = new StringBuilder(
-                "WONHEE 0.15.76 - MOKA/BROWSER CONNECTION PATH (READ ONLY)\n");
+                "WONHEE 0.15.77 - MOKA/BROWSER CONNECTION PATH (READ ONLY)\n");
         out.append("Android active transport: ")
                 .append(activeTransport(app)).append('\n');
         out.append("Android Private DNS: ")
