@@ -145,6 +145,30 @@ final class RootlabBraveHomePilot {
                 listing(shell, "ip -4 rule show"), plan.uid);
     }
 
+    private static String counter(RootShell shell,
+            String family, String chain, String target) throws Exception {
+        List<String> lines = new ArrayList<>();
+        if (shell.run(lines, family + " -w -t filter -L " + chain
+                + " -n -v -x") != 0) return "UNAVAILABLE";
+        try {
+            RootMokaIpv6CounterParser.Counts counts =
+                    RootMokaIpv6CounterParser.target(String.join("\n", lines), target);
+            return counts.packets + " packets / " + counts.bytes + " bytes";
+        } catch (IllegalArgumentException ambiguous) {
+            return "MISSING_OR_AMBIGUOUS";
+        }
+    }
+
+    private static boolean firstOutputHook(RootShell shell,
+            String family, String expected) throws Exception {
+        String listing = listing(shell, family + " -w -t filter -S OUTPUT");
+        for (String raw : listing.split("\\r?\\n")) {
+            String line = RootBraveHomePilotPlan.normalized(raw);
+            if (line.startsWith("-A OUTPUT ")) return line.equals(expected);
+        }
+        return false;
+    }
+
     private static boolean chainValid(RootShell shell, String family,
             String chain, String dev, boolean v4) throws Exception {
         String raw = maybeChain(shell, family + " -w -t filter -S " + chain);
@@ -258,7 +282,9 @@ final class RootlabBraveHomePilot {
                     || !exactHook(shell, "iptables", RootBraveHomePilotPlan.CHAIN4,
                     RootBraveHomePilotPlan.TAG4, plan.hook4, true)
                     || !exactHook(shell, "ip6tables", RootBraveHomePilotPlan.CHAIN6,
-                    RootBraveHomePilotPlan.TAG6, plan.hook6, true)) {
+                    RootBraveHomePilotPlan.TAG6, plan.hook6, true)
+                    || !firstOutputHook(shell, "iptables", plan.hook4)
+                    || !firstOutputHook(shell, "ip6tables", plan.hook6)) {
                 throw new IllegalStateException("Brave guard readback failed.");
             }
             run(shell, plan.selector);
@@ -299,6 +325,15 @@ final class RootlabBraveHomePilot {
                 + "Brave IPv4 OUTPUT guard: " + (v4 ? "EXACT" : "UNVERIFIED") + "\\n"
                 + "Brave IPv6 OUTPUT guard: " + (v6 ? "EXACT" : "UNVERIFIED") + "\\n"
                 + "Synthetic UID route: " + targetRoute(shell, plan) + "\\n"
+                + "Brave IPv4 OUTPUT hook: "
+                + counter(shell, "iptables", "OUTPUT", RootBraveHomePilotPlan.CHAIN4)
+                + "\\nBrave Home TCP/4533 RETURN: "
+                + counter(shell, "iptables", RootBraveHomePilotPlan.CHAIN4, "RETURN")
+                + "\\nBrave IPv4 REJECT: "
+                + counter(shell, "iptables", RootBraveHomePilotPlan.CHAIN4, "REJECT")
+                + "\\nBrave IPv6 REJECT: "
+                + counter(shell, "ip6tables", RootBraveHomePilotPlan.CHAIN6, "REJECT")
+                + "\\n"
                 + "Real browser packets and Home-loss fail-closed behavior "
                 + "remain unproven. Use Exact-owned Safe Stop.";
     }
