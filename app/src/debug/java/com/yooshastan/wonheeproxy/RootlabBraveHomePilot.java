@@ -296,9 +296,9 @@ final class RootlabBraveHomePilot {
                     + "Brave UID " + braveUid + "; 10.0.0.169:4533 via private "
                     + "table 51002: synthetic route VERIFIED.\n"
                     + "Exact IPv4 Home-only and IPv6 REJECT hooks VERIFIED.\n"
-                    + "All other Brave IPv4/IPv6 output is intentionally BLOCKED.\n"
+                    + "Other traffic from this selected Brave package UID is BLOCKED; isolated browser process UIDs are NOT covered.\n"
                     + "NOT PROVEN: live browser packet delivery or Home-loss safety. "
-                    + "Try only http://10.0.0.169:4533/ on cellular; "
+                    + "Try only the unauthenticated http://10.0.0.169:4533/ page on cellular; no passwords or logins. "
                     + "never disconnect Home during this experiment. "
                     + "Use Exact-owned Safe Stop immediately afterward.";
         } catch (Exception failed) {
@@ -334,7 +334,7 @@ final class RootlabBraveHomePilot {
                 + "\\nBrave IPv6 REJECT: "
                 + counter(shell, "ip6tables", RootBraveHomePilotPlan.CHAIN6, "REJECT")
                 + "\n"
-                + "Real browser packets and Home-loss fail-closed behavior "
+                + "Isolated Brave process UIDs, real browser packets and Home-loss fail-closed behavior "
                 + "remain unproven. Use Exact-owned Safe Stop.";
     }
 
