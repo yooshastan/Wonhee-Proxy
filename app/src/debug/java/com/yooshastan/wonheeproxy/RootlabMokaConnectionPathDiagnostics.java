@@ -134,12 +134,15 @@ final class RootlabMokaConnectionPathDiagnostics {
         List<String> rules = read(shell, "ip -4 rule show");
         RootMokaHomeUidRuleEvidence.Snapshot rule = rules == null
                 || mokaUid < 10000 ? null
-                : RootMokaHomeUidRuleEvidence.inspect(join(rules), mokaUid);
+                : RootMokaConnectionPathEvidence.mokaWithBrave(
+                        join(rules), mokaUid, braveUid,
+                        new RootlabBraveHomePilot(app)
+                                .journalMatches(braveUid, expectedHome));
         String ruleState = RootMokaConnectionPathEvidence.selectorState(
                 journal, rule, last);
 
         StringBuilder out = new StringBuilder(
-                "WONHEE 0.15.75 - MOKA/BROWSER CONNECTION PATH (READ ONLY)\n");
+                "WONHEE 0.15.76 - MOKA/BROWSER CONNECTION PATH (READ ONLY)\n");
         out.append("Android active transport: ")
                 .append(activeTransport(app)).append('\n');
         out.append("Android Private DNS: ")
@@ -150,6 +153,11 @@ final class RootlabMokaConnectionPathDiagnostics {
         out.append("UID selector ownership journal: ")
                 .append(journal ? "PRESENT_OR_UNKNOWN" : "ABSENT").append('\n');
         out.append("Live selector evidence: ").append(ruleState).append('\n');
+        out.append("Brave UID selector separately journaled: ")
+                .append(new RootlabBraveHomePilot(app)
+                        .journalMatches(braveUid, expectedHome)
+                        ? "EXACT_OWNER_CANDIDATE" : "NO_OR_UNVERIFIED")
+                .append('\n');
         out.append("Home profile device: ")
                 .append(expectedHome == null ? "UNVERIFIED" : "KNOWN_FROM_PROFILE")
                 .append('\n');
