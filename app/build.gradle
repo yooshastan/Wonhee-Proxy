@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(130)
-            output.versionName.set('0.15.76-rootlab-brave-home-pilot')
+            output.versionCode.set(131)
+            output.versionName.set('0.15.77-rootlab-brave-target-evidence')
         }
     }
 }
