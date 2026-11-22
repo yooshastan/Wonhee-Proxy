@@ -50,6 +50,41 @@ public final class RootMokaConnectionPathEvidenceTest {
                 RootMokaConnectionPathEvidence.syntheticRoute(
                         "10.0.0.169 dev wnm4ea140588150 src 10.77.0.3",
                         "wnm4ea140588150")));
+        String moka = "12700: from all to 10.0.0.169 iif lo uidrange "
+                + "10393-10393 lookup 51002\n";
+        String brave = "12699: from all to 10.0.0.169 iif lo uidrange "
+                + "10308-10308 lookup 51002\n";
+        var verifiedBoth = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka + brave, 10393, 10308, true);
+        check(verifiedBoth.exact == 1 && !verifiedBoth.conflict);
+        check("SELECTOR_PRESENT_WITH_JOURNAL".equals(
+                RootMokaConnectionPathEvidence.selectorState(
+                        true, verifiedBoth, "ACTIVE_VERIFIED")));
+        var noBraveJournal = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka + brave, 10393, 10308, false);
+        check(noBraveJournal.conflict);
+        var changedBraveUid = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka + brave.replace("10308-10308", "10309-10309"),
+                10393, 10308, true);
+        check(changedBraveUid.conflict);
+        var duplicateBrave = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka + brave + brave, 10393, 10308, true);
+        check(duplicateBrave.conflict);
+        var unknownExtraHomeSelector = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka + brave + "12698: from all to 10.0.0.169 "
+                        + "iif lo uidrange 10309-10309 lookup 51002\n",
+                10393, 10308, true);
+        check(unknownExtraHomeSelector.conflict);
+        var changedMoka = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka.replace("10393-10393", "10394-10394") + brave,
+                10393, 10308, true);
+        check(changedMoka.conflict);
+        var noBraveRule = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka, 10393, 10308, true);
+        check(noBraveRule.exact == 1 && !noBraveRule.conflict);
+        var equalUid = RootMokaConnectionPathEvidence.mokaWithBrave(
+                moka + brave, 10393, 10393, true);
+        check(equalUid.conflict);
         System.out.println("MOKA_CONNECTION_PATH_EVIDENCE " + checks + " PASS");
     }
 }
