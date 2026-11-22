@@ -13,6 +13,7 @@ final class RootBraveHomePilotPlan {
     static final String CHAIN6 = "WN_BRAVE_HOME6";
     static final String TAG4 = "WN_BRAVE_HOME4_EXACT_V1";
     static final String TAG6 = "WN_BRAVE_HOME6_EXACT_V1";
+    static final String COUNT_TAG = "WN_BRAVE_TARGET_COUNT_V1";
 
     final int uid;
     final String dev;
@@ -20,6 +21,7 @@ final class RootBraveHomePilotPlan {
     final String hook4;
     final String hook6;
     final String allow4;
+    final String count4;
 
     private RootBraveHomePilotPlan(int uid, String dev) {
         this.uid = uid;
@@ -30,6 +32,9 @@ final class RootBraveHomePilotPlan {
                 + " -m comment --comment " + TAG4 + " -j " + CHAIN4;
         hook6 = "-A OUTPUT -m owner --uid-owner " + uid
                 + " -m comment --comment " + TAG6 + " -j " + CHAIN6;
+        count4 = "-A " + CHAIN4 + " -d " + TARGET
+                + " -p tcp -m tcp --dport 4533"
+                + " -m comment --comment " + COUNT_TAG;
         allow4 = "-A " + CHAIN4 + " -o " + dev + " -d "
                 + TARGET + " -p tcp -m tcp --dport 4533 -j RETURN";
     }
@@ -84,10 +89,14 @@ final class RootBraveHomePilotPlan {
             if (!item.isEmpty()) rules.add(item);
         }
         if (rules.isEmpty() || !rules.get(0).equals("-N " + chain)
-                || rules.size() > (ipv4 ? 3 : 2)) return false;
+                || rules.size() > (ipv4 ? 4 : 2)) return false;
         for (int i = 1; i < rules.size(); i++) {
             String item = rules.get(i);
             if (ipv4 && i == 1) {
+                if (!isExactCountOnlyRule(item)) return false;
+                continue;
+            }
+            if (ipv4 && i == 2) {
                 if (!isExactHomeReturn(item, dev)) return false;
                 continue;
             }
@@ -97,6 +106,52 @@ final class RootBraveHomePilotPlan {
             if (!item.equals(reject) && !item.equals(defaultReject)) return false;
         }
         return true;
+    }
+
+    static boolean chainFullyPopulated(String listing, String chain,
+            String dev, boolean ipv4) {
+        if (!chainIsExactPrefix(listing, chain, dev, ipv4)) return false;
+        int ruleLines = 0;
+        for (String raw : listing.split("\\r?\\n")) {
+            if (!normalized(raw).isEmpty()) ruleLines++;
+        }
+        return ruleLines == (ipv4 ? 4 : 2);
+    }
+
+    // Counting-only rule: no -j, no ACCEPT, no mark or routing action.
+    // Match exactly the six known terms plus two distinct -m extensions.
+    private static boolean isExactCountOnlyRule(String item) {
+        String prefix = "-A " + CHAIN4 + " ";
+        if (!item.startsWith(prefix)) return false;
+        String[] t = item.substring(prefix.length()).split(" ");
+        if (t.length != 14) return false;
+        boolean d = false, p = false, port = false, comment = false;
+        boolean mTcp = false, mComment = false;
+        for (int i = 0; i < t.length; i += 2) {
+            String k = t[i], v = t[i + 1];
+            switch (k) {
+                case "-d":
+                    if (d || !TARGET.equals(v)) return false;
+                    d = true; break;
+                case "-p":
+                    if (p || !"tcp".equals(v)) return false;
+                    p = true; break;
+                case "-m":
+                    if ("tcp".equals(v) && !mTcp) mTcp = true;
+                    else if ("comment".equals(v) && !mComment) mComment = true;
+                    else return false;
+                    break;
+                case "--dport":
+                    if (port || !"4533".equals(v)) return false;
+                    port = true; break;
+                case "--comment":
+                    if (comment || !COUNT_TAG.equals(v)) return false;
+                    comment = true; break;
+                default:
+                    return false;
+            }
+        }
+        return d && p && port && comment && mTcp && mComment;
     }
 
     // iptables-save may print -d, -o and match-extension fields in
