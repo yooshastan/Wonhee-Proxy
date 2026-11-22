@@ -88,11 +88,7 @@ final class RootBraveHomePilotPlan {
         for (int i = 1; i < rules.size(); i++) {
             String item = rules.get(i);
             if (ipv4 && i == 1) {
-                String canonical = "-A " + CHAIN4 + " -d " + TARGET
-                        + " -o " + dev + " -p tcp -m tcp --dport 4533 -j RETURN";
-                String commandOrder = "-A " + CHAIN4 + " -o " + dev
-                        + " -d " + TARGET + " -p tcp -m tcp --dport 4533 -j RETURN";
-                if (!item.equals(canonical) && !item.equals(commandOrder)) return false;
+                if (!isExactHomeReturn(item, dev)) return false;
                 continue;
             }
             String reject = "-A " + chain + " -j REJECT";
@@ -101,6 +97,48 @@ final class RootBraveHomePilotPlan {
             if (!item.equals(reject) && !item.equals(defaultReject)) return false;
         }
         return true;
+    }
+
+    // iptables-save may print -d, -o and match-extension fields in
+    // different orders; accept ONLY these six exact key/value pairs.
+    private static boolean isExactHomeReturn(String item, String dev) {
+        String prefix = "-A " + CHAIN4 + " ";
+        if (!item.startsWith(prefix)) return false;
+        String[] tokens = item.substring(prefix.length()).split(" ");
+        if (tokens.length != 12) return false;
+        boolean d = false, o = false, p = false, m = false, port = false, jump = false;
+        for (int i = 0; i < tokens.length; i += 2) {
+            String key = tokens[i], value = tokens[i + 1];
+            switch (key) {
+                case "-d":
+                    if (d || !TARGET.equals(value)) return false;
+                    d = true;
+                    break;
+                case "-o":
+                    if (o || !dev.equals(value)) return false;
+                    o = true;
+                    break;
+                case "-p":
+                    if (p || !"tcp".equals(value)) return false;
+                    p = true;
+                    break;
+                case "-m":
+                    if (m || !"tcp".equals(value)) return false;
+                    m = true;
+                    break;
+                case "--dport":
+                    if (port || !"4533".equals(value)) return false;
+                    port = true;
+                    break;
+                case "-j":
+                    if (jump || !"RETURN".equals(value)) return false;
+                    jump = true;
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return d && o && p && m && port && jump;
     }
 
     private RootBraveHomePilotPlan() { throw new AssertionError(); }
