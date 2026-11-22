@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.75 · Moka/Browser Path Diagnostics", 21, true);
+        TextView heading = text("Wonhee 0.15.76 · Brave Nightly Home Pilot", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -322,6 +322,31 @@ public final class RootlabTwoPeerActivity extends Activity {
         action(layout, "Inspect active Moka Home UID route · read-only", () ->
                 execute("Moka Home UID route audit",
                         session::auditMokaHomeUidRoute));
+        action(layout, "Route Brave Nightly to Home · opt-in live browser test", () ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Enable Brave Nightly Home-only test?")
+                        .setMessage("ADVANCED ROOT TEST. Requires cellular, "
+                                + "Android Private DNS OFF, all three WG links, "
+                                + "Moka's active UID selector, both Moka firewall "
+                                + "guards and exact-owned Home fallback. "
+                                + "This installs a separate Brave UID rule and "
+                                + "dual-stack firewall guards. Brave may ONLY "
+                                + "contact http://10.0.0.169:4533 through Home; "
+                                + "all other Brave Internet traffic is blocked "
+                                + "until Safe Stop. No Chrome or system routing "
+                                + "changes. Synthetic routing is NOT proof of "
+                                + "real browser packet delivery. Do not disconnect "
+                                + "Home, change networks or reboot during this "
+                                + "unproven experiment. Run Exact-owned Safe Stop "
+                                + "afterward; it removes Brave ownership FIRST. "
+                                + "Never uninstall/clear data if recovery pauses.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Enable Brave pilot", (dialog, which) ->
+                                execute("Brave Nightly Home routing pilot",
+                                        session::activateBraveHomePilot))
+                        .show());
+        action(layout, "Inspect Brave Home pilot · read-only", () ->
+                execute("Brave Home routing audit", session::auditBraveHomePilot));
         action(layout, "Diagnose Moka + browser Home path · read-only", () ->
                 new AlertDialog.Builder(this)
                         .setTitle("Inspect Moka, Chrome and Brave routing?")
