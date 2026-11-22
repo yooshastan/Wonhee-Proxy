@@ -57,6 +57,16 @@ final class RootlabBraveHomePilot {
         return RootBraveHomePilotPlan.compile(Integer.parseInt(p[1]), p[2]);
     }
 
+    boolean journalMatches(int uid, String dev) {
+        if (uid < 10000 || dev == null) return false;
+        try {
+            RootBraveHomePilotPlan plan = saved();
+            return plan != null && plan.uid == uid && plan.dev.equals(dev);
+        } catch (RuntimeException unknown) {
+            return false; // uncertain ownership must not be treated as exact
+        }
+    }
+
     private void persist(RootBraveHomePilotPlan plan) {
         String raw = VERSION + "|" + plan.uid + "|" + plan.dev;
         if (!prefs().edit().putString(KEY, raw).commit()
