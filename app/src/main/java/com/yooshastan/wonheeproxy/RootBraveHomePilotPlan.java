@@ -75,17 +75,30 @@ final class RootBraveHomePilotPlan {
     }
 
     static boolean chainIsExactPrefix(String listing, String chain,
-            String... expected) {
+            String dev, boolean ipv4) {
         if (listing == null || listing.length() > 32000) return false;
+        if (!chain.equals(ipv4 ? CHAIN4 : CHAIN6)) return false;
         List<String> rules = new ArrayList<>();
         for (String line : listing.split("\\r?\\n")) {
             String item = normalized(line);
             if (!item.isEmpty()) rules.add(item);
         }
         if (rules.isEmpty() || !rules.get(0).equals("-N " + chain)
-                || rules.size() - 1 > expected.length) return false;
+                || rules.size() > (ipv4 ? 3 : 2)) return false;
         for (int i = 1; i < rules.size(); i++) {
-            if (!rules.get(i).equals(expected[i - 1])) return false;
+            String item = rules.get(i);
+            if (ipv4 && i == 1) {
+                String canonical = "-A " + CHAIN4 + " -d " + TARGET
+                        + " -o " + dev + " -p tcp -m tcp --dport 4533 -j RETURN";
+                String commandOrder = "-A " + CHAIN4 + " -o " + dev
+                        + " -d " + TARGET + " -p tcp -m tcp --dport 4533 -j RETURN";
+                if (!item.equals(canonical) && !item.equals(commandOrder)) return false;
+                continue;
+            }
+            String reject = "-A " + chain + " -j REJECT";
+            String defaultReject = reject + " --reject-with "
+                    + (ipv4 ? "icmp-port-unreachable" : "icmp6-port-unreachable");
+            if (!item.equals(reject) && !item.equals(defaultReject)) return false;
         }
         return true;
     }
