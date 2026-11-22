@@ -65,7 +65,8 @@ final class RootlabTwoPeerSafetyGate
                 || RootlabMokaIpv6OutputTest.pendingOrUnknown(app)
                 || RootlabMokaIpv4OutputTest.pendingOrUnknown(app)
                 || RootlabMokaHomeTerminalRoute.pendingOrUnknown(app)
-                || RootlabMokaHomeUidSelector.pendingOrUnknown(app)) {
+                || RootlabMokaHomeUidSelector.pendingOrUnknown(app)
+                || RootlabBraveHomePilot.pendingOrUnknown(app)) {
             throw new IllegalStateException(
                     "An old isolated ownership journal needs exact recovery.");
         }
