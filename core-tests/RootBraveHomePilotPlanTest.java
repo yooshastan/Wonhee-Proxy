@@ -15,6 +15,9 @@ public final class RootBraveHomePilotPlanTest {
         yes(p.hook6.contains("--uid-owner 10308"));
         yes(p.allow4.contains("-o wnm4ea140588150"));
         yes(p.allow4.contains("--dport 4533"));
+        yes(p.count4.contains("--dport 4533"));
+        yes(p.count4.contains(RootBraveHomePilotPlan.COUNT_TAG));
+        yes(!p.count4.contains(" -j "));
         for(String invalid:new String[]{"rmnet16","wlan0","wnmINVALID",""}) {
             try { RootBraveHomePilotPlan.compile(10308,invalid);
                 throw new AssertionError("accepted invalid device "+invalid);
@@ -43,22 +46,41 @@ public final class RootBraveHomePilotPlanTest {
         yes(!RootBraveHomePilotPlan.onlyExactOutputHook(
                 p.hook4.replace("10308","10300"),
                 RootBraveHomePilotPlan.CHAIN4,RootBraveHomePilotPlan.TAG4,p.hook4,true));
-        String v4="-N WN_BRAVE_HOME4\n"+p.allow4+"\n-A WN_BRAVE_HOME4 -j REJECT";
+        String v4="-N WN_BRAVE_HOME4\n"+p.count4+"\n"+p.allow4
+                +"\n-A WN_BRAVE_HOME4 -j REJECT";
         yes(RootBraveHomePilotPlan.chainIsExactPrefix(v4,RootBraveHomePilotPlan.CHAIN4,
                 p.dev,true));
         yes(RootBraveHomePilotPlan.chainIsExactPrefix(
-                "-N WN_BRAVE_HOME4\n-A WN_BRAVE_HOME4 -d 10.0.0.169/32"
+                "-N WN_BRAVE_HOME4\n"+p.count4
+                +"\n-A WN_BRAVE_HOME4 -d 10.0.0.169/32"
                 +" -o "+p.dev+" -p tcp -m tcp --dport 4533 -j RETURN"
                 +"\n-A WN_BRAVE_HOME4 -j REJECT --reject-with icmp-port-unreachable",
                 RootBraveHomePilotPlan.CHAIN4,p.dev,true));
         yes(RootBraveHomePilotPlan.chainIsExactPrefix(
                 "-N WN_BRAVE_HOME4",RootBraveHomePilotPlan.CHAIN4,p.dev,true));
+        yes(RootBraveHomePilotPlan.chainFullyPopulated(
+                v4, RootBraveHomePilotPlan.CHAIN4, p.dev, true));
+        yes(!RootBraveHomePilotPlan.chainFullyPopulated(
+                "-N WN_BRAVE_HOME4", RootBraveHomePilotPlan.CHAIN4, p.dev, true));
+        yes(!RootBraveHomePilotPlan.chainFullyPopulated(
+                "-N WN_BRAVE_HOME4\n"+p.allow4+"\n-A WN_BRAVE_HOME4 -j REJECT",
+                RootBraveHomePilotPlan.CHAIN4, p.dev, true));
+        yes(!RootBraveHomePilotPlan.chainIsExactPrefix(
+                v4.replace(" -m comment --comment "+RootBraveHomePilotPlan.COUNT_TAG,
+                        " -j ACCEPT"),
+                RootBraveHomePilotPlan.CHAIN4, p.dev, true));
+        yes(!RootBraveHomePilotPlan.chainIsExactPrefix(
+                v4.replace("--dport 4533 -m comment", "--dport 80 -m comment"),
+                RootBraveHomePilotPlan.CHAIN4, p.dev, true));
         yes(!RootBraveHomePilotPlan.chainIsExactPrefix(
                 v4+"\n-A WN_BRAVE_HOME4 -j ACCEPT",
                 RootBraveHomePilotPlan.CHAIN4,p.dev,true));
         yes(!RootBraveHomePilotPlan.chainIsExactPrefix(
                 v4.replace("--dport 4533","--dport 80"),
                 RootBraveHomePilotPlan.CHAIN4,p.dev,true));
+        yes(RootBraveHomePilotPlan.chainFullyPopulated(
+                "-N WN_BRAVE_HOME6\n-A WN_BRAVE_HOME6 -j REJECT",
+                RootBraveHomePilotPlan.CHAIN6, p.dev, false));
         yes(RootBraveHomePilotPlan.chainIsExactPrefix(
                 "-N WN_BRAVE_HOME6\n-A WN_BRAVE_HOME6 -j REJECT",
                 RootBraveHomePilotPlan.CHAIN6,p.dev,false));
