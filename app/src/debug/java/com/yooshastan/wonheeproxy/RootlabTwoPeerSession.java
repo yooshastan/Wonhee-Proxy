@@ -130,7 +130,10 @@ final class RootlabTwoPeerSession {
      * while a link-ownership journal may still require exact Safe Stop. */
     String removeHomeProfile() throws Exception {
         if (RootIsolatedWireGuardPreferencesJournal.pendingOrUnknown(app)
-                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
+                || RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)
+                || RootlabBraveHomePilot.pendingOrUnknown(app)
+                || RootlabMokaHomeUidSelector.pendingOrUnknown(app)
+                || RootlabMokaHomeTerminalRoute.pendingOrUnknown(app)) {
             return "HOME REMOVAL REFUSED: Safe Stop must finish first. "
                     + "Do not discard recovery ownership.";
         }
@@ -357,6 +360,10 @@ final class RootlabTwoPeerSession {
             return "START REFUSED: active Moka Home UID rule journal pending. "
                     + "Run Exact-owned Safe Stop first.";
         }
+        if (RootlabBraveHomePilot.pendingOrUnknown(app)) {
+            return "START REFUSED: Brave Home routing journal pending. "
+                    + "Run Exact-owned Safe Stop first.";
+        }
         RootShell shell = new RootShell(app);
         RootIsolatedWireGuardKernelAdapter backend =
                 new RootIsolatedWireGuardKernelAdapter(app, shell, pair.configurations,
@@ -395,6 +402,16 @@ final class RootlabTwoPeerSession {
     }
 
     private String stopImpl() throws Exception {
+        // Browser selector and browser firewall hooks are owned by a
+        // separate journal. Remove ALL of them before Moka's UID selector,
+        // Moka OUTPUT hooks, the Home fallback or WireGuard links.
+        String braveStatus = new RootlabBraveHomePilot(app).recover();
+        if (RootlabBraveHomePilot.pendingOrUnknown(app)) {
+            record("Safe Stop paused: Brave UID/firewall recovery uncertain");
+            return "SAFE STOP PAUSED: " + braveStatus
+                    + "\nHome and Moka protections left intact. "
+                    + "Preserve RootLab data; do not disconnect Home.";
+        }
         // Moka UID selector MUST be removed before either firewall hook,
         // the destination-specific unreachable terminal, or any WG link.
         String uidStatus = new RootlabMokaHomeUidSelector(app).recover();
@@ -445,7 +462,8 @@ final class RootlabTwoPeerSession {
             // However no journal alone is not proof that the kernel is clean:
             // never attempt a broad name-pattern-based cleanup.
             record("Safe Stop found no owned journal steps; no kernel mutation");
-            return uidStatus + "\n" + ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
+            return braveStatus + "\n" + uidStatus + "\n"
+                    + ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
                     + "\n" + terminalStatus + "\n"
                     + "NO JOURNALED TUNNEL STAGES. No owned kernel links removed. "
                     + "Absence of a tunnel journal does NOT audit global networking.";
@@ -482,7 +500,8 @@ final class RootlabTwoPeerSession {
         }
         record("Safe Stop: " + result.stage + "; cleanup="
                 + result.cleanupComplete + "; journal=" + result.remainingJournalEntries);
-        return uidStatus + "\n" + ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
+        return braveStatus + "\n" + uidStatus + "\n"
+                + ipv4Status + "\n" + hookStatus + "\n" + detachedStatus
                     + "\n" + terminalStatus + "\n"
                 + result.summary() + "\n"
                 + (stagingClean ? "" : "STAGED PRIVATE KEY FILE NEEDS AUDIT. "
@@ -912,6 +931,33 @@ final class RootlabTwoPeerSession {
         return output;
     }
 
+    String activateBraveHomePilot() throws Exception {
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})")
+                .matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n")
+                || !found.find()) {
+            return "BRAVE HOME REFUSED: exact Home/Moka preflight missing.";
+        }
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name)) {
+            return "BRAVE HOME REFUSED: a verified third Home link is required.";
+        }
+        String result = new RootlabBraveHomePilot(app).activate(
+                Integer.parseInt(found.group(1)), pair.entries.get(2).device);
+        record("Brave Nightly Home pilot: " + (result.startsWith(
+                "BRAVE NIGHTLY HOME ROUTE ATTACHED")
+                ? "EXACT_JOURNAL_DEVICE_TEST" : "REFUSED_OR_RECOVERY_REQUIRED"));
+        return result;
+    }
+
+    String auditBraveHomePilot() throws Exception {
+        String result = new RootlabBraveHomePilot(app).audit();
+        record("Brave Home pilot audit: READ_ONLY");
+        return result;
+    }
+
     String auditMokaHomeUidRoute() throws Exception {
         String result = new RootlabMokaHomeUidSelector(app).audit();
         record("Moka Home UID route audit: "
@@ -1332,7 +1378,7 @@ final class RootlabTwoPeerSession {
     String diagnostics() {
         String text = app.getSharedPreferences(LOG_PREF, Context.MODE_PRIVATE)
                 .getString(LOG_KEY, "");
-        return "Wonhee 0.15.75 · TWO EXITS + OPTIONAL HOME LAB (redacted)\n"
+        return "Wonhee 0.15.76 · TWO EXITS + OPTIONAL HOME LAB (redacted)\n"
                 + "Package: " + app.getPackageName() + "\n"
                 + "Android Private DNS: must remain OFF\n"
                 + "App routing only during explicit Moka UID pilot.\n"
