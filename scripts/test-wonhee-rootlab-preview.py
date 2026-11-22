@@ -93,6 +93,13 @@ assert 'iptables -w -t filter -I OUTPUT 1' in brave
 assert 'persist(plan);' in brave
 assert brave.index('persist(plan);') < brave.index('run(shell, "ip6tables')
 assert brave.index('run(shell, plan.selector)') > brave.index('run(shell, "iptables -w -t filter -I OUTPUT 1')
+assert 'RootBraveHomeTargetCounterEvidence.firstRule(' in brave
+assert 'targetAttemptCounter(shell, plan)' in brave
+assert 'run(shell, "iptables -w -t filter " + plan.count4);' in brave
+assert 'RootBraveHomePilotPlan.chainFullyPopulated(' in brave
+assert 'RootBraveHomeTargetCounterEvidenceTest.java' in (
+    repo / '.github/workflows/build.yml'
+).read_text()
 assert 'RootBraveHomePilotPlanTest.java' in (
     repo / '.github/workflows/build.yml').read_text()
 assert '12699' in brave_plan and 'WN_BRAVE_HOME4' in brave_plan
@@ -334,8 +341,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(130)" in gradle
-assert "output.versionName.set('0.15.76-rootlab-brave-home-pilot')" in gradle
+assert "output.versionCode.set(131)" in gradle
+assert "output.versionName.set('0.15.77-rootlab-brave-target-evidence')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
