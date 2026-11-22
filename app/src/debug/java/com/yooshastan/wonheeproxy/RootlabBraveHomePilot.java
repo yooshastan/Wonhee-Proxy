@@ -186,6 +186,35 @@ final class RootlabBraveHomePilot {
                 : RootBraveHomePilotPlan.chainIsExactPrefix(raw, chain, dev, v4);
     }
 
+    private static boolean chainComplete(RootShell shell, String family,
+            String chain, String dev, boolean v4) throws Exception {
+        String raw = maybeChain(shell, family + " -w -t filter -S " + chain);
+        return raw != null && RootBraveHomePilotPlan.chainFullyPopulated(
+                raw, chain, dev, v4);
+    }
+
+    /** Read-only. Count target attempts regardless of Android's output device. */
+    private static String targetAttemptCounter(RootShell shell,
+            RootBraveHomePilotPlan plan) throws Exception {
+        if (!chainComplete(shell, "iptables",
+                RootBraveHomePilotPlan.CHAIN4, plan.dev, true)) {
+            return "UNVERIFIED_CHAIN";
+        }
+        List<String> output = new ArrayList<>();
+        if (shell.run(output, "iptables -w -t filter -L "
+                + RootBraveHomePilotPlan.CHAIN4 + " -n -v -x") != 0) {
+            return "UNAVAILABLE";
+        }
+        try {
+            RootMokaIpv6CounterParser.Counts counts =
+                    RootBraveHomeTargetCounterEvidence.firstRule(
+                            String.join("\n", output));
+            return counts.packets + " packets / " + counts.bytes + " bytes";
+        } catch (IllegalArgumentException uncertain) {
+            return "MISSING_OR_AMBIGUOUS";
+        }
+    }
+
     private static boolean chainExists(RootShell shell,
             String family, String chain) throws Exception {
         return shell.run(null, family + " -w -t filter -S " + chain
@@ -273,6 +302,9 @@ final class RootlabBraveHomePilot {
                     + RootBraveHomePilotPlan.TAG6 + " -j "
                     + RootBraveHomePilotPlan.CHAIN6);
             run(shell, "iptables -w -t filter -N " + RootBraveHomePilotPlan.CHAIN4);
+            // A count-only rule with NO -j verdict. It cannot accept,
+            // redirect, mark or leak a packet; the Home check still follows.
+            run(shell, "iptables -w -t filter " + plan.count4);
             run(shell, "iptables -w -t filter -A " + RootBraveHomePilotPlan.CHAIN4
                     + " -o " + homeDev + " -d 10.0.0.169/32 -p tcp"
                     + " --dport 4533 -j RETURN");
@@ -285,11 +317,9 @@ final class RootlabBraveHomePilot {
 
             // Routing last: at this point both firewall restrictions apply.
             requireCellular(app);
-            if (!chainExists(shell, "iptables", RootBraveHomePilotPlan.CHAIN4)
-                    || !chainExists(shell, "ip6tables", RootBraveHomePilotPlan.CHAIN6)
-                    || !chainValid(shell, "iptables", RootBraveHomePilotPlan.CHAIN4,
-                    homeDev, true)
-                    || !chainValid(shell, "ip6tables",
+            if (!chainComplete(shell, "iptables",
+                    RootBraveHomePilotPlan.CHAIN4, homeDev, true)
+                    || !chainComplete(shell, "ip6tables",
                     RootBraveHomePilotPlan.CHAIN6, homeDev, false)
                     || !exactHook(shell, "iptables", RootBraveHomePilotPlan.CHAIN4,
                     RootBraveHomePilotPlan.TAG4, plan.hook4, true)
@@ -337,7 +367,9 @@ final class RootlabBraveHomePilot {
                 + "Brave IPv4 OUTPUT guard: " + (v4 ? "EXACT" : "UNVERIFIED") + "\n"
                 + "Brave IPv6 OUTPUT guard: " + (v6 ? "EXACT" : "UNVERIFIED") + "\n"
                 + "Synthetic UID route: " + targetRoute(shell, plan) + "\n"
-                + "Brave IPv4 OUTPUT hook: "
+                + "Target TCP/4533 attempts (any output device): "
+                + targetAttemptCounter(shell, plan)
+                + "\nBrave IPv4 OUTPUT hook: "
                 + counter(shell, "iptables", "OUTPUT", RootBraveHomePilotPlan.CHAIN4)
                 + "\\nBrave Home TCP/4533 RETURN: "
                 + counter(shell, "iptables", RootBraveHomePilotPlan.CHAIN4, "RETURN")
@@ -389,6 +421,9 @@ final class RootlabBraveHomePilot {
                 delIfPresent(shell, "iptables", RootBraveHomePilotPlan.CHAIN4,
                         " -o " + plan.dev + " -d 10.0.0.169/32 -p tcp"
                         + " --dport 4533 -j RETURN");
+                delIfPresent(shell, "iptables", RootBraveHomePilotPlan.CHAIN4,
+                        plan.count4.substring(("-A "
+                                + RootBraveHomePilotPlan.CHAIN4).length()));
                 run(shell, "iptables -w -t filter -X " + RootBraveHomePilotPlan.CHAIN4);
             }
             if (chainExists(shell, "ip6tables", RootBraveHomePilotPlan.CHAIN6)) {
