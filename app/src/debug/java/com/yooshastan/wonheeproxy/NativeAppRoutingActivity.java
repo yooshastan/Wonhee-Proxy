@@ -47,7 +47,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.18.0 PREVIEW",12);
+        label(header,"PROXY  /  0.19.0 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(SECTIONS[i]);t.setTextSize(11);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -89,7 +89,7 @@ public final class NativeAppRoutingActivity extends Activity {
         button(root,"Save & return home",()->{save();showPage(0);});
         root=pages[3];
         label(root,"Protection",23);
-        label(root,"DNS uses authenticated TLS inside the chosen tunnel. UDP DNS only; TCP DNS fallback and application DoH interception are not supported. Captured IPv6 is blocked. Guard is in-process only.",14);
+        label(root,"DNS uses reusable authenticated TLS connections and a bounded positive DNS cache inside the chosen tunnel. UDP DNS only; TCP DNS fallback and application DoH interception are not supported. Captured IPv6 is blocked. Guard is in-process only.",14);
         label(root,"Authenticated DNS-over-TLS provider",14);
         dnsProvider=spinner(root,NativeProtectedDnsRelay.NAMES,draft.getInt("dnsProvider",0));
         label(root,"DNS tunnel (all captured system DNS)",14);

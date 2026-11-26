@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(150)' in gradle
+assert 'versionCode.set(151)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.18.0-native-protected-routing')" in gradle
+assert "versionName.set('0.19.0-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -168,3 +168,9 @@ assert 'SECTIONS={"Home","Tunnels","Routing","Protection","Activity"}' in ui_act
 assert 'NativeHomeRoutes.fromConfig' in ui_activity and 'NativeAppRoutingService.running()' in ui_activity
 assert 'NativeRoutingMetrics.perSecond' in app_routing and 'manager.notify(8402,notification())' in app_routing
 assert 'policy classification route=' in app_routing
+
+assert 'NativeDnsPositiveCache' in protected_dns and 'cache.get(query,SystemClock.elapsedRealtime())' in protected_dns
+assert 'tlsReuse.incrementAndGet()' in protected_dns and 'tlsRetries.incrementAndGet()' in protected_dns
+assert 'idle.size()<4' in protected_dns and 'reaper.shutdownNow()' in protected_dns
+assert 'cache.clear();replies.clear()' in protected_dns
+assert 'TLS reused=' in app_routing and 'cache hits=' in app_routing
