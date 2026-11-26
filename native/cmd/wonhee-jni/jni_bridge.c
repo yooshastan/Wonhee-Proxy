@@ -120,6 +120,51 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreateTestSession(
     return (jlong)handle;
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreatePacketTestSession(
+        JNIEnv *env, jclass type, jstring name, jstring allowed_ip) {
+    (void)type;
+    if (name == NULL || allowed_ip == NULL) return 0;
+    const char *name_value = (*env)->GetStringUTFChars(env, name, NULL);
+    if (name_value == NULL) return 0;
+    const char *route_value = (*env)->GetStringUTFChars(env, allowed_ip, NULL);
+    if (route_value == NULL) {
+        (*env)->ReleaseStringUTFChars(env, name, name_value);
+        return 0;
+    }
+    int64_t handle = WNCreatePacketTestSession((char *)name_value, (char *)route_value);
+    (*env)->ReleaseStringUTFChars(env, allowed_ip, route_value);
+    (*env)->ReleaseStringUTFChars(env, name, name_value);
+    return (jlong)handle;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeInjectPacket(
+        JNIEnv *env, jclass type, jlong handle, jbyteArray packet) {
+    (void)type;
+    if (packet == NULL) return -1;
+    jsize length = (*env)->GetArrayLength(env, packet);
+    if (length < 20 || length > 1280) return -1;
+    jbyte *bytes = (*env)->GetByteArrayElements(env, packet, NULL);
+    if (bytes == NULL) return -1;
+    int result = WNInjectPacket((uint64_t)handle, (char *)bytes, (int)length);
+    (*env)->ReleaseByteArrayElements(env, packet, bytes, JNI_ABORT);
+    return (jint)result;
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePacketStats(
+        JNIEnv *env, jclass type, jlong handle) {
+    (void)type;
+    int64_t injected = -1, read_count = -1, dropped = -1;
+    int ok = WNPacketStats((uint64_t)handle, &injected, &read_count, &dropped);
+    if (!ok) injected = read_count = dropped = -1;
+    jlong values[3] = {(jlong)injected, (jlong)read_count, (jlong)dropped};
+    jlongArray result = (*env)->NewLongArray(env, 3);
+    if (result != NULL) (*env)->SetLongArrayRegion(env, result, 0, 3, values);
+    return result;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCloseSession(
         JNIEnv *env, jclass type, jlong handle) {
