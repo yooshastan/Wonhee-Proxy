@@ -42,9 +42,9 @@ func TestPacketPumpSmokeConfigsAreExactAndAccepted(t *testing.T) {
 	for _, route := range []string{"198.18.1.0/24", "0.0.0.0/0"} {
 		config, err := NewEphemeralSmokeConfigForAllowedIP(route)
 		if err != nil { t.Fatal("synthetic route config rejected") }
-		if !strings.Contains(config, "allowed_ip="+route+"\n")
-			|| strings.Contains(config, "endpoint=")
-			|| strings.Contains(config, "dns=") {
+		if !strings.Contains(config, "allowed_ip="+route+"\n") ||
+			strings.Contains(config, "endpoint=") ||
+			strings.Contains(config, "dns=") {
 			t.Fatal("packet-pump config contains unexpected fields")
 		}
 		session, err := NewProtectedSession("packet", 1280, 8, smokeNoProtect{})
