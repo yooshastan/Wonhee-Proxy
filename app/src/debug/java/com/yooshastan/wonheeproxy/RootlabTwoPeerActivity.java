@@ -355,7 +355,7 @@ public final class RootlabTwoPeerActivity extends Activity {
                                 + "UID policy rules and private Home routes. "
                                 + "It reads per-app synthetic route lookups, "
                                 + "Moka firewall counters and TCP socket states "
-                                + "for 10.0.0.169:4533. "
+                                + "for 10.0.0.169:4533 with redacted UID/mark metadata. "
                                 + "No networking changes, probe traffic, "
                                 + "packet capture or browser routing activation. "
                                 + "It does not prove whether a real app packet "
