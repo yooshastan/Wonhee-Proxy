@@ -13,7 +13,7 @@ This debug-only increment follows the device-passed 0.15.81 JNI socket-protectio
 - The test sends three UDP datagrams to each synthetic destination.
 - Two independent native WireGuard devices use fresh ephemeral keys and no peer endpoints. Both IPv4 and IPv6 UDP sockets must be protected by the owning Android VpnService.
 - A bounded native packet queue accepts each packet and the WireGuard device's TUN reader consumes it.
-- Every other destination, IPv6, TCP, fragments, malformed packets, and queue failures are dropped or counted as failures.
+- The VPN installs no IPv6 route; IPv6 is outside this test. If an IPv6 packet reaches the pure classifier, it is rejected. TCP, fragments, malformed packets, and every other destination are rejected, while queue failures are counted as failures.
 
 ## Explicit exclusions
 
