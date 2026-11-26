@@ -20,3 +20,6 @@ Offline exact UDP transport exception compiler and regression tests for both add
 
 ## Release gate
 No installable transport-aware build or new VPN service is claimed by this commit. Keep the existing stable release and its signature unchanged. Build/test the prototype separately, require real device acceptance before promoting any release.
+
+## Follow-up: explicit RootLab transport trial
+The debug-only kernel adapter now implements a narrow Home IPv6 transport trial, using the device-tested candidate mark rather than declaring a production reservation. Requires existing exact UID/dual-stack/fallback ownership, exactly three known links with marks off, an unchanged cellular route and numeric endpoint/ports. Immutable write-ahead ownership records boot/link identity and exact rule parameters before writes. Recovery removes the exact exception before restoring the mark; unknown state retains the journal and pauses Safe Stop. No Android VPN service, production mark allocation, authenticated Moka traffic or comprehensive leak protection is authorized. Stable release and version are unchanged. This is not a consolidated upgrade.

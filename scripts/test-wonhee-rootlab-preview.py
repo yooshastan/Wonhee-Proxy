@@ -364,3 +364,11 @@ for forbidden in (
 ):
     assert forbidden not in source, f"RootLab inspection mutates networking: {forbidden}"
 print("RootLab 0.15.62 preview separation and read-only checks PASS")
+
+# Separate transport ownership must be recovered before the older UID/chain stages.
+transport = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabHomeTransportTrial.java').read_text()
+assert 'RootlabHomeTransportTrial(app).recover()' in session
+assert session.index('RootlabHomeTransportTrial(app).recover()') < session.index('RootlabMokaHomeUidSelector(app).recover()')
+assert 'RootlabHomeTransportTrial.pendingOrUnknown(app)' in gate
+assert 'session::activateHomeTransportTrial' in two_peer
+assert 'exactActiveForTransport' in transport and 'plan.remove()' in transport

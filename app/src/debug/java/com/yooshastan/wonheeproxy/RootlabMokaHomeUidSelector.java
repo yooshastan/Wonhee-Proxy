@@ -260,6 +260,23 @@ final class RootlabMokaHomeUidSelector {
         }
     }
 
+    /** Structural preflight for the explicit transport trial. */
+    boolean exactActiveForTransport(int uid, String device) throws Exception {
+        requireCellularPhysical(app);
+        RootMokaHomeRouteSafetyPlan.Plan saved = journalPlan();
+        if (saved == null || saved.uid != uid || !saved.homeDevice.equals(device)) return false;
+        RootShell shell = new RootShell(app);
+        shell.start();
+        requireFirstOutputHook(shell, uid, 4);
+        requireFirstOutputHook(shell, uid, 6);
+        RootMokaHomeUidRuleEvidence.Snapshot rule = inspect(shell, uid);
+        return rule.exact == 1 && !rule.conflict && lookup(shell, uid, device).home
+                && new RootlabMokaIpv4OutputTest(app).exactAttached(uid, device)
+                && new RootlabMokaIpv6OutputTest(app).exactAttached(uid, device)
+                && new RootlabDetachedMokaFirewall(app).exactStagingPresentWithVerifiedDualHooks(uid, device)
+                && new RootlabMokaHomeTerminalRoute(app).exactStaged(uid, device);
+    }
+
     String audit() throws Exception {
         RootMokaHomeRouteSafetyPlan.Plan plan = journalPlan();
         if (plan == null) {

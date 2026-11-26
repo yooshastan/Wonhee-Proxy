@@ -368,6 +368,18 @@ public final class RootlabTwoPeerActivity extends Activity {
                                 execute("Moka and browser connection path",
                                         session::diagnoseMokaBrowserPath))
                         .show());
+        action(layout, "Home encrypted transport correction · opt-in lab", () ->
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle("Test exact Home IPv6 transport exception?")
+                        .setMessage("Requires existing three links and exact Moka dual-stack guards, "
+                                + "fallback and UID selector. Cellular and Private DNS OFF. "
+                                + "Uses a device-tested candidate mark, not a production allocation. "
+                                + "Only the Moka no-login TCP diagnostic is permitted. "
+                                + "Do not authenticate or stream. Use Exact-owned Safe Stop afterward.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Run transport trial", (dialog, which) ->
+                                execute("Home encrypted transport trial", session::activateHomeTransportTrial))
+                        .show());
         stopButton = action(layout, "Safe Stop ALL selected test links", () ->
                 execute("Exact-owned Safe Stop", session::stop));
         action(layout, "Export redacted diagnostics (.txt)", this::exportLog);
@@ -505,6 +517,12 @@ public final class RootlabTwoPeerActivity extends Activity {
     private interface Action { String run() throws Exception; }
 
     private void execute(String label, Action task) {
+        if (RootlabHomeTransportTrial.pendingOrUnknown(getApplicationContext())
+                && !"Exact-owned Safe Stop".equals(label)) {
+            if (statusText != null) statusText.setText(
+                    "Transport ownership pending. Only Exact-owned Safe Stop is available.");
+            return;
+        }
         if (!WORKING.compareAndSet(false, true)) {
             if (statusText != null) {
                 statusText.setText("Another isolated operation is still running.");
