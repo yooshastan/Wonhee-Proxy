@@ -33,6 +33,10 @@ android {
     }
     namespace 'com.yooshastan.wonheeproxy'
     compileSdk 36
+    ndkVersion '27.2.12479018'
+    sourceSets {
+        debug { jniLibs.srcDir "$buildDir/generated/wonheeNativeJniLibs" }
+    }
 
     defaultConfig {
         applicationId 'com.yooshastan.wonheeproxy'
@@ -48,14 +52,14 @@ android {
     }
 }
 
-// Deliberately package only the side-by-side debug lab as 0.15.62.
+// The native socket bridge is packaged only in the side-by-side debug lab.
 // The official signed release stays at 0.15.61/versionCode 108 until
 // real multi-exit fail-closed operation passes device acceptance.
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(132)
-            output.versionName.set('0.15.78-rootlab-socket-uid-mark')
+            output.versionCode.set(133)
+            output.versionName.set('0.15.79-native-socket-protection')
         }
     }
 }
@@ -63,4 +67,16 @@ androidComponents {
 dependencies {
     implementation 'com.wireguard.android:tunnel:1.0.20260102'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.3'
+}
+
+// Build the Android-only JNI bridge before packaging the debug variant.
+def wonheeNativeOutput = layout.buildDirectory.dir('generated/wonheeNativeJniLibs')
+tasks.register('buildWonheeNativeAndroidArm64', Exec) {
+    inputs.files(fileTree("$rootDir/native"))
+    inputs.file("$rootDir/scripts/build-wonhee-native-android.sh")
+    outputs.file(layout.buildDirectory.file('generated/wonheeNativeJniLibs/arm64-v8a/libwonhee_native.so'))
+    commandLine 'bash', "$rootDir/scripts/build-wonhee-native-android.sh", wonheeNativeOutput.get().asFile.absolutePath
+}
+tasks.named('preDebugBuild').configure {
+    dependsOn tasks.named('buildWonheeNativeAndroidArm64')
 }

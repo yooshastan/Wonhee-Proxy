@@ -41,6 +41,15 @@
         </activity>
         <!-- RootLab-only separate launcher icon. The official release
              does not include this activity or any new root capability. -->
+        <activity android:name=".RootlessNativeTransportActivity"
+            android:exported="false" android:label="Native Socket Protection Test" />
+        <service android:name=".RootlessNativeTransportService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false" android:foregroundServiceType="systemExempted">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
         <activity
             android:name=".RootlabReadinessActivity"
             android:exported="true"

@@ -371,7 +371,7 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
-        run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
+        run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018"
       - name: Build installable debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - uses: actions/upload-artifact@v4
