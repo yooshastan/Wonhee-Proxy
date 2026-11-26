@@ -6,11 +6,20 @@ import (
 	"fmt"
 )
 
-// NewEphemeralSmokeConfig uses the actual WireGuard userspace IPC format:
-// 32-byte keys encoded as 64 hex characters, not wg-quick Base64.
-// This generated configuration intentionally has no peer endpoint, DNS,
-// keepalive, or user credentials. Never log the returned private key.
+// NewEphemeralSmokeConfig uses the original WireGuard userspace IPC test route.
 func NewEphemeralSmokeConfig() (string, error) {
+	return NewEphemeralSmokeConfigForAllowedIP("192.0.2.0/24")
+}
+
+// NewEphemeralSmokeConfigForAllowedIP creates a temporary-key, no-endpoint
+// profile for the debug packet-pump experiment. Only exact synthetic routes
+// used by that test are accepted; user-provided routes never enter this path.
+func NewEphemeralSmokeConfigForAllowedIP(allowedIP string) (string, error) {
+	switch allowedIP {
+	case "192.0.2.0/24", "198.18.1.0/24", "0.0.0.0/0":
+	default:
+		return "", ErrBadArgument
+	}
 	curve := ecdh.X25519()
 	private, err := curve.GenerateKey(rand.Reader)
 	if err != nil {
@@ -20,6 +29,6 @@ func NewEphemeralSmokeConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("private_key=%x\nreplace_peers=true\npublic_key=%x\nallowed_ip=192.0.2.0/24\n",
-		private.Bytes(), peer.PublicKey().Bytes()), nil
+	return fmt.Sprintf("private_key=%x\nreplace_peers=true\npublic_key=%x\nallowed_ip=%s\n",
+		private.Bytes(), peer.PublicKey().Bytes(), allowedIP), nil
 }

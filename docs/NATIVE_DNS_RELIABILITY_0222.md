@@ -1,0 +1,8 @@
+# 0.22.2 DNS reliability and clarity preview
+
+Based on device results on 0.22.1: Cloudflare DoH3 and Quad9 DoQ returned authenticated answers; AdGuard DoQ primary/secondary on Exit B and secondary on Exit A timed out before verification. Existing endpoint IP, SNI and ALPN match the published resolver configuration; upstream reachability is not established.
+
+- A fresh QUIC handshake timeout may receive one new-socket retry, subject to the existing per-relay circuit, with the exact same endpoint, exit, transport and trust settings. A failed reused session still receives at most one fresh attempt. No retries for fresh certificate, TLS, parsing or other failures. No fallback. Stop cancels the owning relay; no new attempt after it closes. Each native exchange remains bounded by its existing deadline.
+- Activity includes endpoint port, SNI, configured ALPN, handshake retry count, last handshake-timeout elapsed time and last fresh exchange elapsed time (not successful handshake-only timing). Visible diagnostics grouped; clipboard retains raw report.
+- Configured DNS vs active DNS displayed separately; restart required for differences. Shorter Protection tab and secondary address label. Stable release untouched.
+- Device acceptance: stop/start for each selected config; test AdGuard DoQ both addresses and exits, Quad9 DoQ and Cloudflare DoH3 regressions, verify no unexpected fallback and inspect handshake retry/circuit counters. If AdGuard remains degraded, compare manual DoT on same endpoint/exit and independently verify packet reachability. Keep Android Private DNS OFF. Test DNS leaks and kill switch separately; selected apps only, not a system-wide guarantee.

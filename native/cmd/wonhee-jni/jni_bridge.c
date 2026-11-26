@@ -120,6 +120,51 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreateTestSession(
     return (jlong)handle;
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreatePacketTestSession(
+        JNIEnv *env, jclass type, jstring name, jstring allowed_ip) {
+    (void)type;
+    if (name == NULL || allowed_ip == NULL) return 0;
+    const char *name_value = (*env)->GetStringUTFChars(env, name, NULL);
+    if (name_value == NULL) return 0;
+    const char *route_value = (*env)->GetStringUTFChars(env, allowed_ip, NULL);
+    if (route_value == NULL) {
+        (*env)->ReleaseStringUTFChars(env, name, name_value);
+        return 0;
+    }
+    int64_t handle = WNCreatePacketTestSession((char *)name_value, (char *)route_value);
+    (*env)->ReleaseStringUTFChars(env, allowed_ip, route_value);
+    (*env)->ReleaseStringUTFChars(env, name, name_value);
+    return (jlong)handle;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeInjectPacket(
+        JNIEnv *env, jclass type, jlong handle, jbyteArray packet) {
+    (void)type;
+    if (packet == NULL) return -1;
+    jsize length = (*env)->GetArrayLength(env, packet);
+    if (length < 20 || length > 1280) return -1;
+    jbyte *bytes = (*env)->GetByteArrayElements(env, packet, NULL);
+    if (bytes == NULL) return -1;
+    int result = WNInjectPacket((uint64_t)handle, (char *)bytes, (int)length);
+    (*env)->ReleaseByteArrayElements(env, packet, bytes, JNI_ABORT);
+    return (jint)result;
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePacketStats(
+        JNIEnv *env, jclass type, jlong handle) {
+    (void)type;
+    int64_t injected = -1, read_count = -1, dropped = -1;
+    int ok = WNPacketStats((uint64_t)handle, &injected, &read_count, &dropped);
+    if (!ok) injected = read_count = dropped = -1;
+    jlong values[3] = {(jlong)injected, (jlong)read_count, (jlong)dropped};
+    jlongArray result = (*env)->NewLongArray(env, 3);
+    if (result != NULL) (*env)->SetLongArrayRegion(env, result, 0, 3, values);
+    return result;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCloseSession(
         JNIEnv *env, jclass type, jlong handle) {
@@ -137,4 +182,145 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeProtectionStats(
     jlongArray result = (*env)->NewLongArray(env, 2);
     if (result != NULL) (*env)->SetLongArrayRegion(env, result, 0, 2, values);
     return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeValidatePeerProfile(
+ JNIEnv *env, jclass type, jstring config) {
+ (void)type;
+ if (config==NULL) return 2;
+ const char *value=(*env)->GetStringUTFChars(env,config,NULL);
+ if (value==NULL) return 2;
+ int result=WNValidatePeerProfile((char *)value);
+ (*env)->ReleaseStringUTFChars(env,config,value);
+ return (jint)result;
+}
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreatePeerSession(
+ JNIEnv *env,jclass type,jstring name,jstring config) {
+ (void)type;
+ if (name==NULL || config==NULL) return -1;
+ const char *n=(*env)->GetStringUTFChars(env,name,NULL);
+ if (n==NULL) return -1;
+ const char *v=(*env)->GetStringUTFChars(env,config,NULL);
+ if (v==NULL) {(*env)->ReleaseStringUTFChars(env,name,n);return -1;}
+ int64_t h=WNCreatePeerSession((char *)n,(char *)v);
+ (*env)->ReleaseStringUTFChars(env,config,v);
+ (*env)->ReleaseStringUTFChars(env,name,n);
+ return (jlong)h;
+}
+JNIEXPORT jlongArray JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePeerStats(
+ JNIEnv *env,jclass type,jlong handle) {
+ (void)type;
+ int64_t hs=0,rx=0,tx=0;
+ if (!WNPeerStats((uint64_t)handle,&hs,&rx,&tx)) hs=rx=tx=-1;
+ jlong values[3]={(jlong)hs,(jlong)rx,(jlong)tx};
+ jlongArray a=(*env)->NewLongArray(env,3);
+ if(a!=NULL) (*env)->SetLongArrayRegion(env,a,0,3,values);
+ return a;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreateProbeSession(
+ JNIEnv *env,jclass type,jstring name,jstring config,jstring local,jstring target,jstring stream,jint port) {
+ (void)type;
+ if(!name||!config||!local||!target||!stream)return -1;
+ jstring inputs[5]={name,config,local,target,stream};
+ const char *values[5]={NULL,NULL,NULL,NULL,NULL};
+ jlong result=-1;
+ for(int i=0;i<5;i++){values[i]=(*env)->GetStringUTFChars(env,inputs[i],NULL);if(!values[i])goto cleanup;}
+ result=(jlong)WNCreateProbeSession((char*)values[0],(char*)values[1],(char*)values[2],(char*)values[3],(char*)values[4],port);
+ cleanup:
+ for(int i=4;i>=0;i--)if(values[i])(*env)->ReleaseStringUTFChars(env,inputs[i],values[i]);
+ return result;
+}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePollProbePacket(
+ JNIEnv *env,jclass type,jlong handle,jbyteArray out) {
+ (void)type;
+ if(!out||(*env)->GetArrayLength(env,out)!=1280)return -1;
+ jbyte bytes[1280];
+ int n=WNPollProbePacket((uint64_t)handle,(char*)bytes,1280);
+ if(n>0&&n<=1280)(*env)->SetByteArrayRegion(env,out,0,n,bytes);
+ return n;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeRegisterProbePorts(
+ JNIEnv *env,jclass type,jlong handle,jint a,jint b,jint c,jint d,jint udp){
+ (void)env;(void)type;
+ return WNRegisterProbePorts((uint64_t)handle,a,b,c,d,udp)?JNI_TRUE:JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreateRouteSession(
+ JNIEnv *env,jclass type,jstring name,jstring config,jstring local,jstring home) {
+ (void)type;
+ if(!name||!config||!local||!home)return -1;
+ jstring inputs[4]={name,config,local,home};
+ const char *values[4]={NULL,NULL,NULL,NULL};
+ jlong result=-1;
+ for(int i=0;i<4;i++){values[i]=(*env)->GetStringUTFChars(env,inputs[i],NULL);if(!values[i])goto cleanup;}
+ result=(jlong)WNCreateRouteSession((char*)values[0],(char*)values[1],(char*)values[2],(char*)values[3]);
+ cleanup:
+ for(int i=3;i>=0;i--)if(values[i])(*env)->ReleaseStringUTFChars(env,inputs[i],values[i]);
+ return result;
+}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePollRoutePacket(
+ JNIEnv *env,jclass type,jlong handle,jbyteArray out) {
+ (void)type;
+ if(!out||(*env)->GetArrayLength(env,out)!=1280)return -1;
+ jbyte bytes[1280];
+ int n=WNPollRoutePacket((uint64_t)handle,(char*)bytes,1280);
+ if(n>0&&n<=1280)(*env)->SetByteArrayRegion(env,out,0,n,bytes);
+ return n;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_createQuic(JNIEnv *env,jclass cls,jint provider,jint mode,jint alternate,jbyteArray roots){
+ (void)cls;if(roots==NULL)return -1;
+ jsize size=(*env)->GetArrayLength(env,roots);if(size<1||size>1048576)return -1;
+ jbyte *buf=(*env)->GetByteArrayElements(env,roots,NULL);if(buf==NULL)return -1;
+ int64_t id=WNCreateQuicDns(provider,mode,alternate,(char*)buf,size);
+ (*env)->ReleaseByteArrayElements(env,roots,buf,JNI_ABORT);return id;
+}
+JNIEXPORT void JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_closeQuic(JNIEnv *env,jclass cls,jlong id){(void)env;(void)cls;WNCloseQuicDns((uint64_t)id);}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_exchangeQuic(JNIEnv *env,jclass cls,jlong id,jint fd,jbyteArray q,jbyteArray out,jlongArray metrics){
+ (void)cls;if(q==NULL||out==NULL||metrics==NULL||(*env)->GetArrayLength(env,metrics)!=8)return -1;
+ jsize n=(*env)->GetArrayLength(env,q),cap=(*env)->GetArrayLength(env,out);
+ if(n<17||n>1252||cap!=16384)return -1;
+ jbyte *query=(*env)->GetByteArrayElements(env,q,NULL);if(query==NULL)return -1;
+ jbyte *result=(*env)->GetByteArrayElements(env,out,NULL);if(result==NULL){(*env)->ReleaseByteArrayElements(env,q,query,JNI_ABORT);return -1;}
+ int64_t counts[8]={0};
+ int r=WNExchangeQuicDns((uint64_t)id,fd,(char*)query,n,(char*)result,cap,counts);
+ jlong values[8];for(int i=0;i<8;i++)values[i]=(jlong)counts[i];
+ (*env)->SetLongArrayRegion(env,metrics,0,8,values);
+ (*env)->ReleaseByteArrayElements(env,q,query,JNI_ABORT);
+ (*env)->ReleaseByteArrayElements(env,out,result,r>0?0:JNI_ABORT);return r;
+}
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_createTcp(JNIEnv *env,jclass cls){(void)env;(void)cls;return WNCreateDnsTcp();}
+JNIEXPORT void JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_closeTcp(JNIEnv *env,jclass cls,jlong id){(void)env;(void)cls;WNCloseDnsTcp((uint64_t)id);}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_feedTcp(JNIEnv *env,jclass cls,jlong id,jbyteArray p){
+ (void)cls;if(p==NULL)return -1;jsize n=(*env)->GetArrayLength(env,p);if(n<40||n>1280)return -1;
+ jbyte *b=(*env)->GetByteArrayElements(env,p,NULL);if(b==NULL)return -1;
+ int r=WNFeedDnsTcp((uint64_t)id,(char*)b,n);(*env)->ReleaseByteArrayElements(env,p,b,JNI_ABORT);return r;
+}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_pollTcp(JNIEnv *env,jclass cls,jlong id,jint kind,jbyteArray out){
+ (void)cls;if(out==NULL)return -1;jsize cap=(*env)->GetArrayLength(env,out);if(cap<1280||cap>32768)return -1;
+ jbyte *b=(*env)->GetByteArrayElements(env,out,NULL);if(b==NULL)return -1;
+ int r=WNPollDnsTcp((uint64_t)id,kind,(char*)b,cap);(*env)->ReleaseByteArrayElements(env,out,b,r>0?0:JNI_ABORT);return r;
+}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_answerTcp(JNIEnv *env,jclass cls,jlong id,jlong token,jbyteArray answer){
+ (void)cls;if(answer==NULL)return -1;jsize n=(*env)->GetArrayLength(env,answer);if(n<12||n>16384)return -1;
+ jbyte *b=(*env)->GetByteArrayElements(env,answer,NULL);if(b==NULL)return -1;
+ int r=WNAnswerDnsTcp((uint64_t)id,(uint64_t)token,(char*)b,n);(*env)->ReleaseByteArrayElements(env,answer,b,JNI_ABORT);return r;
 }

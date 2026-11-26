@@ -23,7 +23,7 @@ android {
     buildTypes {
         debug {
             // Side-by-side experiment; never replace the user's signed stable app.
-            applicationIdSuffix '.rootlab01562triple1native081'
+            applicationIdSuffix '.rootlab01562triple1native160'
         }
         release {
             if (hasReleaseSigning) {
@@ -51,14 +51,14 @@ android {
     }
 }
 
-// The native socket bridge is packaged only in the side-by-side debug lab.
+// The native socket bridge and scoped TUN ingress diagnostic are debug-only.
 // The official signed release stays at 0.15.61/versionCode 108 until
 // real multi-exit fail-closed operation passes device acceptance.
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(135)
-            output.versionName.set('0.15.81-native-smoke-ipc')
+            output.versionCode.set(158)
+            output.versionName.set('0.22.3-native-protected-routing')
         }
     }
 }

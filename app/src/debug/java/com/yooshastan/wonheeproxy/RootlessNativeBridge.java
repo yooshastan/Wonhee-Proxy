@@ -2,7 +2,7 @@ package com.yooshastan.wonheeproxy;
 
 import android.net.VpnService;
 
-/** Debug-only JNI entry points for the native protected-socket smoke test. */
+/** Debug-only JNI entry points for protected WireGuard sockets and TUN queues. */
 final class RootlessNativeBridge {
     private static final boolean LOADED;
     static {
@@ -27,6 +27,17 @@ final class RootlessNativeBridge {
     static long createTestSession(String name) {
         return LOADED ? nativeCreateTestSession(name) : 0L;
     }
+    static long createPacketTestSession(String name, String allowedIp) {
+        return LOADED ? nativeCreatePacketTestSession(name, allowedIp) : 0L;
+    }
+    static int injectPacket(long handle, byte[] packet) {
+        return LOADED && handle != 0L && packet != null
+                ? nativeInjectPacket(handle, packet) : -1;
+    }
+    static long[] packetStats(long handle) {
+        return LOADED && handle != 0L
+                ? nativePacketStats(handle) : new long[] {-1L, -1L, -1L};
+    }
     static boolean closeSession(long handle) {
         return LOADED && handle != 0L && nativeCloseSession(handle);
     }
@@ -34,9 +45,32 @@ final class RootlessNativeBridge {
         return LOADED ? nativeProtectionStats() : new long[] {0L, 0L};
     }
 
+    static int validatePeerProfile(String config) { return LOADED ? nativeValidatePeerProfile(config) : 0; }
+    static long createPeerSession(String name,String config) { return LOADED ? nativeCreatePeerSession(name,config) : -1L; }
+    static long[] peerStats(long handle) { return LOADED && handle>0 ? nativePeerStats(handle) : new long[]{-1,-1,-1}; }
+    static long createProbeSession(String name,String config,String local,String target,String stream,int port) {
+        return LOADED?nativeCreateProbeSession(name,config,local,target,stream,port):-1L;
+    }
+    static boolean registerProbePorts(long handle,int a,int b,int c,int d,int udp){return LOADED&&nativeRegisterProbePorts(handle,a,b,c,d,udp);}
+    private static native boolean nativeRegisterProbePorts(long handle,int a,int b,int c,int d,int udp);
+    static int pollProbePacket(long handle,byte[] output) {return LOADED?nativePollProbePacket(handle,output):-1;}
+    private static native long nativeCreateProbeSession(String name,String config,String local,String target,String stream,int port);
+    private static native int nativePollProbePacket(long handle,byte[] output);
+    private static native int nativeValidatePeerProfile(String config);
+    private static native long nativeCreatePeerSession(String name,String config);
+    private static native long[] nativePeerStats(long handle);
+    static long createRouteSession(String name,String config,String local,String home){
+        return LOADED?nativeCreateRouteSession(name,config,local,home):-1L;
+    }
+    static int pollRoutePacket(long handle,byte[] output){return LOADED?nativePollRoutePacket(handle,output):-1;}
+    private static native long nativeCreateRouteSession(String name,String config,String local,String home);
+    private static native int nativePollRoutePacket(long handle,byte[] output);
     private static native boolean nativeSetVpnService(VpnService service);
     private static native boolean nativeClearVpnService(VpnService service);
     private static native long nativeCreateTestSession(String name);
+    private static native long nativeCreatePacketTestSession(String name, String allowedIp);
+    private static native int nativeInjectPacket(long handle, byte[] packet);
+    private static native long[] nativePacketStats(long handle);
     private static native boolean nativeCloseSession(long handle);
     private static native long[] nativeProtectionStats();
 }

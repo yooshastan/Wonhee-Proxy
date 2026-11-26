@@ -12,8 +12,16 @@ HOST_TAG=linux-x86_64
 CC="$NDK/toolchains/llvm/prebuilt/$HOST_TAG/bin/aarch64-linux-android26-clang"
 [[ -x "$CC" ]] || { echo "Android NDK 27.2.12479018 ARM64 compiler not found: $CC" >&2; exit 2; }
 mkdir -p "$OUT/arm64-v8a"
+OUT="$(cd "$OUT" && pwd)"
+staging="$(mktemp -d "${TMPDIR:-/tmp}/wonhee-native-build.XXXXXXXX")"
+trap 'rm -rf -- "$staging"' EXIT
+cp -a "$ROOT/native/." "$staging/"
 (
-  cd "$ROOT/native"
+  cd "$staging"
+  go mod tidy
+  go mod verify
+  test "$(go list -m -f '{{.Version}}' github.com/quic-go/quic-go)" = v0.50.0
+  test "$(go list -m -f '{{.Version}}' golang.zx2c4.com/wireguard)" = v0.0.0-20261024220952-b3bc704ef0ee
   export GOOS=android GOARCH=arm64 CGO_ENABLED=1
   export CC
   go build -mod=readonly -trimpath -buildmode=c-shared \

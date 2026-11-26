@@ -1,0 +1,10 @@
+# 0.22.1 DNS reliability preview
+
+0.22.0 demonstrated real reuse with Quad9 DoQ/DoH3 and Cloudflare DoH3. AdGuard DoQ on Exit B timed out in ten attempts. A prior Exit A DoQ session suffered 118 backoff rejections.
+
+- Retry a failed reused QUIC connection at most once on a new socket, same explicitly selected IP, hostname, port, transport and exit. A fresh retry is subject to the fresh-connection circuit if already open. Reused connections can still be used during backoff. Only fresh failures count toward the circuit. After two consecutive fresh failures, cooldown grows 0.5, 1, 2, 4, 8 seconds; a single half-open trial follows. Old in-flight results do not reopen/reset a newer circuit generation.
+- QUIC idle retirement 10 seconds, native idle timeout 15 seconds, exchange deadline 6 seconds. Existing DoT pooling is unchanged.
+- Manual primary/secondary address selector in Protection, changes on next Start. No automatic address, provider, exit or transport fallback. Java and JNI verify exact peer IP and port; same TLS server hostname and system CA trust. Published resolver addresses are not evidence of actual QUIC reachability on a specific path.
+- Protection shows active DNS configuration, health and user-initiated provider test. Test sends fixed example.com A through the active relay, bypassing cache and HOSTS for that explicit test only. The test is not a separate draft preflight: desired settings must be started first. It uses the same worker/pool and circuit; no direct physical-network probes, no alternate provider. Probe counts are separate; QUIC exchange counters include probes. Health is observational, not a leak guarantee.
+- More diagnostic counters for handshake/response timeouts, stream resets, remote close, transport/TLS error and retry success. Some native errors remain generic. Authenticated DNS responses can include provider error codes; the explicit test requires a NOERROR response with an answer.
+- Native endpoint matrix test and Java backoff state-machine test added. Device tests required for secondary addresses, retry, probe, DoT, TCP DNS, migration and leak behavior. AdGuard not yet fixed.

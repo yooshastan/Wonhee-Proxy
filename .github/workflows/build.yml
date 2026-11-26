@@ -34,10 +34,64 @@ jobs:
         run: python3 scripts/test-wonhee-home-entrypoints.py
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
-      - name: Verify debug-only 0.15.81 RootLab APK and read-only readiness screen
+      - name: Verify debug-only 0.22.3 RootLab APK and read-only readiness screen
         run: python3 scripts/test-wonhee-rootlab-preview.py
-      - name: Verify native Android JNI and no-route smoke-test contract
+      - name: Verify secure endpoint DNS wire codec
+        run: |
+          mkdir -p /tmp/wonhee-dns-codec
+          javac -d /tmp/wonhee-dns-codec app/src/debug/java/com/yooshastan/wonheeproxy/NativeEndpointDnsMessage.java core-tests/NativeEndpointDnsMessageTest.java
+          java -cp /tmp/wonhee-dns-codec com.yooshastan.wonheeproxy.NativeEndpointDnsMessageTest
+      - name: Verify bounded sustained transfer framing
+        run: |
+          mkdir -p /tmp/wonhee-transfer
+          javac -d /tmp/wonhee-transfer app/src/debug/java/com/yooshastan/wonheeproxy/NativeTransferBody.java core-tests/NativeTransferBodyTest.java
+          java -cp /tmp/wonhee-transfer com.yooshastan.wonheeproxy.NativeTransferBodyTest
+      - name: Verify physical network preference and debounce
+        run: |
+          mkdir -p /tmp/wonhee-underlay
+          javac -d /tmp/wonhee-underlay app/src/debug/java/com/yooshastan/wonheeproxy/NativeUnderlayPolicy.java core-tests/NativeUnderlayPolicyTest.java
+          java -cp /tmp/wonhee-underlay com.yooshastan.wonheeproxy.NativeUnderlayPolicyTest
+      - name: Verify bounded recovery retry schedule
+        run: |
+          mkdir -p /tmp/wonhee-recovery
+          javac -d /tmp/wonhee-recovery app/src/debug/java/com/yooshastan/wonheeproxy/NativeRecoveryPlan.java core-tests/NativeRecoveryPlanTest.java
+          java -cp /tmp/wonhee-recovery com.yooshastan.wonheeproxy.NativeRecoveryPlanTest
+      - name: Verify encrypted DNS provider and transport matrix
+        run: |
+          mkdir -p /tmp/wonhee-dns-mode
+          javac -d /tmp/wonhee-dns-mode app/src/debug/java/com/yooshastan/wonheeproxy/NativeDnsTransportPolicy.java core-tests/NativeDnsTransportPolicyTest.java
+          java -cp /tmp/wonhee-dns-mode com.yooshastan.wonheeproxy.NativeDnsTransportPolicyTest
+          javac -d /tmp/wonhee-dns-backoff app/src/debug/java/com/yooshastan/wonheeproxy/NativeDnsFreshBackoff.java core-tests/NativeDnsFreshBackoffTest.java
+          java -cp /tmp/wonhee-dns-backoff com.yooshastan.wonheeproxy.NativeDnsFreshBackoffTest
+      - name: Verify bounded DNS cache and TTL aging
+        run: |
+          mkdir -p /tmp/wonhee-dns-cache
+          javac -d /tmp/wonhee-dns-cache app/src/debug/java/com/yooshastan/wonheeproxy/NativeProtectedDnsMessage.java app/src/debug/java/com/yooshastan/wonheeproxy/NativeDnsPositiveCache.java core-tests/NativeDnsPositiveCacheTest.java
+          java -cp /tmp/wonhee-dns-cache com.yooshastan.wonheeproxy.NativeDnsPositiveCacheTest
+      - name: Verify protected DNS packet framing and hosts matching
+        run: |
+          mkdir -p /tmp/wonhee-protected-dns
+          javac -d /tmp/wonhee-protected-dns app/src/debug/java/com/yooshastan/wonheeproxy/NativeProtectedDnsMessage.java core-tests/NativeProtectedDnsMessageTest.java
+          java -cp /tmp/wonhee-protected-dns com.yooshastan.wonheeproxy.NativeProtectedDnsMessageTest
+      - name: Verify Home route suggestions and live traffic metrics
+        run: |
+          mkdir -p /tmp/wonhee-ui-models
+          javac -d /tmp/wonhee-ui-models app/src/main/java/com/yooshastan/wonheeproxy/AppUseCategories.java app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelIpv4Rewriter.java app/src/debug/java/com/yooshastan/wonheeproxy/NativeAppRoutingPolicy.java app/src/debug/java/com/yooshastan/wonheeproxy/NativeHomeRoutes.java app/src/debug/java/com/yooshastan/wonheeproxy/NativeRoutingMetrics.java core-tests/NativeRoutingUiModelsTest.java
+          java -cp /tmp/wonhee-ui-models com.yooshastan.wonheeproxy.NativeRoutingUiModelsTest
+      - name: Verify selected-app policy and flow ownership
+        run: |
+          mkdir -p /tmp/wonhee-app-routing
+          javac -d /tmp/wonhee-app-routing app/src/main/java/com/yooshastan/wonheeproxy/AppUseCategories.java app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelIpv4Rewriter.java app/src/debug/java/com/yooshastan/wonheeproxy/NativeAppRoutingPolicy.java core-tests/NativeAppRoutingPolicyTest.java
+          java -cp /tmp/wonhee-app-routing com.yooshastan.wonheeproxy.NativeAppRoutingPolicyTest
+      - name: Verify native Android JNI and scoped TUN ingress contract
         run: python3 scripts/test-wonhee-native-bridge-contract.py
+      - name: Test fail-closed synthetic TUN packet classification
+        run: |
+          mkdir -p /tmp/wonhee-tun-policy
+          javac -d /tmp/wonhee-tun-policy \
+            app/src/debug/java/com/yooshastan/wonheeproxy/RootlessTunTestPacketRouter.java \
+            core-tests/RootlessTunTestPacketRouterTest.java
+          java -cp /tmp/wonhee-tun-policy com.yooshastan.wonheeproxy.RootlessTunTestPacketRouterTest
       - name: Verify permanent release-signing setup script syntax
         run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh scripts/wonhee-01562-device-preflight.sh
       - name: Prove safe installer refuses unsafe live/root states
@@ -378,9 +432,19 @@ jobs:
         run: |
           ./gradlew :app:assembleDebug --no-daemon --console=plain
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'lib/arm64-v8a/libwonhee_native.so'
+      - name: Verify packaged launcher and installed update identity
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          aapt="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          badging="$("$aapt" dump badging "$apk")"
+          printf '%s\n' "$badging" | grep -F "package: name='com.yooshastan.wonheeproxy.rootlab01562triple1native160' versionCode='158' versionName='0.22.3-native-protected-routing'"
+          launchers="$(printf '%s\n' "$badging" | grep '^launchable-activity:')"
+          test "$(printf '%s\n' "$launchers" | wc -l)" -eq 1
+          printf '%s\n' "$launchers" | grep -F "name='com.yooshastan.wonheeproxy.NativeAppRoutingActivity'"
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0.15.81-native-smoke-ipc-apk
+          name: wonhee-0.22.3-native-protected-routing-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

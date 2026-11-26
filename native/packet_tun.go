@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"golang.zx2c4.com/wireguard/tun"
 )
@@ -15,6 +16,14 @@ var (
 	ErrPacketSize  = errors.New("invalid packet size")
 	ErrBadArgument = errors.New("invalid packet buffer")
 )
+
+type PacketStats struct {
+	Injected uint64
+	Read     uint64
+	Written  uint64
+	Polled   uint64
+	Dropped  uint64
+}
 
 // PacketTun is a bounded, user-space implementation of tun.Device. One
 // instance belongs to exactly one encrypted WireGuard device. No OS network
@@ -27,6 +36,12 @@ type PacketTun struct {
 	events    chan tun.Event
 	closed    chan struct{}
 	closeOnce sync.Once
+
+	injected atomic.Uint64
+	read     atomic.Uint64
+	written  atomic.Uint64
+	polled   atomic.Uint64
+	dropped  atomic.Uint64
 }
 
 // NewPacketTun creates a bounded interface. Its mtu must leave room for the
@@ -58,6 +73,17 @@ func (t *PacketTun) Close() error {
 	return nil
 }
 
+// Stats is an atomic snapshot. It is diagnostic only and contains no packet data.
+func (t *PacketTun) Stats() PacketStats {
+	return PacketStats{
+		Injected: t.injected.Load(),
+		Read:     t.read.Load(),
+		Written:  t.written.Load(),
+		Polled:   t.polled.Load(),
+		Dropped:  t.dropped.Load(),
+	}
+}
+
 // Read returns a packet to wireguard-go. Offsets and lengths are kept in the
 // shape required by tun.Device. It fails closed when the interface is stopped.
 func (t *PacketTun) Read(bufs [][]byte, sizes []int, offset int) (int, error) {
@@ -74,10 +100,12 @@ func (t *PacketTun) Read(bufs [][]byte, sizes []int, offset int) (int, error) {
 		return 0, io.EOF
 	case p := <-t.incoming:
 		if len(p)+offset > len(bufs[0]) {
+			t.dropped.Add(1)
 			return 0, ErrPacketSize
 		}
 		copy(bufs[0][offset:], p)
 		sizes[0] = len(p)
+		t.read.Add(1)
 		return 1, nil
 	}
 }
@@ -100,35 +128,60 @@ func (t *PacketTun) Write(bufs [][]byte, offset int) (int, error) {
 		copyOf := append([]byte(nil), p[offset:]...)
 		select {
 		case <-t.closed:
+			t.dropped.Add(1)
 			return i, ErrClosed
 		case t.outgoing <- copyOf:
+			t.written.Add(1)
 		default:
+			t.dropped.Add(1)
 			return i, ErrQueueFull
 		}
 	}
 	return len(bufs), nil
 }
 
-// Inject moves one validated, address-translated Android packet into a single
-// session's WireGuard crypto queue. No direct-network fallback exists.
+// Inject moves one validated, policy-selected Android packet into exactly one
+// session's WireGuard crypto queue. Production callers must additionally apply
+// their validated per-session address translation before using this method.
 func (t *PacketTun) Inject(packet []byte) error {
-	if len(packet) == 0 || len(packet) > t.mtu { return ErrPacketSize }
+	if len(packet) == 0 || len(packet) > t.mtu {
+		return ErrPacketSize
+	}
 	copyOf := append([]byte(nil), packet...)
-	select { case <-t.closed: return ErrClosed; default: }
 	select {
-	case <-t.closed: return ErrClosed
-	case t.incoming <- copyOf: return nil
-	default: return ErrQueueFull
+	case <-t.closed:
+		t.dropped.Add(1)
+		return ErrClosed
+	default:
+	}
+	select {
+	case <-t.closed:
+		t.dropped.Add(1)
+		return ErrClosed
+	case t.incoming <- copyOf:
+		t.injected.Add(1)
+		return nil
+	default:
+		t.dropped.Add(1)
+		return ErrQueueFull
 	}
 }
 
-// Poll takes one decrypted packet off a session queue. The next stage will
-// validate reply ownership and rewrite it for Android's single TUN.
+// Poll takes one decrypted packet off a session queue. Production callers must
+// validate reply ownership before writing the packet to Android's single TUN.
 func (t *PacketTun) Poll() ([]byte, bool) {
-	select { case <-t.closed: return nil, false; default: }
 	select {
-	case <-t.closed: return nil, false
-	case packet := <-t.outgoing: return packet, true
-	default: return nil, false
+	case <-t.closed:
+		return nil, false
+	default:
+	}
+	select {
+	case <-t.closed:
+		return nil, false
+	case packet := <-t.outgoing:
+		t.polled.Add(1)
+		return packet, true
+	default:
+		return nil, false
 	}
 }

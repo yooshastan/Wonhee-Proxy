@@ -27,40 +27,54 @@
              variant. This is NOT the live multi-exit beta yet. -->
         <activity
             android:name=".WonheeDashboardPreviewActivity"
-            android:enabled="false" />
+            android:enabled="false" android:exported="false" tools:node="replace" />
         <!-- Explicitly opted-in, debug-only independent WireGuard link pilot.
              Neither its label nor its controls claim Android app routing. -->
         <activity
             android:name=".RootlabTwoPeerActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="Wonhee Two Exits + Home Lab">
+        </activity>
+        <!-- RootLab-only separate launcher icon. The official release
+             does not include this activity or any new root capability. -->
+        <!-- Debug-only TUN ingress experiment. It captures only this package
+             and one synthetic IPv4 benchmark route; never a default route. -->
+        <activity
+            android:name=".RootlessNativePeerActivity"
+            android:exported="false"
+            android:label="Wonhee Combined Transfer Test">
+        </activity>
+        <service android:name=".RootlessNativePeerService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false" android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-initiated debug test: own-package IPv4 host routes, bounded credential-free HTTP and fixed UDP DNS probes, no default route" />
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+        <activity android:name=".NativeAppRoutingActivity"
+            android:exported="true" android:label="Wonhee Proxy">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- RootLab-only separate launcher icon. The official release
-             does not include this activity or any new root capability. -->
-        <activity android:name=".RootlessNativeTransportActivity"
-            android:exported="false" android:label="Native Socket Protection Test" />
-        <service android:name=".RootlessNativeTransportService"
+        <service android:name=".NativeAppRoutingService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false" android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-initiated debug diagnostic verifying Android VpnService.protect for four native WireGuard UDP sockets without establishing a TUN or routing application traffic" />
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-initiated debug VPN for selected apps, two independent encrypted exits and optional private Home route" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
         <activity
             android:name=".RootlabReadinessActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="Wonhee Multi-Exit Readiness">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
     </application>
 </manifest>
