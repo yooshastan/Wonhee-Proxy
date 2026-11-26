@@ -33,7 +33,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private EditText homeCidr;
     private CheckBox home;
     private Spinner fallback,dnsProvider,dnsRole;
-    private CheckBox hostsEnabled,blockExternal853;
+    private CheckBox hostsEnabled,blockExternal853,autoRecovery;
     private TextView hostsStatus;
     private android.content.SharedPreferences draft;
     private static final class AppRow {
@@ -47,7 +47,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.19.0 PREVIEW",12);
+        label(header,"PROXY  /  0.20.0 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(SECTIONS[i]);t.setTextSize(11);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -90,6 +90,8 @@ public final class NativeAppRoutingActivity extends Activity {
         root=pages[3];
         label(root,"Protection",23);
         label(root,"DNS uses reusable authenticated TLS connections and a bounded positive DNS cache inside the chosen tunnel. UDP DNS only; TCP DNS fallback and application DoH interception are not supported. Captured IPv6 is blocked. Guard is in-process only.",14);
+        autoRecovery=new CheckBox(this);autoRecovery.setText("Recover tunnels automatically while VPN remains established");autoRecovery.setChecked(draft.getBoolean("autoRecovery",true));root.addView(autoRecovery);
+        label(root,"Recovery keeps selected apps inside the existing TUN. It uses the current session's endpoints and stops after five attempts. No protection guarantee if Android revokes or kills VPN.",13);
         label(root,"Authenticated DNS-over-TLS provider",14);
         dnsProvider=spinner(root,NativeProtectedDnsRelay.NAMES,draft.getInt("dnsProvider",0));
         label(root,"DNS tunnel (all captured system DNS)",14);
@@ -149,6 +151,7 @@ public final class NativeAppRoutingActivity extends Activity {
             android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
             if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Wonhee diagnostics",status.getText()));
         });
+        button(root,"Test automatic recovery",()->new android.app.AlertDialog.Builder(this).setTitle("Test tunnel recovery?").setMessage("Restarts peer sessions while keeping the existing VPN. Selected apps may temporarily lose connectivity. Enable automatic recovery and restart first.").setPositiveButton("Test",(d,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.RECOVERY_TEST))).setNegativeButton("Cancel",null).show());
         button(root,"Simulate tunnel failure (test guard)",()->new android.app.AlertDialog.Builder(this).setTitle("Test failure guard?").setMessage("This deliberately interrupts captured traffic until you press Stop.").setPositiveButton("Test",(d,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.GUARD_TEST))).setNegativeButton("Cancel",null).show());
         button(root,"Return home",()->showPage(0));
         button(root,"Advanced diagnostics",()->new android.app.AlertDialog.Builder(this)
@@ -173,10 +176,10 @@ public final class NativeAppRoutingActivity extends Activity {
         android.content.SharedPreferences prefs=getSharedPreferences(NativeAppRoutingService.PREFS,MODE_PRIVATE);
         String state=prefs.getString("state","IDLE"),report=prefs.getString("status","Not started");
         long age=android.os.SystemClock.elapsedRealtime()-prefs.getLong("heartbeat",0);
-        if(!NativeAppRoutingService.running()&&(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("STARTING")))state="INACTIVE";
+        if(!NativeAppRoutingService.running()&&(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")))state="INACTIVE";
         if(state.equals("ACTIVE")&&(age<0||age>8000))state="STALE";
         boolean busy=NativeAppRoutingService.running();
-        headline.setText(state.equals("ACTIVE")?"Connected":state.equals("BLOCKED")?"Traffic blocked":state.equals("STARTING")?"Connecting…":state.equals("STALE")?"Status stale":state.equals("FAILED")?"Connection refused":"Disconnected");
+        headline.setText(state.equals("ACTIVE")?"Connected":state.equals("BLOCKED")?"Traffic blocked":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"Capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting…":state.equals("STALE")?"Status stale":state.equals("FAILED")?"Connection refused":"Disconnected");
         speed.setText("↓ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("downRate",0):0)+"    ↑ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("upRate",0):0));
         blocked.setText("Blocked DNS · "+prefs.getLong("blocked",0));
         int selected=0;for(AppRow r:apps)if(r.selected.isChecked())selected++;
@@ -199,6 +202,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private int value(Spinner spinner){return VALUES[spinner.getSelectedItemPosition()];}
     private void save(){
         android.content.SharedPreferences.Editor e=draft.edit().putBoolean("home",home.isChecked()).putString("homeCidr",homeCidr.getText().toString().trim()).putInt("default",fallback.getSelectedItemPosition());
+        e.putBoolean("autoRecovery",autoRecovery.isChecked());
         e.putInt("dnsProvider",dnsProvider.getSelectedItemPosition()).putInt("dnsRole",dnsRole.getSelectedItemPosition()).putBoolean("hostsEnabled",hostsEnabled.isChecked()).putBoolean("blockExternal853",blockExternal853.isChecked());
         for(int i=0;i<categories.length;i++)e.putInt("cat"+i,categories[i].getSelectedItemPosition());
         for(int i=0;i<protocols.length;i++)e.putInt("proto"+i,protocols[i].getSelectedItemPosition());
@@ -220,7 +224,7 @@ public final class NativeAppRoutingActivity extends Activity {
         String[] checked=NativePeerProfiles.prepare(this,useHome,ips,new String[3]);Arrays.fill(checked,null);
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
-            .putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
+            .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
             .putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
     private void launch(){try{startForegroundService(makeIntent());notice.setText("Starting…");;}catch(Exception e){notice.setText("Start refused: "+e.getClass().getSimpleName());}}

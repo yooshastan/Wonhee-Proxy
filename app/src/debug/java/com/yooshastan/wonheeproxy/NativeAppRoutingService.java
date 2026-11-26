@@ -19,7 +19,15 @@ public final class NativeAppRoutingService extends VpnService {
     static final String PREFS="native_app_route_status",TAG="WonheeAppRouting";
     static final int UNKNOWN_DNS=-2, RELAY_UID=-3;
     static final String GUARD_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_GUARD_TEST";
-    private volatile boolean guardTest;
+    static final String RECOVERY_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_RECOVERY_TEST";
+    private volatile boolean guardTest,recoveryTest;
+    private boolean autoRecovery=true;
+    private long recoveryAttempts,recoverySuccess,recoveryDiscard,priorBlocked;
+    private int dnsGeneration;
+    private String retiredDnsStats="";
+    private String[] sessionConfigs,sessionAddresses;
+    private String sessionHomeCidr="";
+    private static final int MAX_RECOVERY_ATTEMPTS=5;
     private static volatile boolean serviceRunning;
     static boolean running(){return serviceRunning;}
     private long lastSample,lastOut,lastIn,upRate,downRate;
@@ -42,12 +50,13 @@ public final class NativeAppRoutingService extends VpnService {
     private long unknown,policyDrop,unsupported,foreignReply,queueDrop;
     private boolean registered,cleanupFailed;
     private ParcelFileDescriptor tun;
-    private Network underlay;
+    private volatile Network underlay;
     private NativeAppRoutingPolicy policy;
     private int count;
     private final byte[] buffer=new byte[1280];
     @Override public int onStartCommand(Intent intent,int flags,int id){
         String action=intent==null?null:intent.getAction();
+        if(RECOVERY_TEST.equals(action)){if(started.get()&&autoRecovery)recoveryTest=true;else if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(GUARD_TEST.equals(action)){if(started.get())guardTest=true;else stopSelf();return START_NOT_STICKY;}
         if(STOP.equals(action)){requestStop();if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(!START.equals(action)){if(!started.get())stopSelf();return START_NOT_STICKY;}
@@ -73,6 +82,105 @@ public final class NativeAppRoutingService extends VpnService {
         Network n=cm().getActiveNetwork();return physical(n)?n:null;
     }
     private boolean ownNetwork(){return vpnNetwork()!=null;}
+    // JNI invokes this virtual method before exposing either WireGuard socket.
+    // Duplicate the descriptor; binding/closing the duplicate does not close the native socket.
+    @Override public boolean protect(int fd){
+        Network n=underlay;
+        if(stopping||!physical(n)||!super.protect(fd))return false;
+        try(ParcelFileDescriptor copy=ParcelFileDescriptor.fromFd(fd)){
+            n.bindSocket(copy.getFileDescriptor());
+            return n.equals(underlay)&&physical(n)&&!stopping;
+        }catch(Exception failure){return false;}
+    }
+    private boolean usable(Network n){
+        NetworkCapabilities c=n==null?null:cm().getNetworkCapabilities(n);
+        return physical(n)&&c!=null&&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    }
+    private Network recoveryNetwork(){
+        // Prefer the existing validated underlay. If it disappears, choose a validated
+        // physical network; Wi-Fi before cellular, never another VPN.
+        if(usable(underlay))return underlay;
+        Network wifi=null,cell=null;
+        for(Network n:cm().getAllNetworks())if(usable(n)){
+            NetworkCapabilities c=cm().getNetworkCapabilities(n);if(c==null)continue;
+            if(c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))wifi=n;
+            else if(c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))cell=n;
+        }
+        return wifi!=null?wifi:cell;
+    }
+    private boolean captureIntact(){return tun!=null&&ownNetwork()&&VpnService.prepare(this)==null;}
+    private void discardCaptured(){
+        if(tun==null)return;
+        for(int k=0;k<128;k++){
+            try{int n=Os.read(tun.getFileDescriptor(),buffer,0,buffer.length);if(n<=0)break;recoveryDiscard++;}
+            catch(Exception ignored){break;}
+        }
+    }
+    private void retireDns(){
+        NativeProtectedDnsRelay old=dnsRelay;
+        if(old==null)return;
+        old.close();
+        if(!old.awaitStopped())cleanupFailed=true;
+        priorBlocked+=old.blocked.get();
+        retiredDnsStats="last DNS generation="+dnsGeneration+" queries="+old.queries.get()+" authenticated="+old.verified.get()+" blocked="+old.blocked.get()+" failed="+old.failed.get()+" overflow="+old.overflow.get()+" TLS opened="+old.tlsConnections.get()+" TLS closed="+old.tlsClosed.get();
+        dnsRelay=null;
+    }
+    private void newRelay()throws Exception{
+        Network vpn=vpnNetwork();if(vpn==null)throw new IllegalStateException();
+        dnsRelay=new NativeProtectedDnsRelay(vpn,dnsProvider,dnsRole,blocklist);dnsGeneration++;
+    }
+    private void createPeers()throws Exception{
+        if(stopping||!dnsOff()||!physical(underlay)||sessionConfigs==null)throw new IllegalStateException();
+        count=sessionConfigs.length;
+        if(!RootlessNativeBridge.setVpnService(this))throw new IllegalStateException();registered=true;
+        for(int i=0;i<count;i++){
+            rewrite[i]=new MultiTunnelIpv4Rewriter("10.253.0.1",sessionAddresses[i]);
+            long h=RootlessNativeBridge.createRouteSession(NativePeerProfiles.IDS[i],sessionConfigs[i],sessionAddresses[i],i==2?sessionHomeCidr:"");
+            if(h<=0)throw new IllegalStateException("peer creation rejected");
+            handles[i]=h;
+        }
+    }
+    private boolean recover()throws InterruptedException{
+        if(!autoRecovery||guardTest||cleanupFailed||!captureIntact())return false;
+        for(int attempt=0;attempt<MAX_RECOVERY_ATTEMPTS&&!stopping&&!guardTest;attempt++){
+            long wait=NativeRecoveryPlan.delay(attempt),until=SystemClock.elapsedRealtime()+wait;
+            report(stats("RECOVERING — selected apps held in existing TUN; retry "+(attempt+1)+"/"+MAX_RECOVERY_ATTEMPTS));
+            while(SystemClock.elapsedRealtime()<until&&!stopping&&!guardTest){
+                if(!captureIntact())return false;discardCaptured();Thread.sleep(50);
+            }
+            if(stopping||guardTest||!captureIntact()||!dnsOff())return false;
+            recoveryAttempts++;
+            Network next=recoveryNetwork();
+            if(next==null)continue;
+            underlay=next;
+            try{
+                if(!setUnderlyingNetworks(new Network[]{next}))throw new IllegalStateException();
+                createPeers();
+                long deadline=SystemClock.elapsedRealtime()+60000;
+                while(!stopping&&!guardTest){
+                    if(!captureIntact()||!dnsOff()||!usable(next)||!protectedSockets())throw new IllegalStateException();
+                    discardCaptured();
+                    if(ready())break;
+                    if(SystemClock.elapsedRealtime()>=deadline)throw new IllegalStateException();
+                    Thread.sleep(100);
+                }
+                if(stopping||guardTest||!captureIntact()||!dnsOff()||!usable(next)||!ready())throw new IllegalStateException();
+                discardCaptured();
+                ledger.entries.clear();
+                newRelay();
+                recoverySuccess++;
+                report(stats("ACTIVE — recovery verified; same TUN retained"));
+                return true;
+            }catch(Exception|LinkageError failure){
+                retireDns();if(!closePeers())cleanupFailed=true;
+                if(cleanupFailed)return false;
+                report(stats("RECOVERING — attempt refused; forwarding remains disabled"));
+                if(failure instanceof InterruptedException)throw (InterruptedException)failure;
+            }
+        }
+        return false;
+    }
     private Network vpnNetwork(){
         for(Network n:cm().getAllNetworks()){
             NetworkCapabilities c=cm().getNetworkCapabilities(n);if(c==null||!c.hasTransport(NetworkCapabilities.TRANSPORT_VPN))continue;
@@ -85,8 +193,9 @@ public final class NativeAppRoutingService extends VpnService {
         try{
             if(Build.VERSION.SDK_INT<29||!dnsOff()||VpnService.prepare(this)!=null||!RootlessNativeBridge.available())throw new IllegalStateException();
             underlay=initialNetwork();if(underlay==null)throw new IllegalStateException();
+            autoRecovery=intent.getBooleanExtra("autoRecovery",true);
             boolean home=intent.getBooleanExtra("home",false);
-            String homeCidr=home?intent.getStringExtra("homeCidr"):"";
+            String homeCidr=home?intent.getStringExtra("homeCidr"):"";sessionHomeCidr=homeCidr;
             policy=new NativeAppRoutingPolicy(home?new NativeAppRoutingPolicy.Prefix(homeCidr):null,intent.getIntExtra("default",0),intent.getIntArrayExtra("categories"),intent.getIntArrayExtra("protocols"));
             stage="protection-config";
             dnsProvider=intent.getIntExtra("dnsProvider",0);dnsRole=intent.getIntExtra("dnsRole",0);
@@ -118,16 +227,11 @@ public final class NativeAppRoutingService extends VpnService {
                 configs=NativePeerProfiles.prepare(this,home,intent.getStringArrayExtra("overrides"),addresses,resolver,false);
                 report(resolver.summary());
                 if(stopping||!dnsOff()||!underlay.equals(initialNetwork()))throw new IllegalStateException();
-                count=configs.length;
-                for(int i=0;i<count;i++)rewrite[i]=new MultiTunnelIpv4Rewriter("10.253.0.1",addresses[i]);
+                // Immutable session snapshot: recovery cannot silently load a newly
+                // imported profile or change a resolved endpoint. No disk persistence.
+                sessionConfigs=configs.clone();sessionAddresses=addresses.clone();
                 stage="native-registration";
-                if(!RootlessNativeBridge.setVpnService(this))throw new IllegalStateException();registered=true;
-                for(int i=0;i<count;i++){
-                    stage="native-"+NativePeerProfiles.IDS[i];
-                    long h=RootlessNativeBridge.createRouteSession(NativePeerProfiles.IDS[i],configs[i],addresses[i],i==2?homeCidr:"");
-                    if(h<=0){stage+="/code-"+h;throw new IllegalStateException();}
-                    handles[i]=h;configs[i]=null;
-                }
+                createPeers();
             }finally{resolver.close();bootstrap=null;if(configs!=null)Arrays.fill(configs,null);}
             stage="handshakes";
             long deadline=SystemClock.elapsedRealtime()+60000;
@@ -154,17 +258,25 @@ public final class NativeAppRoutingService extends VpnService {
             while(!stopping&&!ownNetwork()){if(SystemClock.elapsedRealtime()>visibleUntil)throw new IllegalStateException();Thread.sleep(50);}
             if(stopping)return;
             stage="dns-relay";
-            Network vpn=vpnNetwork();if(vpn==null)throw new IllegalStateException();
-            dnsRelay=new NativeProtectedDnsRelay(vpn,dnsProvider,dnsRole,blocklist);
+            newRelay();
             stage="forwarding";report("ACTIVE — "+count+" verified peers; "+apps.length+" selected apps; authenticated DoT via "+NativePeerProfiles.SLOTS[dnsRole]+"; hosts="+blocklist.size()+"; IPv6 blocked");
             long nextReport=0,nextHealth=0;
             while(!stopping){
                 long now=SystemClock.elapsedRealtime();
+                boolean unhealthy=false;
                 if(now>=nextHealth){
-                    if(!dnsOff()||!physical(underlay)||!ownNetwork()||!protectedSockets()||!ready())throw new IllegalStateException();
+                    if(!dnsOff()||!captureIntact())throw new IllegalStateException();
+                    unhealthy=!physical(underlay)||!usable(underlay)||!protectedSockets()||!ready();
                     nextHealth=now+1000;
                 }
                 if(guardTest){stage="controlled-guard-test";throw new IllegalStateException();}
+                if(recoveryTest||unhealthy){
+                    stage=recoveryTest?"controlled-recovery-test":"underlay-or-peer-health";recoveryTest=false;
+                    report(stats("RECOVERING — "+stage+"; stopping forwarding"));
+                    retireDns();if(!closePeers())cleanupFailed=true;ledger.entries.clear();
+                    if(!recover())throw new IllegalStateException("recovery unavailable");
+                    stage="forwarding";nextHealth=0;nextReport=0;continue;
+                }
                 pump(now);
                 if(now>=nextReport){report(stats("ACTIVE"));nextReport=now+2000;}
                 Thread.sleep(2);
@@ -173,21 +285,27 @@ public final class NativeAppRoutingService extends VpnService {
             if(!stopping){
                 String why=failure instanceof NativePeerProfiles.Rejected?((NativePeerProfiles.Rejected)failure).code:failure.getClass().getSimpleName();
                 if(captured){
-                    if(dnsRelay!=null)dnsRelay.close();
+                    retireDns();
                     if(!closePeers())cleanupFailed=true;
-                    report(stats("BLOCKED — "+stage+"/"+why+"; captured apps held in TUN until Stop"));
+                    report(stats(captureIntact()?"BLOCKED — "+stage+"/"+why+"; captured apps held in TUN until Stop":"CAPTURE LOST — VPN visibility lost; blocking cannot be guaranteed; press Stop"));
                     // Keep the default routes in the established VPN; discard rather
                     // than silently release selected applications to direct Internet.
                     long nextBlockedReport=0;
                     while(!stopping){
-                        long now=SystemClock.elapsedRealtime();if(now>=nextBlockedReport){publishMetrics("BLOCKED");nextBlockedReport=now+2000;}
-                        try{Os.read(tun.getFileDescriptor(),buffer,0,buffer.length);}catch(Exception ignored){}
+                        long now=SystemClock.elapsedRealtime();if(now>=nextBlockedReport){
+                            if(captureIntact())report(stats("BLOCKED — captured apps held in TUN until Stop"));
+                            else report("CAPTURE LOST — VPN visibility lost; blocking cannot be guaranteed; press Stop");
+                            nextBlockedReport=now+2000;
+                        }
+                        discardCaptured();
                         try{Thread.sleep(10);}catch(InterruptedException ignored){}
                     }
                 }else report("NOT STARTED — "+stage+"/"+why+"; selected apps were not captured");
             }
         }finally{
-            if(dnsRelay!=null)dnsRelay.close();
+            retireDns();
+            if(sessionConfigs!=null)Arrays.fill(sessionConfigs,null);
+            if(sessionAddresses!=null)Arrays.fill(sessionAddresses,null);
             boolean ok=closePeers()&&!cleanupFailed;if(tun!=null){try{tun.close();}catch(Exception e){ok=false;}tun=null;}
             if(stopping||captured)report(stats(ok?"STOPPED — peer sessions released; TUN closed; normal networking resumes":"STOPPED — cleanup unconfirmed"));
             serviceRunning=false;
@@ -272,13 +390,15 @@ public final class NativeAppRoutingService extends VpnService {
         StringBuilder b=new StringBuilder(prefix);
         for(int i=0;i<count;i++)b.append("\n").append(NativePeerProfiles.SLOTS[i]).append(" new flows=").append(opened[i]).append(" packets out/in=").append(outgoing[i]).append('/').append(incoming[i]).append(" bytes out/in=").append(outBytes[i]).append('/').append(inBytes[i]);
         if(dnsRelay!=null)b.append("\nDNS provider=").append(NativeProtectedDnsRelay.NAMES[dnsProvider]).append(" role=").append(NativePeerProfiles.SLOTS[dnsRole]).append(" queries=").append(dnsRelay.queries.get()).append(" authenticated=").append(dnsRelay.verified.get()).append(" blocked=").append(dnsRelay.blocked.get()).append(" failed=").append(dnsRelay.failed.get()).append(" overflow=").append(dnsRelay.overflow.get()).append(" hosts=").append(blocklist.size()).append(" cache hits=").append(dnsRelay.cacheHits.get()).append(" cached entries=").append(dnsRelay.cacheSize()).append(" TLS opened=").append(dnsRelay.tlsConnections.get()).append(" TLS reused=").append(dnsRelay.tlsReuse.get()).append(" TLS fresh retries=").append(dnsRelay.tlsRetries.get()).append(" TLS closed=").append(dnsRelay.tlsClosed.get());
+        if(dnsRelay==null&&!retiredDnsStats.isEmpty())b.append("\n").append(retiredDnsStats);
+        b.append("\nrecovery attempts=").append(recoveryAttempts).append(" successes=").append(recoverySuccess).append(" discarded packets=").append(recoveryDiscard).append(" DNS generation=").append(dnsGeneration).append(" session blocked=").append(priorBlocked+(dnsRelay==null?0:dnsRelay.blocked.get()));
         b.append("\nDNS firewall drops=").append(dnsFirewallDrops).append(" IPv6 drops=").append(ipv6Drops).append(" other unsupported=").append(otherUnsupported);
         b.append("\npolicy classification route=").append(deniedRoute).append(" ledger=").append(deniedLedger).append(" native=").append(deniedNative).append(" relay port no longer registered=").append(relayEnded);
         return b.append("\nactive tuples=").append(ledger.entries.size()).append(" unknown UID drops=").append(unknown).append(" policy drops=").append(policyDrop).append(" unsupported drops=").append(unsupported).append(" foreign reply drops=").append(foreignReply).append(" queue drops=").append(queueDrop).toString();
     }
     private void report(String s){
         Log.i(TAG,s);getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("status",s).apply();
-        String state=s.startsWith("ACTIVE")?"ACTIVE":s.startsWith("BLOCKED")?"BLOCKED":s.startsWith("STOPPED")?"STOPPED":s.startsWith("NOT STARTED")?"FAILED":"STARTING";
+        String state=s.startsWith("ACTIVE")?"ACTIVE":s.startsWith("BLOCKED")?"BLOCKED":s.startsWith("RECOVERING")?"RECOVERING":s.startsWith("CAPTURE LOST")?"CAPTURE_LOST":s.startsWith("STOPPED")?"STOPPED":s.startsWith("NOT STARTED")?"FAILED":"STARTING";
         publishMetrics(state);
     }
     private void publishMetrics(String state){
@@ -286,10 +406,10 @@ public final class NativeAppRoutingService extends VpnService {
         for(int i=0;i<count;i++){out+=outBytes[i];in+=inBytes[i];}
         if(state.equals("ACTIVE")&&lastSample>0){upRate=NativeRoutingMetrics.perSecond(lastOut,out,now-lastSample);downRate=NativeRoutingMetrics.perSecond(lastIn,in,now-lastSample);}else{upRate=0;downRate=0;}
         lastSample=now;lastOut=out;lastIn=in;
-        long blocked=dnsRelay==null?0:dnsRelay.blocked.get();
+        long blocked=priorBlocked+(dnsRelay==null?0:dnsRelay.blocked.get());
         getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("state",state).putLong("heartbeat",now).putLong("upRate",upRate).putLong("downRate",downRate).putLong("blocked",blocked).apply();
-        notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("STARTING")?"Connecting · selected apps not yet protected":state;
-        if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("STARTING")){
+        notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"VPN capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting · selected apps not yet protected":state;
+        if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")){
             NotificationManager manager=getSystemService(NotificationManager.class);
             if(manager!=null)try{manager.notify(8402,notification());}catch(SecurityException ignored){}
         }

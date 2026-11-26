@@ -155,6 +155,20 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         catch(Exception failure){c.close();throw failure;}
     }
     int cacheSize(){return cache.size();}
+    boolean awaitStopped(){
+        boolean interrupted=Thread.interrupted();
+        long deadline=SystemClock.elapsedRealtime()+4000;
+        try{
+            for(ExecutorService executor:new ExecutorService[]{workers,reaper}){
+                while(!executor.isTerminated()){
+                    long left=deadline-SystemClock.elapsedRealtime();if(left<=0)return false;
+                    try{if(!executor.awaitTermination(left,TimeUnit.MILLISECONDS))return false;}
+                    catch(InterruptedException e){interrupted=true;}
+                }
+            }
+            return true;
+        }finally{if(interrupted)Thread.currentThread().interrupt();}
+    }
     @Override public void close(){
         closed=true;workers.shutdownNow();reaper.shutdownNow();
         List<Connection> drain;

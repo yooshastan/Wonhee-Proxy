@@ -57,8 +57,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(151)
-            output.versionName.set('0.19.0-native-protected-routing')
+            output.versionCode.set(152)
+            output.versionName.set('0.20.0-native-protected-routing')
         }
     }
 }

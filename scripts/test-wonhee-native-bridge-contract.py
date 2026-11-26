@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(151)' in gradle
+assert 'versionCode.set(152)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.19.0-native-protected-routing')" in gradle
+assert "versionName.set('0.20.0-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -146,7 +146,7 @@ assert 'setEndpointIdentificationAlgorithm("HTTPS")' in protected_dns and 'tls.s
 assert 'ports.putIfAbsent(port,raw)' in protected_dns and 'dnsRelay.owns(key)' in app_routing
 assert 'key.remotePort==53' in app_routing and 'dnsRelay.submit(p)' in app_routing
 assert 'RootBlocklistStore.current(getFilesDir())' in app_routing
-assert 'controlled-guard-test' in app_routing and 'dnsRelay.close()' in app_routing
+assert 'controlled-guard-test' in app_routing and 'old.close()' in app_routing
 
 # Only protected routing may be launched from the app drawer.
 import xml.etree.ElementTree as ET
@@ -174,3 +174,14 @@ assert 'tlsReuse.incrementAndGet()' in protected_dns and 'tlsRetries.incrementAn
 assert 'idle.size()<4' in protected_dns and 'reaper.shutdownNow()' in protected_dns
 assert 'cache.clear();replies.clear()' in protected_dns
 assert 'TLS reused=' in app_routing and 'cache hits=' in app_routing
+
+assert '@Override public boolean protect(int fd)' in app_routing
+assert 'super.protect(fd)' in app_routing and 'n.bindSocket(copy.getFileDescriptor())' in app_routing
+assert 'setUnderlyingNetworks(new Network[]{next})' in app_routing
+assert 'MAX_RECOVERY_ATTEMPTS=5' in app_routing and 'NativeRecoveryPlan.delay(attempt)' in app_routing
+assert 'sessionConfigs=configs.clone()' in app_routing and 'Arrays.fill(sessionConfigs,null)' in app_routing
+assert 'retireDns();if(!closePeers())cleanupFailed=true;ledger.entries.clear()' in app_routing
+assert 'if(!recover())throw new IllegalStateException' in app_routing
+assert 'CAPTURE LOST' in app_routing and 'controlled-recovery-test' in app_routing
+assert app_routing.count('builder.establish()')==1
+assert 'SUPPORTS_ALWAYS_ON" android:value="false"' in manifest
