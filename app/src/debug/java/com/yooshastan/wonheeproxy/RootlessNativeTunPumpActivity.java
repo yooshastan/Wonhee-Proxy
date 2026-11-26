@@ -5,8 +5,6 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -42,7 +40,7 @@ public final class RootlessNativeTunPumpActivity extends Activity {
                 + "No user profiles, peer endpoints, DNS, credentials, root commands, "
                 + "default routes or other-app routing are used. No remote handshake or "
                 + "reply path is claimed. IPv6 and non-UDP packets are outside this test.\n\n"
-                + "Disconnect every other VPN first. Android Private DNS must remain OFF.");
+                + "Stop the 0.15.81 socket-only test using its Stop test and release sockets button, then disconnect every other VPN. Android Private DNS must remain OFF.");
         explanation.setTextSize(14);
         root.addView(explanation);
 
@@ -92,19 +90,11 @@ public final class RootlessNativeTunPumpActivity extends Activity {
     }
 
     private void startTestService() {
-        // Release the preceding socket-only diagnostic first. It may still
-        // own two inactive sessions even though it never established a TUN.
-        Intent release = new Intent(this, RootlessNativeTransportService.class)
-                .setAction(RootlessNativeTransportService.ACTION_STOP);
-        startService(release);
-        status.setText("Releasing previous socket test before starting TUN…");
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            Intent intent = new Intent(this, RootlessNativeTunPumpService.class)
-                    .setAction(RootlessNativeTunPumpService.ACTION_START);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
-            else startService(intent);
-            status.setText("Starting isolated TUN packet pump…");
-        }, 400L);
+        Intent intent = new Intent(this, RootlessNativeTunPumpService.class)
+                .setAction(RootlessNativeTunPumpService.ACTION_START);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
+        else startService(intent);
+        status.setText("Starting isolated TUN packet pump…");
     }
 
     private void sendProbes() {
