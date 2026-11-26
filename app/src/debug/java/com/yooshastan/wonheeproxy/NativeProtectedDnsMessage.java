@@ -6,7 +6,7 @@ import java.util.*;
 
 // Bounded DNS wire handling for a single UDP question, no domain logging.
 final class NativeProtectedDnsMessage {
-    static final int MAX_DNS=1252;
+    static final int MAX_DNS=1252, MAX_REPLY=16384;
     static final int DNS_IP=0x01010101;
     static int u16(byte[] a,int i){return ((a[i]&255)<<8)|(a[i+1]&255);}
     static void put(byte[] a,int i,int v){a[i]=(byte)(v>>>8);a[i+1]=(byte)v;}
@@ -37,6 +37,15 @@ final class NativeProtectedDnsMessage {
         // Strip EDNS options (including ECS) and unrelated additional data.
         byte[] out=Arrays.copyOf(b,q.end);put(out,2,u16(b,2)&0x0110);put(out,10,0);return out;
     }
+    // Respect a single well-formed EDNS OPT advertised receive size, otherwise
+    // use the classic 512-byte bound. Never exceed the captured IPv4 MTU.
+    static int udpLimit(byte[] raw){
+        try{
+            Question q=question(raw);int p=q.end;
+            if(u16(raw,6)!=0||u16(raw,8)!=0||u16(raw,10)!=1||p+11>raw.length||raw[p]!=0||u16(raw,p+1)!=41||p+11+u16(raw,p+9)!=raw.length)return 512;
+            return Math.max(512,Math.min(MAX_DNS,u16(raw,p+3)));
+        }catch(IOException|RuntimeException e){return 512;}
+    }
     static boolean blocked(String name,Set<String> domains){
         for(String at=name;;){
             if(domains.contains(at))return true;
@@ -49,8 +58,12 @@ final class NativeProtectedDnsMessage {
         put(r,6,0);put(r,8,0);put(r,10,0);return r;
     }
     static byte[] validate(byte[] q,byte[] answer)throws IOException{
-        if(answer.length<12||u16(q,0)!=u16(answer,0)||(u16(answer,2)&0xf800)!=0x8000||!question(q).same(question(answer)))throw new IOException("response mismatch");
-        if(answer.length>MAX_DNS)return error(q,0,true);
+        byte[] checked=validateFull(q,answer);
+        if(checked.length>MAX_DNS)return error(q,0,true);
+        return checked;
+    }
+    static byte[] validateFull(byte[] q,byte[] answer)throws IOException{
+        if(answer.length<12||answer.length>MAX_REPLY||u16(q,0)!=u16(answer,0)||(u16(answer,2)&0xf800)!=0x8000||!question(q).same(question(answer)))throw new IOException("response mismatch");
         return answer;
     }
     // IPv4 UDP reply from the configured virtual resolver, no external UDP.

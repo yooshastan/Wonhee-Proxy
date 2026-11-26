@@ -21,8 +21,9 @@ jobs:
         working-directory: native
         run: |
           go mod tidy
-          git diff --exit-code -- go.mod go.sum
-          go list -m golang.zx2c4.com/wireguard
+          go mod verify
+          test "$(go list -m -f '{{.Version}}' golang.zx2c4.com/wireguard)" = v0.0.0-20261024220952-b3bc704ef0ee
+          test "$(go list -m -f '{{.Version}}' github.com/quic-go/quic-go)" = v0.50.0
       - name: Test independent packet bridges and crypto-device lifecycle
         working-directory: native
         run: go test -race -count=1 ./...

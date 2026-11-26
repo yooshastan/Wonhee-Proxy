@@ -277,3 +277,47 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePollRoutePacket(
  if(n>0&&n<=1280)(*env)->SetByteArrayRegion(env,out,0,n,bytes);
  return n;
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_createQuic(JNIEnv *env,jclass cls,jint provider,jint mode,jbyteArray roots){
+ (void)cls;if(roots==NULL)return -1;
+ jsize size=(*env)->GetArrayLength(env,roots);if(size<1||size>1048576)return -1;
+ jbyte *buf=(*env)->GetByteArrayElements(env,roots,NULL);if(buf==NULL)return -1;
+ int64_t id=WNCreateQuicDns(provider,mode,(char*)buf,size);
+ (*env)->ReleaseByteArrayElements(env,roots,buf,JNI_ABORT);return id;
+}
+JNIEXPORT void JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_closeQuic(JNIEnv *env,jclass cls,jlong id){(void)env;(void)cls;WNCloseQuicDns((uint64_t)id);}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_exchangeQuic(JNIEnv *env,jclass cls,jlong id,jint fd,jbyteArray q,jbyteArray out){
+ (void)cls;if(q==NULL||out==NULL)return -1;
+ jsize n=(*env)->GetArrayLength(env,q),cap=(*env)->GetArrayLength(env,out);
+ if(n<17||n>1252||cap!=16384)return -1;
+ jbyte *query=(*env)->GetByteArrayElements(env,q,NULL);if(query==NULL)return -1;
+ jbyte *result=(*env)->GetByteArrayElements(env,out,NULL);if(result==NULL){(*env)->ReleaseByteArrayElements(env,q,query,JNI_ABORT);return -1;}
+ int r=WNExchangeQuicDns((uint64_t)id,fd,(char*)query,n,(char*)result,cap);
+ (*env)->ReleaseByteArrayElements(env,q,query,JNI_ABORT);
+ (*env)->ReleaseByteArrayElements(env,out,result,r>0?0:JNI_ABORT);return r;
+}
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_createTcp(JNIEnv *env,jclass cls){(void)env;(void)cls;return WNCreateDnsTcp();}
+JNIEXPORT void JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_closeTcp(JNIEnv *env,jclass cls,jlong id){(void)env;(void)cls;WNCloseDnsTcp((uint64_t)id);}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_feedTcp(JNIEnv *env,jclass cls,jlong id,jbyteArray p){
+ (void)cls;if(p==NULL)return -1;jsize n=(*env)->GetArrayLength(env,p);if(n<40||n>1280)return -1;
+ jbyte *b=(*env)->GetByteArrayElements(env,p,NULL);if(b==NULL)return -1;
+ int r=WNFeedDnsTcp((uint64_t)id,(char*)b,n);(*env)->ReleaseByteArrayElements(env,p,b,JNI_ABORT);return r;
+}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_pollTcp(JNIEnv *env,jclass cls,jlong id,jint kind,jbyteArray out){
+ (void)cls;if(out==NULL)return -1;jsize cap=(*env)->GetArrayLength(env,out);if(cap<1280||cap>32768)return -1;
+ jbyte *b=(*env)->GetByteArrayElements(env,out,NULL);if(b==NULL)return -1;
+ int r=WNPollDnsTcp((uint64_t)id,kind,(char*)b,cap);(*env)->ReleaseByteArrayElements(env,out,b,r>0?0:JNI_ABORT);return r;
+}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_answerTcp(JNIEnv *env,jclass cls,jlong id,jlong token,jbyteArray answer){
+ (void)cls;if(answer==NULL)return -1;jsize n=(*env)->GetArrayLength(env,answer);if(n<12||n>16384)return -1;
+ jbyte *b=(*env)->GetByteArrayElements(env,answer,NULL);if(b==NULL)return -1;
+ int r=WNAnswerDnsTcp((uint64_t)id,(uint64_t)token,(char*)b,n);(*env)->ReleaseByteArrayElements(env,answer,b,JNI_ABORT);return r;
+}

@@ -2,6 +2,8 @@ module github.com/yooshastan/Wonhee-Proxy/native
 
 go 1.23.1
 
+require github.com/quic-go/quic-go v0.50.0
+
 require golang.zx2c4.com/wireguard v0.0.0-20261024220952-b3bc704ef0ee
 
 require (

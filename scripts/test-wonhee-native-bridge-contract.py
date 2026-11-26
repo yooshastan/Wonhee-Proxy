@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(153)' in gradle
+assert 'versionCode.set(154)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.20.1-native-protected-routing')" in gradle
+assert "versionName.set('0.21.0-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -193,3 +193,18 @@ assert 'preferred-network-migration' in app_routing and 'physical-underlay-lost'
 assert 'network migrations=' in app_routing and 'last recovery ms=' in app_routing
 assert 'NET_CAPABILITY_NOT_RESTRICTED' in app_routing and 'NET_CAPABILITY_NOT_SUSPENDED' in app_routing
 assert 'retry EOF=' in app_routing and 'registered relay ports=' in app_routing
+
+advanced = (root / "native/dns_quic.go").read_text()
+tcp_dns = (root / "native/dns_tcp.go").read_text()
+dns_jni = (root / "native/cmd/wonhee-jni/dns_jni.go").read_text()
+assert 'network.bindSocket(raw)' in protected_dns and 'ParcelFileDescriptor.fromDatagramSocket(raw)' in protected_dns
+assert 'quicPorts.putIfAbsent(port,raw)' in protected_dns and 'NativeDnsTransportPolicy.protocol(mode)' in protected_dns
+assert 'NativeAdvancedDnsBridge.closeQuic(quicHandle)' in protected_dns and 'NativeAdvancedDnsBridge.closeTcp(tcpHandle)' in protected_dns
+assert 'net.FilePacketConn(file)' in dns_jni and 'unix.F_DUPFD_CLOEXEC' in dns_jni
+assert 'quic.Dial(ctx,pc,addr' in advanced and 'http3.Transport' in advanced
+assert 'RootCAs:roots' in advanced and 'InsecureSkipVerify' not in advanced
+assert 'DisablePathMTUDiscovery:true' in advanced and 'q[0],q[1]=0,0' in advanced
+assert 'netstack.CreateNetTUN' in tcp_dns and 'network.ListenTCP' in tcp_dns
+assert 'tcpDNSPacket(p,false)' in tcp_dns and 'dnsRelay.feedTcp(p)' in app_routing and 'dnsRelay.drainTcpQueries()' in app_routing
+assert 'NativeDnsTransportPolicy.supports' in app_routing and 'NativeDnsTransportPolicy.supports' in ui_activity
+assert 'validateFull(q,answer)' in protected_dns
