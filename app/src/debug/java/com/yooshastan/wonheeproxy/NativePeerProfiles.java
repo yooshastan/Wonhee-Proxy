@@ -148,7 +148,11 @@ final class NativePeerProfiles {
                         }
                         override=resolver.resolve(host,i);
                         configs[i]=applyOverride(canonical,override,i);
-                    } catch(Exception failure) { throw reject(i,"SECURE_BOOTSTRAP_FAILED"); }
+                    } catch(NativeEndpointBootstrap.Failure failure) {
+                        throw reject(i,"SECURE_BOOTSTRAP_FAILED/"+failure.code);
+                    } catch(Rejected failure) {
+                        throw reject(i,"RESOLVED_ENDPOINT_REJECTED");
+                    } catch(Exception failure) { throw reject(i,"SECURE_BOOTSTRAP_FAILED/PROFILE_VALIDATION"); }
                 }
             } else configs[i]=applyOverride(canonical,override,i);
             String pair=c.getInterface().getKeyPair().getPublicKey().toBase64()+":"

@@ -29,7 +29,7 @@ public final class RootlessNativePeerActivity extends Activity {
         int pad=(int)(16*getResources().getDisplayMetrics().density);
         root.setPadding(pad,pad,pad,pad);
         TextView title=new TextView(this);
-        title.setText("Wonhee 0.15.90 · Secure endpoint bootstrap");
+        title.setText("Wonhee 0.15.90.1 · Secure endpoint bootstrap");
         title.setTextSize(22);root.addView(title);
         TextView info=new TextView(this);
         info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles are validated offline. Leave overrides blank for automatic DNS-over-TLS to Cloudflare (1.1.1.1:853) on the physical network before tunnels start. The resolver sees endpoint hostnames; no plaintext fallback. A provider-confirmed numeric override remains optional. Original port and encrypted configuration stay unchanged. Two concurrent flows per peer through one package-scoped TUN. Exits use certificate-verified HTTPS; optional Home uses a credential-free HTTP GET /. Response headers and declared body samples are bounded. Five fixed UDP DNS requests per Internet exit test datagrams through the same tunnel; no system DNS changes. No redirects, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");

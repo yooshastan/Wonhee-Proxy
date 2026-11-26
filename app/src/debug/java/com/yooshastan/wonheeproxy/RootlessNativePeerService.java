@@ -278,7 +278,7 @@ public final class RootlessNativePeerService extends VpnService {
             // No auth, cookies, redirects, user input or DNS lookup. Only fixed GET.
             String crlf=String.valueOf((char)13)+(char)10;
             String request="GET / HTTP/1.1"+crlf+"Host: "+host+(slot==2?":"+ports[slot]:"")+crlf
-                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.90"+crlf+"Accept: */*"+crlf+crlf;
+                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.90.1"+crlf+"Accept: */*"+crlf+crlf;
             wire.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
             wire.getOutputStream().flush();
             InputStream in=wire.getInputStream();
