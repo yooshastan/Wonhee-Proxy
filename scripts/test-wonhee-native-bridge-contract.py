@@ -7,7 +7,7 @@ go = (root / "native/cmd/wonhee-jni/main.go").read_text()
 java = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativeBridge.java").read_text()
 service = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativeTransportService.java").read_text()
 tun_service = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativeTunPumpService.java").read_text()
-router = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessTunTestPacketRouter.java").read_text()
+router = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessTunTestPacketRouter.java").read_text()\nrootlab = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlabTwoPeerActivity.java").read_text()
 manifest = (root / "app/src/debug/AndroidManifest.xml").read_text()
 gradle = (root / "app/build.gradle").read_text()
 
@@ -58,7 +58,7 @@ assert 'RootlessNativeBridge.injectPacket(handle' in tun_service
 assert 'No DNS, default route or root mutation' in tun_service
 assert 'addRoute("0.0.0.0"' not in tun_service and 'addRoute("::"' not in tun_service
 assert 'addDnsServer' not in tun_service
-assert 'RootlessNativeTunPumpActivity' in manifest
+assert 'RootlessNativeTunPumpActivity' in manifest\nassert 'Native TUN packet pump test' in rootlab\nassert 'RootlessNativeTransportActivity' not in rootlab
 assert 'RootlessNativeTunPumpService' in manifest
 assert 'Target.HOME' in router
 assert 'Target.INTERNET' in router
