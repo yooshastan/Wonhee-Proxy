@@ -37,3 +37,17 @@ func TestScopedUDP(t *testing.T){
  p[25]--;if s.MatchUDP(p,false,40002){t.Fatal("bad UDP length")}
  home,e:=NewProbeScope("home","10.1.2.3","10.0.0.169",4533);if e!=nil||home.MatchUDP(q,true,40002){t.Fatal("home UDP not authorized")}
 }
+
+func TestExpandedPortOwnership(t *testing.T){
+ s,e:=NewProbeScope("exit-a","10.1.2.3","1.1.1.1",443);if e!=nil{t.Fatal(e)}
+ if e=s.SetStream("104.16.1.2");e!=nil{t.Fatal(e)}
+ p:=make([]byte,40);p[0]=0x45;p[9]=6;p[32]=0x50
+ binary.BigEndian.PutUint16(p[2:4],40);copy(p[12:16],[]byte{10,1,2,3});copy(p[16:20],[]byte{104,16,1,2})
+ binary.BigEndian.PutUint16(p[20:22],40002);binary.BigEndian.PutUint16(p[22:24],443)
+ ports:=[4]uint16{40000,40001,40002,40003}
+ if !s.OwnedTCP(p,false,ports)||s.OwnedTCP(p,false,[4]uint16{40000,40001,40004,40005}){t.Fatal("stream ownership")}
+ binary.BigEndian.PutUint16(p[20:22],40000);if s.OwnedTCP(p,false,ports){t.Fatal("short port on stream target")}
+ copy(p[16:20],[]byte{1,1,1,1});if !s.OwnedTCP(p,false,ports){t.Fatal("original port")}
+ binary.BigEndian.PutUint16(p[20:22],40002);if s.OwnedTCP(p,false,ports){t.Fatal("stream port on short target")}
+ if s.SetStream("10.0.0.1")==nil{t.Fatal("private stream target")}
+}

@@ -50,19 +50,26 @@ public final class RootlessNativePeerService extends VpnService {
     private final String[] targets={"1.1.1.1","1.0.0.1",null};
     private final int[] ports={443,443,0}, outbound=new int[3], inbound=new int[3];
     private final MultiTunnelIpv4Rewriter[] rewrite=new MultiTunnelIpv4Rewriter[3];
-    private static final int FLOWS=2;
-    private final Socket[] sockets=new Socket[6];
+    private static final int FLOWS=4, MAX_FLOWS=3*FLOWS;
+    private static final int TRANSFER_BYTES=2*1024*1024;
+    private static final String TRANSFER_HOST="speed.cloudflare.com";
+    private String streamTarget;
+    private boolean isTransfer(int flow){return flow/FLOWS<2&&flow%FLOWS>=2;}
+    private String flowTarget(int flow){return isTransfer(flow)?streamTarget:targets[flow/FLOWS];}
+    private final AtomicIntegerArray transferMillis=new AtomicIntegerArray(MAX_FLOWS);
+    private final AtomicIntegerArray transferProgress=new AtomicIntegerArray(MAX_FLOWS);
+    private final Socket[] sockets=new Socket[MAX_FLOWS];
     private final DatagramSocket[] udpSockets=new DatagramSocket[2];
     private final int[] udpPorts=new int[2], udpOut=new int[2], udpIn=new int[2];
     private final AtomicIntegerArray udpVerified=new AtomicIntegerArray(2), udpFailed=new AtomicIntegerArray(2);
-    private final AtomicIntegerArray bodyBytes=new AtomicIntegerArray(6);
+    private final AtomicIntegerArray bodyBytes=new AtomicIntegerArray(MAX_FLOWS);
     private int rejectIpv6,rejectOther, rejectNative, rejectReply;
-    private static final int UDP_COUNT=5;
+    private static final int UDP_COUNT=30;
     private static final byte[] QUESTION={7,'e','x','a','m','p','l','e',3,'c','o','m',0,0,1,0,1};
-    private final AtomicIntegerArray localPorts=new AtomicIntegerArray(6), results=new AtomicIntegerArray(6);
-    private final AtomicIntegerArray httpStatus=new AtomicIntegerArray(6), responseBytes=new AtomicIntegerArray(6);
-    private final int[] sentPayload=new int[6], receivedPayload=new int[6];
-    private final java.util.concurrent.atomic.AtomicReferenceArray<String> workerStage=new java.util.concurrent.atomic.AtomicReferenceArray<>(6);
+    private final AtomicIntegerArray localPorts=new AtomicIntegerArray(MAX_FLOWS), results=new AtomicIntegerArray(MAX_FLOWS);
+    private final AtomicIntegerArray httpStatus=new AtomicIntegerArray(MAX_FLOWS), responseBytes=new AtomicIntegerArray(MAX_FLOWS);
+    private final int[] sentPayload=new int[MAX_FLOWS], receivedPayload=new int[MAX_FLOWS];
+    private final java.util.concurrent.atomic.AtomicReferenceArray<String> workerStage=new java.util.concurrent.atomic.AtomicReferenceArray<>(MAX_FLOWS);
     private int bindAttempts;
     private long vpnSeenAt, nextBindAt, completedAt;
     private Network candidateSeen;
@@ -106,13 +113,18 @@ public final class RootlessNativePeerService extends VpnService {
             new Thread(()->{
                 try {
                     String[] configs=NativePeerProfiles.prepare(this,home,overrides,addresses,resolver,false);
-                    String summary=resolver.summary();
+                    String transferIp=resolver.resolveTransferTarget();
+                    int transferAddress=MultiTunnelIpv4Rewriter.parseIpv4(transferIp);
+                    if(transferIp.equals(targets[0])||transferIp.equals(targets[1])||transferIp.equals(targets[2])||transferIp.equals(TUN_IP)||((transferAddress>>>24)==10)||(transferAddress&0xfff00000)==0xac100000||(transferAddress&0xffff0000)==0xc0a80000)
+                        throw new IllegalArgumentException();
+                    String summary=resolver.summary()+"; transfer target=authenticated-DoT";
                     handler.post(()->{
                         if(terminal){Arrays.fill(configs,null);return;}
                         resolver.close();bootstrap=null;
                         if(!dnsOff()||!underlay.equals(physicalNetwork())){
                             Arrays.fill(configs,null);finish("NOT PASSED — bootstrap underlay changed");return;
                         }
+                        streamTarget=transferIp;
                         report(summary);
                         startResolved(configs,addresses);
                     });
@@ -133,14 +145,14 @@ public final class RootlessNativePeerService extends VpnService {
             if(!RootlessNativeBridge.setVpnService(this))throw new IllegalStateException();registered=true;
             for(int i=0;i<count;i++){
                 stage="start-"+NativePeerProfiles.IDS[i];
-                long h=RootlessNativeBridge.createProbeSession(NativePeerProfiles.IDS[i],configs[i],addresses[i],targets[i],ports[i]);
+                long h=RootlessNativeBridge.createProbeSession(NativePeerProfiles.IDS[i],configs[i],addresses[i],targets[i],i<2?streamTarget:"",ports[i]);
                 if(h<=0){stage+="/native-code-"+h;throw new IllegalStateException();}
                 handles[i]=h;configs[i]=null;
             }
             stage="socket-protection";
             long[] p=RootlessNativeBridge.protectionStats();
             if(p==null||p.length<2||p[0]!=2L*count||p[1]!=0)throw new IllegalStateException();
-            deadline=SystemClock.elapsedRealtime()+120000L;
+            deadline=SystemClock.elapsedRealtime()+150000L;
             stage="peer-handshakes";report("RUNNING — waiting for peer handshakes before creating scoped TUN.");
             handler.post(tick);
         }catch(Exception|LinkageError failure){finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
@@ -178,6 +190,7 @@ public final class RootlessNativePeerService extends VpnService {
         builder.addAllowedApplication(getPackageName());
         builder.setUnderlyingNetworks(new Network[]{underlay});
         for(int i=0;i<count;i++)builder.addRoute(targets[i],32);
+        builder.addRoute(streamTarget,32);
         tun=builder.establish();if(tun==null)throw new IllegalStateException();
         startedTun=SystemClock.elapsedRealtime();
     }
@@ -192,6 +205,7 @@ public final class RootlessNativePeerService extends VpnService {
             for(int f=0;f<count*FLOWS;f++){
                 stage="bind-vpn-"+NativePeerProfiles.IDS[f/FLOWS]+"-flow-"+(f%FLOWS+1);
                 Socket socket=new Socket();sockets[f]=socket;
+                if(isTransfer(f))socket.setReceiveBufferSize(32768);
                 vpn.bindSocket(socket);
                 stage="bind-tun-source-"+NativePeerProfiles.IDS[f/FLOWS]+"-flow-"+(f%FLOWS+1);
                 socket.bind(new InetSocketAddress(literal(TUN_IP),0));
@@ -215,9 +229,11 @@ public final class RootlessNativePeerService extends VpnService {
             report("RUNNING — "+failedStage+" retry "+bindAttempts+"/4; no connects started.");
             return false;
         }
+        java.util.Set<Integer> owners=new java.util.HashSet<>();
+        for(int f=0;f<count*FLOWS;f++)if(!owners.add(localPorts.get(f)))throw new IllegalStateException("duplicate TCP port");
         for(int i=0;i<count;i++){
             stage="register-flow-ports-"+NativePeerProfiles.IDS[i];
-            if(!RootlessNativeBridge.registerProbePorts(handles[i],localPorts.get(i*FLOWS),localPorts.get(i*FLOWS+1),i<2?udpPorts[i]:0))throw new IllegalStateException();
+            if(!RootlessNativeBridge.registerProbePorts(handles[i],localPorts.get(i*FLOWS),localPorts.get(i*FLOWS+1),localPorts.get(i*FLOWS+2),localPorts.get(i*FLOWS+3),i<2?udpPorts[i]:0))throw new IllegalStateException();
         }
         probesStarted=true;
         stage="http-probes";
@@ -262,12 +278,12 @@ public final class RootlessNativePeerService extends VpnService {
         try{
             workerStage.set(flow,"connect");
             socket.setSoTimeout(12000);
-            socket.connect(new InetSocketAddress(literal(targets[slot]),ports[slot]),15000);
+            socket.connect(new InetSocketAddress(literal(flowTarget(flow)),ports[slot]),15000);
             Socket wire=socket;
             String host=targets[slot];
             if(slot<2){
                 workerStage.set(flow,"verified-tls");
-                host="cloudflare-dns.com";
+                host=isTransfer(flow)?TRANSFER_HOST:"cloudflare-dns.com";
                 tls=(SSLSocket)((SSLSocketFactory)SSLSocketFactory.getDefault()).createSocket(socket,host,ports[slot],false);
                 SSLParameters parameters=tls.getSSLParameters();
                 parameters.setEndpointIdentificationAlgorithm("HTTPS");
@@ -277,11 +293,11 @@ public final class RootlessNativePeerService extends VpnService {
             workerStage.set(flow,"http-response");
             // No auth, cookies, redirects, user input or DNS lookup. Only fixed GET.
             String crlf=String.valueOf((char)13)+(char)10;
-            String request="GET / HTTP/1.1"+crlf+"Host: "+host+(slot==2?":"+ports[slot]:"")+crlf
-                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.90.1"+crlf+"Accept: */*"+crlf+crlf;
+            String request="GET "+(isTransfer(flow)?"/__down?bytes="+TRANSFER_BYTES:"/")+" HTTP/1.1"+crlf+"Host: "+host+(slot==2?":"+ports[slot]:"")+crlf
+                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.92"+crlf+"Accept: */*"+crlf+"Accept-Encoding: identity"+crlf+crlf;
             wire.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
             wire.getOutputStream().flush();
-            InputStream in=wire.getInputStream();
+            InputStream in=new java.io.BufferedInputStream(wire.getInputStream(),8192);
             byte[] head=new byte[8192];int n=0;
             long until=SystemClock.elapsedRealtime()+12000L;
             while(n<head.length&&SystemClock.elapsedRealtime()<until){
@@ -298,6 +314,23 @@ public final class RootlessNativePeerService extends VpnService {
             httpStatus.set(flow,Integer.parseInt(line.substring(9,12)));
             responseBytes.set(flow,n);
             String headers=new String(head,0,n,StandardCharsets.US_ASCII);
+            if(isTransfer(flow)){
+                if(httpStatus.get(flow)!=200)throw new java.io.IOException("transfer status");
+                workerStage.set(flow,"streaming");
+                long started=SystemClock.elapsedRealtime();
+                NativeTransferBody.read(in,headers,TRANSFER_BYTES,bytes->{
+                    transferProgress.set(flow,bytes);
+                    // Deliberately pace application consumption, not a maximum-speed benchmark.
+                    long due=started+bytes*1000L/65536L;
+                    long wait=due-SystemClock.elapsedRealtime();
+                    if(wait>0)Thread.sleep(wait);
+                    if(SystemClock.elapsedRealtime()-started>90000L)throw new java.io.IOException("transfer deadline");
+                });
+                transferMillis.set(flow,(int)(SystemClock.elapsedRealtime()-started));
+                bodyBytes.set(flow,TRANSFER_BYTES);
+                workerStage.set(flow,"transfer-verified");
+                results.set(flow,1);return;
+            }
             int advertised=0;boolean lengthSeen=false;
             for(String header:headers.split(String.valueOf((char)13)+(char)10)){
                 if(header.regionMatches(true,0,"Content-Length:",0,15)){
@@ -333,7 +366,7 @@ public final class RootlessNativePeerService extends VpnService {
         if(p.length<40||p.length>1280||p[0]!=0x45||p[9]!=6||u16(p,2)!=p.length||(u16(p,6)&0xbfff)!=0)return false;
         int tcp=((p[32]&255)>>>4)*4;
         if(tcp<20||20+tcp>p.length||localPorts.get(flow)==0)return false;
-        int target=MultiTunnelIpv4Rewriter.parseIpv4(targets[slot]);
+        int target=MultiTunnelIpv4Rewriter.parseIpv4(flowTarget(flow));
         int local=MultiTunnelIpv4Rewriter.parseIpv4(TUN_IP);
         // Inbound packet is translated before this check; original local address
         // is independently enforced by native scope and per-peer rewriter.
@@ -348,7 +381,7 @@ public final class RootlessNativePeerService extends VpnService {
              :ip(p,12)==local&&ip(p,16)==target&&u16(p,20)==udpPorts[slot]&&u16(p,22)==53;
     }
     private void pump() throws Exception {
-        for(int k=0;k<16;k++){
+        for(int k=0;k<64;k++){
             int n;
             try{n=Os.read(tun.getFileDescriptor(),buffer,0,buffer.length);}
             catch(ErrnoException e){if(e.errno==OsConstants.EAGAIN)break;throw e;}
@@ -370,7 +403,7 @@ public final class RootlessNativePeerService extends VpnService {
             outbound[slot]++;
             sentPayload[flow]+=p.length-20-((p[32]&255)>>>4)*4;
         }
-        for(int i=0;i<count;i++)for(int k=0;k<16;k++){
+        for(int i=0;i<count;i++)for(int k=0;k<64;k++){
             int n=RootlessNativeBridge.pollProbePacket(handles[i],buffer);
             if(n==0)break;
             if(n<0){rejected++;rejectNative++;if(n==-4)continue;throw new IllegalStateException();}
@@ -405,7 +438,8 @@ public final class RootlessNativePeerService extends VpnService {
                 for(int f=i*FLOWS;f<(i+1)*FLOWS;f++){
                     b.append("  flow ").append(f%FLOWS+1).append(": ").append(workerStage.get(f)==null?"pending":workerStage.get(f))
                      .append(" HTTP=").append(httpStatus.get(f)).append(" header bytes=").append(responseBytes.get(f)).append(" body sample=").append(bodyBytes.get(f))
-                     .append(" TCP payload out/in=").append(sentPayload[f]).append('/').append(receivedPayload[f]).append('\n');
+                     .append(" TCP payload out/in=").append(sentPayload[f]).append('/').append(receivedPayload[f])
+                     .append(isTransfer(f)?" transfer bytes="+transferProgress.get(f)+"/"+TRANSFER_BYTES+" elapsed-ms="+transferMillis.get(f):"").append('\n');
                 }
                 if(i<2)b.append("  UDP DNS transactions=").append(udpVerified.get(i)).append('/').append(UDP_COUNT)
                      .append(" TUN UDP out/in=").append(udpOut[i]).append('/').append(udpIn[i]).append(" failed=").append(udpFailed.get(i)).append('\n');
@@ -436,16 +470,18 @@ public final class RootlessNativePeerService extends VpnService {
                 if(i<2){complete &= udpVerified.get(i)==UDP_COUNT&&udpOut[i]>=UDP_COUNT&&udpIn[i]>=UDP_COUNT;failed |= udpFailed.get(i)!=0;}
                 for(int f=i*FLOWS;f<(i+1)*FLOWS;f++){
                     complete &= results.get(f)==1 && httpStatus.get(f)>=100 && responseBytes.get(f)>0 && sentPayload[f]>0 && receivedPayload[f]>0;
+                    if(isTransfer(f))complete &= bodyBytes.get(f)==TRANSFER_BYTES&&transferMillis.get(f)>=30000;
                     failed |= results.get(f)==-1;
                 }
             }
             if(complete&&completedAt==0)completedAt=now;
             boolean settled=complete&&now-completedAt>=3000L;
-            last=(settled?"PASS":"RUNNING")+" — protected sockets="+p[0]+"; failures="+p[1]+"; policy rejections="+rejected+" (IPv6="+rejectIpv6+", other="+rejectOther+", native="+rejectNative+", reply="+rejectReply+"); bind attempts="+bindAttempts+"\n"+b+"Two HTTP flows per peer plus five fixed UDP DNS probes per exit; no credentials, redirects or system DNS changes.";
+            if(rejectNative!=0||rejectReply!=0){finish("NOT PASSED — packet ownership rejection");return;}
+            last=(settled?"PASS":"RUNNING")+" — protected sockets="+p[0]+"; failures="+p[1]+"; policy rejections="+rejected+" (IPv6="+rejectIpv6+", other="+rejectOther+", native="+rejectNative+", reply="+rejectReply+"); bind attempts="+bindAttempts+"\n"+b+"Four TCP flows per peer, two paced 2 MiB downloads and 30 UDP probes per exit; no credentials, redirects or system DNS changes.";
             if(settled||failed||now>=reportAt){report(last);reportAt=now+1000L;}
-            if(settled){finish("PASS — concurrent scoped HTTP and UDP transactions verified");return;}
+            if(settled){finish("PASS — expanded scoped TCP, sustained transfers and UDP transactions verified");return;}
             if(failed){finish("NOT PASSED — TCP or UDP probe failed");return;}
-            handler.postDelayed(tick,tun==null?250L:10L);
+            handler.postDelayed(tick,tun==null?250L:2L);
         }catch(Exception|LinkageError failure){finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
     }
     private Notification notification(){

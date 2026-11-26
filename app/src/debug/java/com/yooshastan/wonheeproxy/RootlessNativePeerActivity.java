@@ -29,10 +29,10 @@ public final class RootlessNativePeerActivity extends Activity {
         int pad=(int)(16*getResources().getDisplayMetrics().density);
         root.setPadding(pad,pad,pad,pad);
         TextView title=new TextView(this);
-        title.setText("Wonhee 0.15.90.1 · Secure endpoint bootstrap");
+        title.setText("Wonhee 0.15.92 · Sustained transfers + flows");
         title.setTextSize(22);root.addView(title);
         TextView info=new TextView(this);
-        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles are validated offline. Leave overrides blank for automatic DNS-over-TLS to Cloudflare (1.1.1.1:853) on the physical network before tunnels start. The resolver sees endpoint hostnames; no plaintext fallback. A provider-confirmed numeric override remains optional. Original port and encrypted configuration stay unchanged. Two concurrent flows per peer through one package-scoped TUN. Exits use certificate-verified HTTPS; optional Home uses a credential-free HTTP GET /. Response headers and declared body samples are bounded. Five fixed UDP DNS requests per Internet exit test datagrams through the same tunnel; no system DNS changes. No redirects, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
+        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles are validated offline. Leave overrides blank for automatic DNS-over-TLS to Cloudflare (1.1.1.1:853) on the physical network before tunnels start. The resolver sees endpoint hostnames; no plaintext fallback. A provider-confirmed numeric override remains optional. Original port and encrypted configuration stay unchanged. Four concurrent TCP flows per peer. Each exit runs two original HTTPS probes and two paced 2 MiB downloads from speed.cloudflare.com; Home runs four credential-free HTTP probes. Thirty fixed UDP DNS probes per Internet exit run concurrently. Total download payload 8 MiB; no system DNS changes. No redirects, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
         root.addView(info);
         slots=new TextView(this);root.addView(slots);
         for(int i=0;i<3;i++) {
@@ -51,7 +51,7 @@ public final class RootlessNativePeerActivity extends Activity {
         status=new TextView(this);status.setPadding(0,pad,0,pad);root.addView(status);
         Button check=new Button(this);check.setText("Check selected profiles (no network)");
         check.setOnClickListener(v->checkProfiles());root.addView(check);
-        Button start=new Button(this);start.setText("Start scoped TCP + UDP test (120 seconds)");
+        Button start=new Button(this);start.setText("Start combined transfer + flow test (150 seconds)");
         start.setOnClickListener(v->{
             if(!checkProfiles()) return;
             requestedHome=home.isChecked();

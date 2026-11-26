@@ -66,6 +66,11 @@ final class NativeEndpointBootstrap {
         status[slot]="authenticated-DoT";
         return a.ip;
     }
+    String resolveTransferTarget()throws Exception{
+        NativeEndpointDnsMessage.Answer answer=query("speed.cloudflare.com",1);
+        if(answer==null)throw new Failure("TRANSFER_IPV4_MISSING");
+        return answer.ip;
+    }
     private NativeEndpointDnsMessage.Answer query(String host,int type)throws Exception{
         int id=random.nextInt(65536);
         byte[] q=NativeEndpointDnsMessage.query(host,id,type);

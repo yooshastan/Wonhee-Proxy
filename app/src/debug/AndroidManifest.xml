@@ -46,7 +46,7 @@
         <activity
             android:name=".RootlessNativePeerActivity"
             android:exported="true"
-            android:label="Wonhee Secure Endpoint Test">
+            android:label="Wonhee Combined Transfer Test">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

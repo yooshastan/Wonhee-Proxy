@@ -20,7 +20,7 @@ type sessionEntry struct {
 	session *dualwg.Session
 	handshakeOnly bool
 	probe *dualwg.ProbeScope
-	probePorts [2]uint16
+	probePorts [4]uint16
 	udpPort uint16
 }
 
@@ -95,7 +95,7 @@ func WNInjectPacket(handle C.uint64_t, data *C.char, length C.int) C.int {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.session == nil || entry.handshakeOnly { return -3 }
-	if entry.probe != nil && !(entry.probe.Match(packet,false) && dualwg.ProbePort(packet,false,entry.probePorts)) && !entry.probe.MatchUDP(packet,false,entry.udpPort) { return -5 }
+	if entry.probe != nil && !(entry.probe.OwnedTCP(packet,false,entry.probePorts)) && !entry.probe.MatchUDP(packet,false,entry.udpPort) { return -5 }
 	if err := entry.session.Tun.Inject(packet); err != nil { return -4 }
 	return 1
 }
@@ -167,12 +167,13 @@ func WNPeerStats(handle C.uint64_t, hs,rx,tx *C.int64_t) C.int {
 }
 
 //export WNCreateProbeSession
-func WNCreateProbeSession(name,config,local,target *C.char,port C.int) C.int64_t {
- if name==nil||config==nil||local==nil||target==nil||C.wn_has_service()!=1 {return -1}
+func WNCreateProbeSession(name,config,local,target,stream *C.char,port C.int) C.int64_t {
+ if name==nil||config==nil||local==nil||target==nil||stream==nil||C.wn_has_service()!=1 {return -1}
  n:=C.GoString(name)
  scope,e:=dualwg.NewProbeScope(n,C.GoString(local),C.GoString(target),int(port));if e!=nil{return -7}
+ if e=scope.SetStream(C.GoString(stream));e!=nil{return -7}
  ipc,e:=dualwg.PeerProbeConfig(C.GoString(config),scope);if e!=nil{return -3}
- session,e:=dualwg.NewProtectedSession(n,1280,128,androidProtector{});if e!=nil{return -2}
+ session,e:=dualwg.NewProtectedSession(n,1280,512,androidProtector{});if e!=nil{return -2}
  if e=session.Configure(ipc);e!=nil{session.Close();return -4}
  if e=session.Start();e!=nil{session.Close();return -5}
  handle:=nextHandle.Add(1);if handle==0||handle>(1<<63)-1{session.Close();return -6}
@@ -187,20 +188,22 @@ func WNPollProbePacket(handle C.uint64_t,data *C.char,capacity C.int) C.int {
  entry.mu.Lock();defer entry.mu.Unlock()
  if entry.session==nil||entry.probe==nil{return -3}
  packet,ok:=entry.session.Tun.Poll();if !ok{return 0}
- if !(entry.probe.Match(packet,true)&&dualwg.ProbePort(packet,true,entry.probePorts))&&!entry.probe.MatchUDP(packet,true,entry.udpPort){return -4}
+ if !(entry.probe.OwnedTCP(packet,true,entry.probePorts))&&!entry.probe.MatchUDP(packet,true,entry.udpPort){return -4}
  copy(unsafe.Slice((*byte)(unsafe.Pointer(data)),int(capacity)),packet)
  return C.int(len(packet))
 }
 //export WNRegisterProbePorts
-func WNRegisterProbePorts(handle C.uint64_t,a,b,udp C.int) C.int {
- if a<1||a>65535||b<1||b>65535||a==b||udp<0||udp>65535{return 0}
+func WNRegisterProbePorts(handle C.uint64_t,a,b,c,d,udp C.int) C.int {
+ if udp<0||udp>65535{return 0}
+ values:=[4]C.int{a,b,c,d}
+ for i,v:=range values{if v<1||v>65535{return 0};for k:=0;k<i;k++{if values[k]==v{return 0}}}
  entry:=lookupSession(uint64(handle));if entry==nil{return 0}
  entry.mu.Lock();defer entry.mu.Unlock()
- if entry.session==nil||entry.probe==nil||entry.probePorts!=[2]uint16{}{return 0}
+ if entry.session==nil||entry.probe==nil||entry.probePorts!=[4]uint16{}{return 0}
  isExit:=entry.probe.Target.String()=="1.1.1.1"||entry.probe.Target.String()=="1.0.0.1"
  if (isExit&&udp==0)||(!isExit&&udp!=0){return 0}
  entry.udpPort=uint16(udp)
- entry.probePorts=[2]uint16{uint16(a),uint16(b)}
+ entry.probePorts=[4]uint16{uint16(a),uint16(b),uint16(c),uint16(d)}
  return 1
 }
 func main() {}

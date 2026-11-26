@@ -12,6 +12,7 @@ import (
 type ProbeScope struct {
  Local, Target netip.Addr
  Port uint16
+ Stream netip.Addr
 }
 func NewProbeScope(role,local,target string,port int) (*ProbeScope,error) {
  l,e:=netip.ParseAddr(local);if e!=nil || !l.Is4() || !l.IsGlobalUnicast() || l.IsLinkLocalUnicast() {return nil,ErrBadArgument}
@@ -22,7 +23,32 @@ func NewProbeScope(role,local,target string,port int) (*ProbeScope,error) {
  case "home":if !t.IsPrivate() {return nil,ErrBadArgument}
  default:return nil,ErrBadArgument
  }
- return &ProbeScope{l,t,uint16(port)},nil
+ return &ProbeScope{Local:l,Target:t,Port:uint16(port)},nil
+}
+// Separate exact /32 for the certificate-verified transfer test. The Java
+// caller resolves the fixed service name using authenticated bootstrap DNS.
+func (s *ProbeScope) SetStream(target string) error {
+ if s==nil{return ErrBadArgument}
+ if s.Target.String()!="1.1.1.1"&&s.Target.String()!="1.0.0.1"{
+  if target!=""{return ErrBadArgument};return nil
+ }
+ t,e:=netip.ParseAddr(target)
+ if e!=nil||!t.Is4()||!t.IsGlobalUnicast()||t.IsPrivate()||t.IsLinkLocalUnicast()||t.IsLoopback()||t==s.Local||t==s.Target||target=="1.1.1.1"||target=="1.0.0.1"{return ErrBadArgument}
+ s.Stream=t;return nil
+}
+func (s *ProbeScope) MatchStream(p []byte,reply bool) bool {
+ if s==nil||!s.Stream.IsValid(){return false}
+ stream:=ProbeScope{Local:s.Local,Target:s.Stream,Port:443}
+ return stream.Match(p,reply)
+}
+// Only the first pair owns the short-probe target. The second pair owns
+// the streaming target (or the same private Home target for the Home role).
+func (s *ProbeScope) OwnedTCP(p []byte,reply bool,ports [4]uint16) bool {
+ if s==nil{return false}
+ first:=s.Match(p,reply)&&ProbePort(p,reply,[2]uint16{ports[0],ports[1]})
+ second:=ProbePort(p,reply,[2]uint16{ports[2],ports[3]})
+ if s.Stream.IsValid(){return first||(second&&s.MatchStream(p,reply))}
+ return first||(second&&s.Match(p,reply))
 }
 func (s *ProbeScope) Match(p []byte,reply bool) bool {
  if s==nil || len(p)<40 || len(p)>1280 || p[0]!=0x45 || p[9]!=6 || int(binary.BigEndian.Uint16(p[2:4]))!=len(p) || binary.BigEndian.Uint16(p[6:8])&0xbfff!=0 {return false}
@@ -40,16 +66,20 @@ func PeerProbeConfig(input string,scope *ProbeScope)(string,error) {
  if scope==nil{return "",ErrBadArgument}
  ipc,e:=PeerHandshakeConfig(input);if e!=nil{return "",e}
  covered:=false
+ streamCovered:=!scope.Stream.IsValid()
  for _,line:=range strings.Split(input,"\n") {
   k,v,ok:=strings.Cut(line,"=")
   if !ok||strings.TrimSpace(k)!="AllowedIPs"{continue}
   for _,p:=range strings.Split(v,",") {
    prefix,e:=netip.ParsePrefix(strings.TrimSpace(p))
    if e==nil&&prefix.Contains(scope.Target){covered=true}
+   if e==nil&&scope.Stream.IsValid()&&prefix.Contains(scope.Stream){streamCovered=true}
   }
  }
- if !covered{return "",ErrBadArgument}
- return ipc+"replace_allowed_ips=true\nallowed_ip="+scope.Target.String()+"/32\n",nil
+ if !covered||!streamCovered{return "",ErrBadArgument}
+ result:=ipc+"replace_allowed_ips=true\nallowed_ip="+scope.Target.String()+"/32\n"
+ if scope.Stream.IsValid(){result+="allowed_ip="+scope.Stream.String()+"/32\n"}
+ return result,nil
 }
 
 // ProbePort matches one of the explicitly registered local TCP ports.

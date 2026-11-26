@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(145)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native0901'" in gradle
-assert "versionName.set('0.15.90.1-native-secure-bootstrap')" in gradle
+assert 'versionCode.set(146)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native092'" in gradle
+assert "versionName.set('0.15.92-native-transfer-flows')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -96,17 +96,17 @@ assert 'HOSTNAME_REQUIRES_NUMERIC_IP' in profiles and 'applyOverride' in profile
 assert 'getStringArrayExtra("overrides")' in live
 assert 'getAllByName' not in profiles and 'getByName' not in profiles
 
-assert 'WNCreateProbeSession' in go and 'WNPollProbePacket' in go and 'entry.probe.Match(packet,false)' in go and 'dualwg.ProbePort(packet,false,entry.probePorts)' in go
+assert 'WNCreateProbeSession' in go and 'WNPollProbePacket' in go and 'entry.probe.OwnedTCP(packet,false,entry.probePorts)' in go
 assert 'PeerProbeConfig' in go and 'replace_allowed_ips=true' in (root / 'native/peer_probe.go').read_text()
 
 assert 'WNRegisterProbePorts' in go and 'registerProbePorts' in live
-assert 'FLOWS=2' in live and 'bindAttempts>=4' in live and 'now-vpnSeenAt>=500L' in live
+assert 'FLOWS=4' in live and 'bindAttempts>=4' in live and 'now-vpnSeenAt>=500L' in live
 assert 'responseBytes.get(f)>0' in live and 'sentPayload[f]>0' in live and 'receivedPayload[f]>0' in live
 assert 'createSocket(socket,host,ports[slot],false)' in live and 'tls.startHandshake()' in live
 
 assert 'MatchUDP(packet,false,entry.udpPort)' in go and 'MatchUDP(packet,true,entry.udpPort)' in go
 assert 'vpn.bindSocket(udp)' in live and 'udpVerified.get(i)==UDP_COUNT' in live
-assert 'UDP_COUNT=5' in live and 'bodyBytes.set(flow,read)' in live
+assert 'UDP_COUNT=30' in live and 'bodyBytes.set(flow,read)' in live
 assert 'udpSockets[i].close()' in live and 'rejectIpv6' in live
 
 bootstrap = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEndpointBootstrap.java").read_text()
@@ -120,3 +120,8 @@ assert bootstrap.index('raw.bind(new InetSocketAddress(0))') < bootstrap.index('
 assert 'PROTECT_REFUSED' in bootstrap and 'stage+"/"+category(failure)' in bootstrap
 assert 'SECURE_BOOTSTRAP_FAILED/"+failure.code' in profiles
 assert 'failure.getMessage()' not in bootstrap
+
+assert 'builder.addRoute(streamTarget,32)' in live
+assert 'TRANSFER_BYTES=2*1024*1024' in live and 'NativeTransferBody.read' in live
+assert 'probePorts [4]uint16' in go and 'entry.probe.OwnedTCP(packet,true,entry.probePorts)' in go
+assert 'resolveTransferTarget()' in bootstrap and 'speed.cloudflare.com' in bootstrap
