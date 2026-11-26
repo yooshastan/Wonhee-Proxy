@@ -34,7 +34,7 @@ jobs:
         run: python3 scripts/test-wonhee-home-entrypoints.py
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
-      - name: Verify debug-only 0.15.79 RootLab APK and read-only readiness screen
+      - name: Verify debug-only 0.15.80 RootLab APK and read-only readiness screen
         run: python3 scripts/test-wonhee-rootlab-preview.py
       - name: Verify native Android JNI and no-route smoke-test contract
         run: python3 scripts/test-wonhee-native-bridge-contract.py
