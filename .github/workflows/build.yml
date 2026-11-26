@@ -46,6 +46,16 @@ jobs:
         run: |
           python3 -m py_compile scripts/wonhee-01528-ledger-rescue.py
           python3 scripts/test-wonhee-01528-ledger-rescue.py
+      - name: Verify offline transport exception contract
+        run: |
+          mkdir -p /tmp/wonhee-transport
+          javac -d /tmp/wonhee-transport \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootFirewallMark.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTcpProbeTarget.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeFirewallPilotPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTransportGuardPlan.java \
+            core-tests/RootTransportGuardPlanTest.java
+          java -cp /tmp/wonhee-transport com.yooshastan.wonheeproxy.RootTransportGuardPlanTest
       - name: Run standalone proxy core tests
         run: |
           mkdir -p /tmp/wonhee-classes
