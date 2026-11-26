@@ -1,0 +1,21 @@
+package dualwg
+import("crypto/ecdh";"crypto/rand";"encoding/base64";"encoding/binary";"strings";"testing")
+func TestProbeScope(t *testing.T){
+ s,e:=NewProbeScope("exit-a","10.1.2.3","1.1.1.1",443);if e!=nil{t.Fatal(e)}
+ p:=make([]byte,40);p[0]=0x45;p[9]=6;p[32]=0x50
+ binary.BigEndian.PutUint16(p[2:4],40);copy(p[12:16],[]byte{10,1,2,3});copy(p[16:20],[]byte{1,1,1,1})
+ binary.BigEndian.PutUint16(p[20:22],40000);binary.BigEndian.PutUint16(p[22:24],443)
+ if !s.Match(p,false)||s.Match(p,true){t.Fatal("outbound scope")}
+ q:=append([]byte(nil),p...);copy(q[12:16],p[16:20]);copy(q[16:20],p[12:16]);copy(q[20:22],p[22:24]);copy(q[22:24],p[20:22])
+ if !s.Match(q,true)||s.Match(q,false){t.Fatal("reply scope")}
+ q[12]=9;if s.Match(q,true){t.Fatal("foreign peer reply")}
+ p=append(p,1);binary.BigEndian.PutUint16(p[2:4],41);if s.Match(p,false){t.Fatal("payload accepted")}
+ if _,e:=NewProbeScope("exit-b","10.1.2.3","1.1.1.1",443);e==nil{t.Fatal("cross exit")}
+ if _,e:=NewProbeScope("home","10.1.2.3","1.1.1.1",443);e==nil{t.Fatal("public home target")}
+ a,_:=ecdh.X25519().GenerateKey(rand.Reader);b,_:=ecdh.X25519().GenerateKey(rand.Reader);enc:=base64.StdEncoding.EncodeToString
+ config:="[Interface]\nPrivateKey = "+enc(a.Bytes())+"\n[Peer]\nPublicKey = "+enc(b.PublicKey().Bytes())+"\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = 192.0.2.1:1637\n"
+ ipc,e:=PeerProbeConfig(config,s);if e!=nil || !strings.Contains(ipc,"allowed_ip=1.1.1.1/32\n")||strings.Contains(ipc,"allowed_ip=0.0.0.0/0"){t.Fatal("route narrowing failed")}
+ session,e:=NewProtectedSession("probe",1280,8,smokeNoProtect{});if e!=nil{t.Fatal(e)};defer session.Close()
+ if e=session.Configure(ipc);e!=nil{t.Fatal("IPC parser rejected probe")}
+ if _,e:=PeerProbeConfig(strings.Replace(config,"0.0.0.0/0","10.0.0.0/8",1),s);e==nil{t.Fatal("unauthorized target")}
+}

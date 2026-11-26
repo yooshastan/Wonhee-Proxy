@@ -18,6 +18,7 @@ public final class RootlessNativePeerActivity extends Activity {
     private static final int IMPORT=8200, VPN=8210;
     private TextView slots,status;
     private CheckBox home;
+    private EditText homeTarget,homePort;
     private boolean requestedHome;
     private final EditText[] overrides=new EditText[3];
     @Override public void onCreate(Bundle state) {
@@ -28,10 +29,10 @@ public final class RootlessNativePeerActivity extends Activity {
         int pad=(int)(16*getResources().getDisplayMetrics().density);
         root.setPadding(pad,pad,pad,pad);
         TextView title=new TextView(this);
-        title.setText("Wonhee 0.15.86 · Live peer handshake lab");
+        title.setText("Wonhee 0.15.87 · Scoped bidirectional TCP lab");
         title.setTextSize(22);root.addView(title);
         TextView info=new TextView(this);
-        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles can be saved without DNS. For a hostname endpoint, enter its provider-confirmed numeric IP in the corresponding optional override box. Original port and encrypted configuration stay unchanged. Test uses temporary local listen ports and 5-second encrypted keepalives, not application data. No TUN, DNS, routes, or payload forwarding. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
+        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles can be saved without DNS. For a hostname endpoint, enter its provider-confirmed numeric IP in the corresponding optional override box. Original port and encrypted configuration stay unchanged. Three TCP connect-only probes through one package-scoped TUN: 1.1.1.1:443, 1.0.0.1:443 and optional private Home IP/port. No application payload, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
         root.addView(info);
         slots=new TextView(this);root.addView(slots);
         for(int i=0;i<3;i++) {
@@ -45,10 +46,12 @@ public final class RootlessNativePeerActivity extends Activity {
             overrides[i]=ip;root.addView(ip);
         }
         home=new CheckBox(this);home.setText("Include Home (third peer)");home.setChecked(true);root.addView(home);
+        homeTarget=new EditText(this);homeTarget.setSingleLine(true);homeTarget.setHint("Private Home service IPv4");root.addView(homeTarget);
+        homePort=new EditText(this);homePort.setSingleLine(true);homePort.setHint("Home TCP port");homePort.setText("4533");root.addView(homePort);
         status=new TextView(this);status.setPadding(0,pad,0,pad);root.addView(status);
         Button check=new Button(this);check.setText("Check selected profiles (no network)");
         check.setOnClickListener(v->checkProfiles());root.addView(check);
-        Button start=new Button(this);start.setText("Start live peer test (90 seconds)");
+        Button start=new Button(this);start.setText("Start scoped TCP test (120 seconds)");
         start.setOnClickListener(v->{
             if(!checkProfiles()) return;
             requestedHome=home.isChecked();
@@ -75,7 +78,7 @@ public final class RootlessNativePeerActivity extends Activity {
         return values;
     }
     private void launch() {
-        Intent i=new Intent(this,RootlessNativePeerService.class).setAction(RootlessNativePeerService.START).putExtra("home",requestedHome).putExtra("overrides",endpointOverrides());
+        Intent i=new Intent(this,RootlessNativePeerService.class).setAction(RootlessNativePeerService.START).putExtra("home",requestedHome).putExtra("overrides",endpointOverrides()).putExtra("target",homeTarget.getText().toString().trim()).putExtra("port",homePort.getText().toString().trim());
         startForegroundService(i);status.setText("Starting peer validation…");
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
@@ -93,12 +96,15 @@ public final class RootlessNativePeerActivity extends Activity {
     }
     private boolean checkProfiles() {
         try {
-            String[] validated=NativePeerProfiles.prepare(this,home.isChecked(),endpointOverrides());
+            if(home.isChecked()) RootlessNativePeerService.validateHome(homeTarget.getText().toString().trim(),homePort.getText().toString().trim());
+            String[] validated=NativePeerProfiles.prepare(this,home.isChecked(),endpointOverrides(),new String[3]);
             java.util.Arrays.fill(validated,null);
             status.setText("PROFILE CHECK PASSED — selected profiles present and distinct. No network started.");
             return true;
         } catch(NativePeerProfiles.Rejected rejected) {
             status.setText("PROFILE CHECK FAILED — "+rejected.code);
+        } catch(IllegalArgumentException rejected) {
+            status.setText("PROFILE CHECK FAILED — enter a private Home IPv4 and valid TCP port.");
         } catch(Exception|LinkageError rejected) {status.setText("PROFILE CHECK FAILED — internal validation unavailable.");}
         return false;
     }

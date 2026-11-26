@@ -46,7 +46,7 @@
         <activity
             android:name=".RootlessNativePeerActivity"
             android:exported="true"
-            android:label="Wonhee Live Peer Test">
+            android:label="Wonhee Scoped TCP Test">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -57,7 +57,7 @@
             android:exported="false" android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-initiated handshake-only diagnostic using protected WireGuard sockets with no TUN or app routes" />
+                android:value="User-initiated debug test: own-package IPv4 host routes, bounded TCP connections, no application payload or default route" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>

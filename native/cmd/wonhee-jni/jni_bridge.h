@@ -9,6 +9,8 @@ int WNInjectPacket(uint64_t handle, char *data, int length);
 int WNPacketStats(uint64_t handle, int64_t *injected, int64_t *read, int64_t *dropped);
 int WNCloseSession(uint64_t handle);
 int WNValidatePeerProfile(char *config);
+int64_t WNCreateProbeSession(char *name,char *config,char *local,char *target,int port);
+int WNPollProbePacket(uint64_t handle,char *data,int capacity);
 int64_t WNCreatePeerSession(char *name, char *config);
 int WNPeerStats(uint64_t handle, int64_t *hs, int64_t *rx, int64_t *tx);
 int wn_set_service(JNIEnv *env, jobject service);

@@ -220,3 +220,28 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePeerStats(
  if(a!=NULL) (*env)->SetLongArrayRegion(env,a,0,3,values);
  return a;
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreateProbeSession(
+ JNIEnv *env,jclass type,jstring name,jstring config,jstring local,jstring target,jint port) {
+ (void)type;
+ if(!name||!config||!local||!target)return -1;
+ jstring inputs[4]={name,config,local,target};
+ const char *values[4]={NULL,NULL,NULL,NULL};
+ jlong result=-1;
+ for(int i=0;i<4;i++){values[i]=(*env)->GetStringUTFChars(env,inputs[i],NULL);if(!values[i])goto cleanup;}
+ result=(jlong)WNCreateProbeSession((char*)values[0],(char*)values[1],(char*)values[2],(char*)values[3],port);
+ cleanup:
+ for(int i=3;i>=0;i--)if(values[i])(*env)->ReleaseStringUTFChars(env,inputs[i],values[i]);
+ return result;
+}
+JNIEXPORT jint JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePollProbePacket(
+ JNIEnv *env,jclass type,jlong handle,jbyteArray out) {
+ (void)type;
+ if(!out||(*env)->GetArrayLength(env,out)!=1280)return -1;
+ jbyte bytes[1280];
+ int n=WNPollProbePacket((uint64_t)handle,(char*)bytes,1280);
+ if(n>0&&n<=1280)(*env)->SetByteArrayRegion(env,out,0,n,bytes);
+ return n;
+}

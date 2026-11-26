@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(140)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native086'" in gradle
-assert "versionName.set('0.15.86-native-provider-import')" in gradle
+assert 'versionCode.set(141)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native087'" in gradle
+assert "versionName.set('0.15.87-native-scoped-tcp')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -78,7 +78,10 @@ live = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativePeer
 profiles = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativePeerProfiles.java").read_text()
 assert 'WNCreatePeerSession' in go and 'WNPeerStats' in go and 'entry.handshakeOnly' in go
 assert 'RootlessNativeTunPumpService' not in manifest
-assert '.establish()' not in live and '.addRoute(' not in live and 'injectPacket(' not in live
+assert 'builder.establish()' in live and 'builder.addAllowedApplication(getPackageName())' in live and 'builder.addRoute(targets[i],32)' in live
+assert 'vpn.bindSocket(socket)' in live and 'socket.connect' in live and 'getOutputStream' not in live
+assert 'createProbeSession' in live and 'pollProbePacket' in live and 'rewrite[slot].toSession(p)' in live
+assert 'addDnsServer' not in live and 'addRoute("0.0.0.0"' not in live
 assert 'SecureTunnelProfileStore' in profiles and 'validatePeerProfile' in profiles
 assert 'p[0]!=2L*count' in live and 's[0]>0&&s[1]>0&&s[2]>0' in live
 
@@ -92,3 +95,6 @@ assert 'PeerProfileStatus' in go and 'nativeValidatePeerProfile' in bridge
 assert 'HOSTNAME_REQUIRES_NUMERIC_IP' in profiles and 'applyOverride' in profiles
 assert 'getStringArrayExtra("overrides")' in live
 assert 'getAllByName' not in profiles and 'getByName' not in profiles
+
+assert 'WNCreateProbeSession' in go and 'WNPollProbePacket' in go and 'entry.probe.Match(packet,false)' in go
+assert 'PeerProbeConfig' in go and 'replace_allowed_ips=true' in (root / 'native/peer_probe.go').read_text()

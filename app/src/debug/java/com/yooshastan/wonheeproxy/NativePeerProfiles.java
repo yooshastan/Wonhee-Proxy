@@ -101,6 +101,9 @@ final class NativePeerProfiles {
         return result;
     }
     static String[] prepare(Context context,boolean home,String[] overrides) throws Exception {
+        return prepare(context,home,overrides,null);
+    }
+    static String[] prepare(Context context,boolean home,String[] overrides,String[] localAddresses) throws Exception {
         SecureTunnelProfileStore.Profile[] slots;
         try { slots=load(context); }
         catch(Exception failure) { throw new Rejected("ENCRYPTED_STORE_UNAVAILABLE"); }
@@ -114,6 +117,20 @@ final class NativePeerProfiles {
             try { c=parse(new ByteArrayInputStream(data)); }
             catch(Exception failure) { throw reject(i,"STORED_PROFILE_PARSE_REJECTED"); }
             finally {Arrays.fill(data,(byte)0);}
+            if(localAddresses!=null) {
+                String address=null;
+                for(String line:c.toWgQuickString().split("\\n")) if(line.startsWith("Address = ")) {
+                    for(String part:line.substring("Address = ".length()).split(",")) {
+                        String ip=part.trim().split("/",-1)[0];
+                        if(ip.contains(":")) continue;
+                        if(address!=null) throw reject(i,"MULTIPLE_IPV4_ADDRESSES");
+                        try {MultiTunnelIpv4Rewriter.parseIpv4(ip);} catch(IllegalArgumentException invalid){throw reject(i,"IPV4_ADDRESS_REJECTED");}
+                        address=ip;
+                    }
+                }
+                if(address==null) throw reject(i,"IPV4_ADDRESS_MISSING");
+                localAddresses[i]=address;
+            }
             configs[i]=applyOverride(checkedCanonical(c,i,true),overrides!=null&&i<overrides.length?overrides[i]:null,i);
             String pair=c.getInterface().getKeyPair().getPublicKey().toBase64()+":"
                     +c.getPeers().get(0).getPublicKey().toBase64();

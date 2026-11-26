@@ -48,6 +48,12 @@ final class RootlessNativeBridge {
     static int validatePeerProfile(String config) { return LOADED ? nativeValidatePeerProfile(config) : 0; }
     static long createPeerSession(String name,String config) { return LOADED ? nativeCreatePeerSession(name,config) : -1L; }
     static long[] peerStats(long handle) { return LOADED && handle>0 ? nativePeerStats(handle) : new long[]{-1,-1,-1}; }
+    static long createProbeSession(String name,String config,String local,String target,int port) {
+        return LOADED?nativeCreateProbeSession(name,config,local,target,port):-1L;
+    }
+    static int pollProbePacket(long handle,byte[] output) {return LOADED?nativePollProbePacket(handle,output):-1;}
+    private static native long nativeCreateProbeSession(String name,String config,String local,String target,int port);
+    private static native int nativePollProbePacket(long handle,byte[] output);
     private static native int nativeValidatePeerProfile(String config);
     private static native long nativeCreatePeerSession(String name,String config);
     private static native long[] nativePeerStats(long handle);

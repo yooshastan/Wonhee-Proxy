@@ -19,6 +19,7 @@ type sessionEntry struct {
 	mu sync.Mutex
 	session *dualwg.Session
 	handshakeOnly bool
+	probe *dualwg.ProbeScope
 }
 
 type androidProtector struct{}
@@ -92,6 +93,7 @@ func WNInjectPacket(handle C.uint64_t, data *C.char, length C.int) C.int {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.session == nil || entry.handshakeOnly { return -3 }
+	if entry.probe != nil && !entry.probe.Match(packet,false) { return -5 }
 	if err := entry.session.Tun.Inject(packet); err != nil { return -4 }
 	return 1
 }
@@ -156,10 +158,35 @@ func WNPeerStats(handle C.uint64_t, hs,rx,tx *C.int64_t) C.int {
  if hs==nil || rx==nil || tx==nil {return 0}
  entry:=lookupSession(uint64(handle));if entry==nil {return 0}
  entry.mu.Lock();defer entry.mu.Unlock()
- if entry.session==nil || !entry.handshakeOnly {return 0}
+ if entry.session==nil || (!entry.handshakeOnly && entry.probe==nil) {return 0}
  h,r,t,e:=entry.session.PeerSnapshot();if e!=nil {return 0}
  *hs=C.int64_t(h);*rx=C.int64_t(r);*tx=C.int64_t(t)
  return 1
 }
 
+//export WNCreateProbeSession
+func WNCreateProbeSession(name,config,local,target *C.char,port C.int) C.int64_t {
+ if name==nil||config==nil||local==nil||target==nil||C.wn_has_service()!=1 {return -1}
+ n:=C.GoString(name)
+ scope,e:=dualwg.NewProbeScope(n,C.GoString(local),C.GoString(target),int(port));if e!=nil{return -7}
+ ipc,e:=dualwg.PeerProbeConfig(C.GoString(config),scope);if e!=nil{return -3}
+ session,e:=dualwg.NewProtectedSession(n,1280,32,androidProtector{});if e!=nil{return -2}
+ if e=session.Configure(ipc);e!=nil{session.Close();return -4}
+ if e=session.Start();e!=nil{session.Close();return -5}
+ handle:=nextHandle.Add(1);if handle==0||handle>(1<<63)-1{session.Close();return -6}
+ sessionsMu.Lock();sessions[handle]=&sessionEntry{session:session,probe:scope};sessionsMu.Unlock()
+ return C.int64_t(handle)
+}
+
+//export WNPollProbePacket
+func WNPollProbePacket(handle C.uint64_t,data *C.char,capacity C.int) C.int {
+ if data==nil||capacity<1280{return -1}
+ entry:=lookupSession(uint64(handle));if entry==nil{return -2}
+ entry.mu.Lock();defer entry.mu.Unlock()
+ if entry.session==nil||entry.probe==nil{return -3}
+ packet,ok:=entry.session.Tun.Poll();if !ok{return 0}
+ if !entry.probe.Match(packet,true){return -4}
+ copy(unsafe.Slice((*byte)(unsafe.Pointer(data)),int(capacity)),packet)
+ return C.int(len(packet))
+}
 func main() {}
