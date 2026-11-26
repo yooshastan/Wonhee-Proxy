@@ -58,6 +58,7 @@ public final class RootlessNativeTunPumpService extends VpnService {
     private ParcelFileDescriptor tun;
     private FileInputStream input;
     private Thread pumpThread;
+    private Thread probeThread;
     private long homeHandle;
     private long internetHandle;
     private boolean registered;
@@ -245,12 +246,17 @@ public final class RootlessNativeTunPumpService extends VpnService {
         } catch (IOException failure) {
             if (running.get()) {
                 Log.e(TAG, "TUN read failed", failure);
-                report("NOT PASSED — TUN packet reader stopped unexpectedly.");
+                running.set(false);
+                terminalReportPreserved = true;
+                report("NOT PASSED — TUN packet reader stopped unexpectedly; releasing the TUN.");
+                stopSelf();
             }
         } finally {
             if (running.get()) {
                 running.set(false);
-                report("STOPPED — TUN packet reader ended; no fallback path is enabled.");
+                terminalReportPreserved = true;
+                report("NOT PASSED — TUN packet reader ended unexpectedly; releasing the TUN.");
+                stopSelf();
             }
         }
     }
@@ -293,6 +299,7 @@ public final class RootlessNativeTunPumpService extends VpnService {
             probeRunning.set(false);
         }, "WonheeNativeTunProbes");
         worker.setDaemon(true);
+        probeThread = worker;
         worker.start();
     }
 
@@ -304,6 +311,7 @@ public final class RootlessNativeTunPumpService extends VpnService {
                 && homeStats.length >= 3 && internetStats.length >= 3
                 && homeStats[1] >= EXPECTED_PER_ROUTE
                 && internetStats[1] >= EXPECTED_PER_ROUTE
+                && homeStats[2] == 0L && internetStats[2] == 0L
                 && policyDrops.get() == 0 && injectionFailures.get() == 0
                 && protection.length >= 2 && protection[0] == 4L && protection[1] == 0L;
         String value = String.format(Locale.US,
@@ -370,6 +378,11 @@ public final class RootlessNativeTunPumpService extends VpnService {
             try { pumpThread.join(500L); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             pumpThread = null;
+        }
+        if (probeThread != null && probeThread != Thread.currentThread()) {
+            try { probeThread.join(500L); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            probeThread = null;
         }
         if (internetHandle != 0L) {
             RootlessNativeBridge.closeSession(internetHandle);
