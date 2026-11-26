@@ -18,7 +18,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private final Spinner[] categories=new Spinner[AppUseCategories.LABELS.length];
     private final Spinner[] protocols=new Spinner[NativeAppRoutingPolicy.SELECTORS.length];
     private final EditText[] overrides=new EditText[3];
-    private TextView status,profiles,headline,speed,blocked,summary,sectionTitle,notice;
+    private TextView status,profiles,headline,speed,blocked,summary,sectionTitle,notice,underlayStatus;
     private Button startButton,stopButton;
     private final LinearLayout[] pages=new LinearLayout[5];
     private final Button[] tabs=new Button[5];
@@ -32,7 +32,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private static final String[] SECTIONS={"Home","Tunnels","Routing","Protection","Activity"};
     private EditText homeCidr;
     private CheckBox home;
-    private Spinner fallback,dnsProvider,dnsRole;
+    private Spinner fallback,dnsProvider,dnsRole,networkPreference;
     private CheckBox hostsEnabled,blockExternal853,autoRecovery;
     private TextView hostsStatus;
     private android.content.SharedPreferences draft;
@@ -47,7 +47,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.20.0 PREVIEW",12);
+        label(header,"PROXY  /  0.20.1 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(SECTIONS[i]);t.setTextSize(11);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -60,6 +60,7 @@ public final class NativeAppRoutingActivity extends Activity {
         }
         LinearLayout root=pages[0];
         headline=label(root,"Disconnected",25);headline.setTypeface(null,android.graphics.Typeface.BOLD);headline.setPadding(dp(14),dp(16),dp(14),dp(8));headline.setBackground(round(SURFACE,18));
+        underlayStatus=label(root,"Physical connection · disconnected",14);
         speed=label(root,"↓ 0 B/s   ↑ 0 B/s",20);speed.setPadding(dp(12),dp(12),dp(12),dp(8));
         blocked=label(root,"Blocked DNS · 0",17);blocked.setPadding(dp(12),dp(8),dp(12),dp(12));blocked.setBackground(round(PINK,14));
         startButton=button(root,"Start connection",()->{
@@ -76,7 +77,11 @@ public final class NativeAppRoutingActivity extends Activity {
         label(root,"Selected apps only. Other apps use normal networking. Private DNS must remain OFF.",13);
         button(root,"Enable traffic notification",()->{if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},8330);else notice.setText("Notification permission already available.");});
         root=pages[1];
-        label(root,"Tunnels",23);profiles=label(root,"",14);
+        label(root,"Tunnels",23);
+        label(root,"Physical connection preference",15);
+        networkPreference=spinner(root,NativeUnderlayPolicy.LABELS,draft.getInt("networkPreference",NativeUnderlayPolicy.WIFI_FIRST));
+        label(root,"Wi-Fi or cellular preferences use the other validated physical network if needed. Android best available uses Android's best physical match where supported. Maintain current switches only on loss. Migration requires automatic recovery. Changes apply on next Start.",13);
+        profiles=label(root,"",14);
         for(int i=0;i<3;i++){
             final int slot=i;
             button(root,"Import "+NativePeerProfiles.SLOTS[i],()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),IMPORT+slot));
@@ -180,6 +185,7 @@ public final class NativeAppRoutingActivity extends Activity {
         if(state.equals("ACTIVE")&&(age<0||age>8000))state="STALE";
         boolean busy=NativeAppRoutingService.running();
         headline.setText(state.equals("ACTIVE")?"Connected":state.equals("BLOCKED")?"Traffic blocked":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"Capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting…":state.equals("STALE")?"Status stale":state.equals("FAILED")?"Connection refused":"Disconnected");
+        if(underlayStatus!=null)underlayStatus.setText(busy?"Physical connection · "+prefs.getString("underlay","pending")+"\n"+prefs.getString("networkPreference","")+" · migrations "+prefs.getLong("networkMigrations",0)+"\nLast recovery: "+prefs.getString("lastRecoveryReason","none")+" · "+prefs.getLong("lastRecoveryMs",0)+" ms":"Physical connection · disconnected");
         speed.setText("↓ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("downRate",0):0)+"    ↑ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("upRate",0):0));
         blocked.setText("Blocked DNS · "+prefs.getLong("blocked",0));
         int selected=0;for(AppRow r:apps)if(r.selected.isChecked())selected++;
@@ -202,7 +208,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private int value(Spinner spinner){return VALUES[spinner.getSelectedItemPosition()];}
     private void save(){
         android.content.SharedPreferences.Editor e=draft.edit().putBoolean("home",home.isChecked()).putString("homeCidr",homeCidr.getText().toString().trim()).putInt("default",fallback.getSelectedItemPosition());
-        e.putBoolean("autoRecovery",autoRecovery.isChecked());
+        e.putBoolean("autoRecovery",autoRecovery.isChecked()).putInt("networkPreference",networkPreference.getSelectedItemPosition());
         e.putInt("dnsProvider",dnsProvider.getSelectedItemPosition()).putInt("dnsRole",dnsRole.getSelectedItemPosition()).putBoolean("hostsEnabled",hostsEnabled.isChecked()).putBoolean("blockExternal853",blockExternal853.isChecked());
         for(int i=0;i<categories.length;i++)e.putInt("cat"+i,categories[i].getSelectedItemPosition());
         for(int i=0;i<protocols.length;i++)e.putInt("proto"+i,protocols[i].getSelectedItemPosition());
@@ -224,7 +230,7 @@ public final class NativeAppRoutingActivity extends Activity {
         String[] checked=NativePeerProfiles.prepare(this,useHome,ips,new String[3]);Arrays.fill(checked,null);
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
-            .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
+            .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
             .putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
     private void launch(){try{startForegroundService(makeIntent());notice.setText("Starting…");;}catch(Exception e){notice.setText("Start refused: "+e.getClass().getSimpleName());}}

@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(152)' in gradle
+assert 'versionCode.set(153)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.20.0-native-protected-routing')" in gradle
+assert "versionName.set('0.20.1-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -185,3 +185,11 @@ assert 'if(!recover())throw new IllegalStateException' in app_routing
 assert 'CAPTURE LOST' in app_routing and 'controlled-recovery-test' in app_routing
 assert app_routing.count('builder.establish()')==1
 assert 'SUPPORTS_ALWAYS_ON" android:value="false"' in manifest
+
+assert 'registerNetworkCallback(request,physicalCallback)' in app_routing
+assert 'registerBestMatchingNetworkCallback' in app_routing and 'unregisterNetworkCallback' in app_routing
+assert 'NativeUnderlayPolicy.pick' in app_routing and 'migration.due' in app_routing
+assert 'preferred-network-migration' in app_routing and 'physical-underlay-lost' in app_routing
+assert 'network migrations=' in app_routing and 'last recovery ms=' in app_routing
+assert 'NET_CAPABILITY_NOT_RESTRICTED' in app_routing and 'NET_CAPABILITY_NOT_SUSPENDED' in app_routing
+assert 'retry EOF=' in app_routing and 'registered relay ports=' in app_routing

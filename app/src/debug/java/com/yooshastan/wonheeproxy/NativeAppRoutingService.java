@@ -21,7 +21,17 @@ public final class NativeAppRoutingService extends VpnService {
     static final String GUARD_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_GUARD_TEST";
     static final String RECOVERY_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_RECOVERY_TEST";
     private volatile boolean guardTest,recoveryTest;
-    private boolean autoRecovery=true;
+    private volatile boolean autoRecovery=true;
+    private int networkPreference=NativeUnderlayPolicy.WIFI_FIRST;
+    private final NativeUnderlayPolicy.Debounce migration=new NativeUnderlayPolicy.Debounce();
+    private final AtomicBoolean networkDirty=new AtomicBoolean(true);
+    private volatile Network systemBest;
+    private ConnectivityManager.NetworkCallback physicalCallback,bestCallback;
+    private volatile boolean callbacksRegistered,bestRegistered;
+    private long networkMigrations,lastRecoveryMs,recoveryStarted;
+    private String lastRecoveryReason="none";
+    private Network recoveryFrom;
+    private String lastVerifiedUnderlay="none";
     private long recoveryAttempts,recoverySuccess,recoveryDiscard,priorBlocked;
     private int dnsGeneration;
     private String retiredDnsStats="";
@@ -77,10 +87,11 @@ public final class NativeAppRoutingService extends VpnService {
         NetworkCapabilities c=n==null?null:cm().getNetworkCapabilities(n);
         return c!=null&&!c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)&&(c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)||c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR));
     }
-    private Network initialNetwork(){
-        for(Network n:cm().getAllNetworks()){NetworkCapabilities c=cm().getNetworkCapabilities(n);if(c!=null&&c.hasTransport(NetworkCapabilities.TRANSPORT_VPN))return null;}
-        Network n=cm().getActiveNetwork();return physical(n)?n:null;
+    private boolean noVpn(){
+        for(Network n:cm().getAllNetworks()){NetworkCapabilities c=cm().getNetworkCapabilities(n);if(c!=null&&c.hasTransport(NetworkCapabilities.TRANSPORT_VPN))return false;}
+        return true;
     }
+    private Network initialNetwork(){return noVpn()?preferredNetwork():null;}
     private boolean ownNetwork(){return vpnNetwork()!=null;}
     // JNI invokes this virtual method before exposing either WireGuard socket.
     // Duplicate the descriptor; binding/closing the duplicate does not close the native socket.
@@ -95,19 +106,65 @@ public final class NativeAppRoutingService extends VpnService {
     private boolean usable(Network n){
         NetworkCapabilities c=n==null?null:cm().getNetworkCapabilities(n);
         return physical(n)&&c!=null&&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+            &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED);
     }
-    private Network recoveryNetwork(){
-        // Prefer the existing validated underlay. If it disappears, choose a validated
-        // physical network; Wi-Fi before cellular, never another VPN.
-        if(usable(underlay))return underlay;
-        Network wifi=null,cell=null;
+    private static long id(Network n){return n==null?0:n.getNetworkHandle();}
+    private Network preferredNetwork(){
+        Map<Long,Integer> candidates=new HashMap<>();
+        Map<Long,Network> networks=new HashMap<>();
         for(Network n:cm().getAllNetworks())if(usable(n)){
             NetworkCapabilities c=cm().getNetworkCapabilities(n);if(c==null)continue;
-            if(c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))wifi=n;
-            else if(c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))cell=n;
+            long key=id(n);
+            candidates.put(key,c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?NativeUnderlayPolicy.WIFI:NativeUnderlayPolicy.CELL);
+            networks.put(key,n);
         }
-        return wifi!=null?wifi:cell;
+        Network best=systemBest;
+        if(best==null){Network active=cm().getActiveNetwork();if(usable(active))best=active;}
+        return networks.get(NativeUnderlayPolicy.pick(networkPreference,id(underlay),id(best),candidates));
+    }
+    private void watchNetworks(){
+        NetworkRequest request=new NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR).build();
+        physicalCallback=new ConnectivityManager.NetworkCallback(){
+            @Override public void onAvailable(Network n){networkDirty.set(true);}
+            @Override public void onLost(Network n){networkDirty.set(true);}
+            @Override public void onCapabilitiesChanged(Network n,NetworkCapabilities c){networkDirty.set(true);}
+        };
+        try{cm().registerNetworkCallback(request,physicalCallback);callbacksRegistered=true;}
+        catch(RuntimeException e){Log.i(TAG,"UNDERLAY WATCH — callback unavailable; polling retained");}
+        if(Build.VERSION.SDK_INT>=31&&networkPreference==NativeUnderlayPolicy.SYSTEM){
+            // Best physical match, not the app's VPN default. VALIDATED is a
+            // listen-only capability; suitability is rechecked by the worker.
+            bestCallback=new ConnectivityManager.NetworkCallback(){
+                @Override public void onAvailable(Network n){systemBest=n;networkDirty.set(true);}
+                @Override public void onLost(Network n){if(n.equals(systemBest))systemBest=null;networkDirty.set(true);}
+                @Override public void onCapabilitiesChanged(Network n,NetworkCapabilities c){networkDirty.set(true);}
+            };
+            try{cm().registerBestMatchingNetworkCallback(request,bestCallback,new Handler(Looper.getMainLooper()));bestRegistered=true;}
+            catch(RuntimeException e){Log.i(TAG,"UNDERLAY WATCH — best match unavailable; physical default/sticky fallback");}
+        }
+    }
+    private void unwatchNetworks(){
+        if(callbacksRegistered){try{cm().unregisterNetworkCallback(physicalCallback);}catch(RuntimeException ignored){}callbacksRegistered=false;}
+        if(bestRegistered){try{cm().unregisterNetworkCallback(bestCallback);}catch(RuntimeException ignored){}bestRegistered=false;}
+        systemBest=null;
+    }
+    private String physicalLabel(Network n){
+        if(n==null)return "none";
+        NetworkCapabilities c=cm().getNetworkCapabilities(n);
+        String type=c==null?"unavailable":c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?"Wi-Fi":c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)?"Cellular":"other";
+        return type+" #"+n.toString()+" ("+(usable(n)?"validated":"not validated")+")";
+    }
+    private String underlaySummary(){
+        return "underlay="+physicalLabel(underlay)+" preference="+NativeUnderlayPolicy.LABELS[networkPreference]
+            +" network migrations="+networkMigrations+" last recovery reason="+lastRecoveryReason+" last recovery ms="+lastRecoveryMs
+            +" physical callback="+callbacksRegistered+" system best callback="+bestRegistered
+            +" last verified underlay="+lastVerifiedUnderlay;
     }
     private boolean captureIntact(){return tun!=null&&ownNetwork()&&VpnService.prepare(this)==null;}
     private void discardCaptured(){
@@ -151,7 +208,7 @@ public final class NativeAppRoutingService extends VpnService {
             }
             if(stopping||guardTest||!captureIntact()||!dnsOff())return false;
             recoveryAttempts++;
-            Network next=recoveryNetwork();
+            Network next=preferredNetwork();
             if(next==null)continue;
             underlay=next;
             try{
@@ -170,7 +227,10 @@ public final class NativeAppRoutingService extends VpnService {
                 ledger.entries.clear();
                 newRelay();
                 recoverySuccess++;
-                report(stats("ACTIVE — recovery verified; same TUN retained"));
+                if(recoveryFrom!=null&&!recoveryFrom.equals(next))networkMigrations++;
+                lastRecoveryMs=SystemClock.elapsedRealtime()-recoveryStarted;
+                lastVerifiedUnderlay=physicalLabel(next);migration.reset();
+                report(stats("ACTIVE — recovery verified; same TUN retained; "+lastRecoveryReason+"; "+lastRecoveryMs+" ms"));
                 return true;
             }catch(Exception|LinkageError failure){
                 retireDns();if(!closePeers())cleanupFailed=true;
@@ -192,8 +252,11 @@ public final class NativeAppRoutingService extends VpnService {
         String stage="preflight";boolean captured=false;
         try{
             if(Build.VERSION.SDK_INT<29||!dnsOff()||VpnService.prepare(this)!=null||!RootlessNativeBridge.available())throw new IllegalStateException();
-            underlay=initialNetwork();if(underlay==null)throw new IllegalStateException();
             autoRecovery=intent.getBooleanExtra("autoRecovery",true);
+            networkPreference=intent.getIntExtra("networkPreference",NativeUnderlayPolicy.WIFI_FIRST);
+            if(!NativeUnderlayPolicy.valid(networkPreference)){networkPreference=NativeUnderlayPolicy.WIFI_FIRST;throw new IllegalArgumentException();}
+            watchNetworks();
+            underlay=initialNetwork();if(underlay==null)throw new IllegalStateException();
             boolean home=intent.getBooleanExtra("home",false);
             String homeCidr=home?intent.getStringExtra("homeCidr"):"";sessionHomeCidr=homeCidr;
             policy=new NativeAppRoutingPolicy(home?new NativeAppRoutingPolicy.Prefix(homeCidr):null,intent.getIntExtra("default",0),intent.getIntArrayExtra("categories"),intent.getIntArrayExtra("protocols"));
@@ -226,7 +289,7 @@ public final class NativeAppRoutingService extends VpnService {
             try{
                 configs=NativePeerProfiles.prepare(this,home,intent.getStringArrayExtra("overrides"),addresses,resolver,false);
                 report(resolver.summary());
-                if(stopping||!dnsOff()||!underlay.equals(initialNetwork()))throw new IllegalStateException();
+                if(stopping||!dnsOff()||!usable(underlay)||!noVpn())throw new IllegalStateException();
                 // Immutable session snapshot: recovery cannot silently load a newly
                 // imported profile or change a resolved endpoint. No disk persistence.
                 sessionConfigs=configs.clone();sessionAddresses=addresses.clone();
@@ -236,7 +299,7 @@ public final class NativeAppRoutingService extends VpnService {
             stage="handshakes";
             long deadline=SystemClock.elapsedRealtime()+60000;
             while(!stopping){
-                if(!dnsOff()||!underlay.equals(initialNetwork())||!protectedSockets())throw new IllegalStateException();
+                if(!dnsOff()||!usable(underlay)||!noVpn()||!protectedSockets())throw new IllegalStateException();
                 if(ready())break;
                 if(SystemClock.elapsedRealtime()>=deadline)throw new IllegalStateException();
                 Thread.sleep(250);
@@ -259,19 +322,27 @@ public final class NativeAppRoutingService extends VpnService {
             if(stopping)return;
             stage="dns-relay";
             newRelay();
+            lastVerifiedUnderlay=physicalLabel(underlay);
             stage="forwarding";report("ACTIVE — "+count+" verified peers; "+apps.length+" selected apps; authenticated DoT via "+NativePeerProfiles.SLOTS[dnsRole]+"; hosts="+blocklist.size()+"; IPv6 blocked");
             long nextReport=0,nextHealth=0;
             while(!stopping){
                 long now=SystemClock.elapsedRealtime();
-                boolean unhealthy=false;
-                if(now>=nextHealth){
+                String reason=null;
+                if(now>=nextHealth||networkDirty.getAndSet(false)){
                     if(!dnsOff()||!captureIntact())throw new IllegalStateException();
-                    unhealthy=!physical(underlay)||!usable(underlay)||!protectedSockets()||!ready();
+                    if(!usable(underlay))reason="physical-underlay-lost";
+                    else if(!protectedSockets()||!ready())reason="peer-health";
+                    else if(autoRecovery){
+                        Network candidate=preferredNetwork();
+                        if(migration.due(id(underlay),id(candidate),now))reason="preferred-network-migration";
+                    }
                     nextHealth=now+1000;
                 }
                 if(guardTest){stage="controlled-guard-test";throw new IllegalStateException();}
-                if(recoveryTest||unhealthy){
-                    stage=recoveryTest?"controlled-recovery-test":"underlay-or-peer-health";recoveryTest=false;
+                if(recoveryTest||reason!=null){
+                    stage=recoveryTest?"controlled-recovery-test":reason;recoveryTest=false;
+                    lastRecoveryReason=stage;recoveryStarted=SystemClock.elapsedRealtime();recoveryFrom=underlay;
+                    migration.reset();
                     report(stats("RECOVERING — "+stage+"; stopping forwarding"));
                     retireDns();if(!closePeers())cleanupFailed=true;ledger.entries.clear();
                     if(!recover())throw new IllegalStateException("recovery unavailable");
@@ -303,6 +374,7 @@ public final class NativeAppRoutingService extends VpnService {
                 }else report("NOT STARTED — "+stage+"/"+why+"; selected apps were not captured");
             }
         }finally{
+            unwatchNetworks();
             retireDns();
             if(sessionConfigs!=null)Arrays.fill(sessionConfigs,null);
             if(sessionAddresses!=null)Arrays.fill(sessionAddresses,null);
@@ -389,8 +461,9 @@ public final class NativeAppRoutingService extends VpnService {
     private String stats(String prefix){
         StringBuilder b=new StringBuilder(prefix);
         for(int i=0;i<count;i++)b.append("\n").append(NativePeerProfiles.SLOTS[i]).append(" new flows=").append(opened[i]).append(" packets out/in=").append(outgoing[i]).append('/').append(incoming[i]).append(" bytes out/in=").append(outBytes[i]).append('/').append(inBytes[i]);
-        if(dnsRelay!=null)b.append("\nDNS provider=").append(NativeProtectedDnsRelay.NAMES[dnsProvider]).append(" role=").append(NativePeerProfiles.SLOTS[dnsRole]).append(" queries=").append(dnsRelay.queries.get()).append(" authenticated=").append(dnsRelay.verified.get()).append(" blocked=").append(dnsRelay.blocked.get()).append(" failed=").append(dnsRelay.failed.get()).append(" overflow=").append(dnsRelay.overflow.get()).append(" hosts=").append(blocklist.size()).append(" cache hits=").append(dnsRelay.cacheHits.get()).append(" cached entries=").append(dnsRelay.cacheSize()).append(" TLS opened=").append(dnsRelay.tlsConnections.get()).append(" TLS reused=").append(dnsRelay.tlsReuse.get()).append(" TLS fresh retries=").append(dnsRelay.tlsRetries.get()).append(" TLS closed=").append(dnsRelay.tlsClosed.get());
+        if(dnsRelay!=null)b.append("\nDNS provider=").append(NativeProtectedDnsRelay.NAMES[dnsProvider]).append(" role=").append(NativePeerProfiles.SLOTS[dnsRole]).append(" queries=").append(dnsRelay.queries.get()).append(" authenticated=").append(dnsRelay.verified.get()).append(" blocked=").append(dnsRelay.blocked.get()).append(" failed=").append(dnsRelay.failed.get()).append(" overflow=").append(dnsRelay.overflow.get()).append(" hosts=").append(blocklist.size()).append(" cache hits=").append(dnsRelay.cacheHits.get()).append(" cached entries=").append(dnsRelay.cacheSize()).append(" TLS opened=").append(dnsRelay.tlsConnections.get()).append(" TLS reused=").append(dnsRelay.tlsReuse.get()).append(" TLS fresh retries=").append(dnsRelay.tlsRetries.get()).append(" TLS closed=").append(dnsRelay.tlsClosed.get()).append(" retry EOF=").append(dnsRelay.retryEof.get()).append(" retry timeout=").append(dnsRelay.retryTimeout.get()).append(" retry TLS=").append(dnsRelay.retryTls.get()).append(" retry other=").append(dnsRelay.retryOther.get()).append(" active relay sockets=").append(dnsRelay.socketCount()).append(" registered relay ports=").append(dnsRelay.portCount());
         if(dnsRelay==null&&!retiredDnsStats.isEmpty())b.append("\n").append(retiredDnsStats);
+        b.append("\n").append(underlaySummary());
         b.append("\nrecovery attempts=").append(recoveryAttempts).append(" successes=").append(recoverySuccess).append(" discarded packets=").append(recoveryDiscard).append(" DNS generation=").append(dnsGeneration).append(" session blocked=").append(priorBlocked+(dnsRelay==null?0:dnsRelay.blocked.get()));
         b.append("\nDNS firewall drops=").append(dnsFirewallDrops).append(" IPv6 drops=").append(ipv6Drops).append(" other unsupported=").append(otherUnsupported);
         b.append("\npolicy classification route=").append(deniedRoute).append(" ledger=").append(deniedLedger).append(" native=").append(deniedNative).append(" relay port no longer registered=").append(relayEnded);
@@ -407,7 +480,9 @@ public final class NativeAppRoutingService extends VpnService {
         if(state.equals("ACTIVE")&&lastSample>0){upRate=NativeRoutingMetrics.perSecond(lastOut,out,now-lastSample);downRate=NativeRoutingMetrics.perSecond(lastIn,in,now-lastSample);}else{upRate=0;downRate=0;}
         lastSample=now;lastOut=out;lastIn=in;
         long blocked=priorBlocked+(dnsRelay==null?0:dnsRelay.blocked.get());
-        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("state",state).putLong("heartbeat",now).putLong("upRate",upRate).putLong("downRate",downRate).putLong("blocked",blocked).apply();
+        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("state",state).putLong("heartbeat",now).putLong("upRate",upRate).putLong("downRate",downRate).putLong("blocked",blocked)
+            .putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
+            .putLong("networkMigrations",networkMigrations).putLong("lastRecoveryMs",lastRecoveryMs).putString("lastRecoveryReason",lastRecoveryReason).apply();
         notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"VPN capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting · selected apps not yet protected":state;
         if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")){
             NotificationManager manager=getSystemService(NotificationManager.class);

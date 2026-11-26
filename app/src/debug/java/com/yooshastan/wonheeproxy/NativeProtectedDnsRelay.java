@@ -17,6 +17,9 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     final int role,ip,provider;
     final AtomicLong queries=new AtomicLong(),blocked=new AtomicLong(),verified=new AtomicLong(),failed=new AtomicLong(),overflow=new AtomicLong();
     final AtomicLong cacheHits=new AtomicLong(),tlsConnections=new AtomicLong(),tlsReuse=new AtomicLong(),tlsRetries=new AtomicLong(),tlsClosed=new AtomicLong();
+    final AtomicLong retryEof=new AtomicLong(),retryTimeout=new AtomicLong(),retryTls=new AtomicLong(),retryOther=new AtomicLong();
+    int socketCount(){return sockets.size();}
+    int portCount(){return ports.size();}
     private static final long IDLE_LIMIT=30000;
     private static final int MAX_EXCHANGES=128;
     private final NativeDnsPositiveCache cache=new NativeDnsPositiveCache();
@@ -148,6 +151,10 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
                 if(closed)throw stale;
                 // At most one fresh authenticated TLS connection, same provider and role.
                 tlsRetries.incrementAndGet();
+                if(stale instanceof EOFException)retryEof.incrementAndGet();
+                else if(stale instanceof SocketTimeoutException)retryTimeout.incrementAndGet();
+                else if(stale instanceof SSLException)retryTls.incrementAndGet();
+                else retryOther.incrementAndGet();
             }catch(RuntimeException failure){c.close();throw failure;}
         }
         c=open();
