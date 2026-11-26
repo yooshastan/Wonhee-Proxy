@@ -67,8 +67,8 @@ func WNCreatePacketTestSession(name *C.char, allowedIP *C.char) C.int64_t {
 	if name == nil || allowedIP == nil { return -7 }
 	n := C.GoString(name)
 	route := C.GoString(allowedIP)
-	if (n == "home" && route != "198.18.1.0/24")
-		|| (n == "internet" && route != "0.0.0.0/0") {
+	if (n == "home" && route != "198.18.1.0/24") ||
+		(n == "internet" && route != "0.0.0.0/0") {
 		return -7
 	}
 	return createProtectedSession(n, route)
