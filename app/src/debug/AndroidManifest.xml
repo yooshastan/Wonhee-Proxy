@@ -44,20 +44,20 @@
         <!-- Debug-only TUN ingress experiment. It captures only this package
              and one synthetic IPv4 benchmark route; never a default route. -->
         <activity
-            android:name=".RootlessNativeTunPumpActivity"
+            android:name=".RootlessNativePeerActivity"
             android:exported="true"
-            android:label="Native TUN Packet Pump Test">
+            android:label="Wonhee Live Peer Test">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name=".RootlessNativeTunPumpService"
+        <service android:name=".RootlessNativePeerService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false" android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-initiated debug diagnostic capturing only the Wonhee test package and synthetic IPv4 benchmark route to verify native WireGuard packet queue ingress; no default route or other-app traffic" />
+                android:value="User-initiated handshake-only diagnostic using protected WireGuard sockets with no TUN or app routes" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>

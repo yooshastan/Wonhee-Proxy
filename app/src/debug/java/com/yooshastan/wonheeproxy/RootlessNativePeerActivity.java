@@ -1,0 +1,86 @@
+package com.yooshastan.wonheeproxy;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.net.VpnService;
+import android.os.Build;
+import android.os.Bundle;
+import android.view.WindowInsets;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import java.io.InputStream;
+
+public final class RootlessNativePeerActivity extends Activity {
+    private static final int IMPORT=8200, VPN=8210;
+    private TextView slots,status;
+    private CheckBox home;
+    private boolean requestedHome;
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
+        if(state!=null) requestedHome=state.getBoolean("requestedHome");
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad=(int)(16*getResources().getDisplayMetrics().density);
+        root.setPadding(pad,pad,pad,pad);
+        TextView title=new TextView(this);
+        title.setText("Wonhee 0.15.84 · Live peer handshake lab");
+        title.setTextSize(22);root.addView(title);
+        TextView info=new TextView(this);
+        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Numeric IPv4/IPv6 endpoints only. Test uses temporary local listen ports and 5-second encrypted keepalives, not application data. No TUN, DNS, routes, or payload forwarding. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
+        root.addView(info);
+        slots=new TextView(this);root.addView(slots);
+        for(int i=0;i<3;i++) {
+            final int slot=i;
+            Button b=new Button(this);b.setText("Import "+NativePeerProfiles.SLOTS[i]);
+            b.setOnClickListener(v->pick(slot));root.addView(b);
+        }
+        home=new CheckBox(this);home.setText("Include Home (third peer)");home.setChecked(true);root.addView(home);
+        status=new TextView(this);status.setPadding(0,pad,0,pad);root.addView(status);
+        Button start=new Button(this);start.setText("Start live peer test (90 seconds)");
+        start.setOnClickListener(v->{
+            requestedHome=home.isChecked();
+            Intent permission=VpnService.prepare(this);
+            if(permission!=null) startActivityForResult(permission,VPN);else launch();
+        });root.addView(start);
+        Button stop=new Button(this);stop.setText("Stop and release all peers");
+        stop.setOnClickListener(v->startService(new Intent(this,RootlessNativePeerService.class).setAction(RootlessNativePeerService.STOP)));root.addView(stop);
+        Button refresh=new Button(this);refresh.setText("Refresh status");refresh.setOnClickListener(v->refresh());root.addView(refresh);
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(root);
+        scroll.setOnApplyWindowInsetsListener((v,insets)->{
+            int bottom=Build.VERSION.SDK_INT>=30?insets.getInsets(WindowInsets.Type.systemBars()).bottom:insets.getSystemWindowInsetBottom();
+            v.setPadding(0,0,0,bottom);return insets;
+        });setContentView(scroll);refresh();
+    }
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putBoolean("requestedHome",requestedHome);}
+    private void pick(int slot) {
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(i,IMPORT+slot);
+    }
+    private void launch() {
+        Intent i=new Intent(this,RootlessNativePeerService.class).setAction(RootlessNativePeerService.START).putExtra("home",requestedHome);
+        startForegroundService(i);status.setText("Starting peer validation…");
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK) return;
+        if(request==VPN){launch();return;}
+        if(request>=IMPORT && request<IMPORT+3 && data!=null && data.getData()!=null) {
+            try(InputStream in=getContentResolver().openInputStream(data.getData())) {
+                NativePeerProfiles.save(this,request-IMPORT,in);refresh();
+                status.setText("Encrypted import accepted. Press Start to test all selected peers.");
+            } catch(Exception|LinkageError rejected) {status.setText("Import refused. Use a single-peer WireGuard config with numeric endpoint and valid keys. Previous stored profile retained.");}
+        }
+    }
+    private void refresh() {
+        try {
+            SecureTunnelProfileStore.Profile[] p=NativePeerProfiles.load(this);
+            StringBuilder s=new StringBuilder();
+            for(int i=0;i<3;i++) s.append(NativePeerProfiles.SLOTS[i]).append(": ").append(p[i]==null?"missing":"encrypted profile saved").append('\n');
+            slots.setText(s.toString());
+        } catch(Exception failure){slots.setText("Encrypted profile store unavailable.");}
+        status.setText(getSharedPreferences(RootlessNativePeerService.PREFS,MODE_PRIVATE).getString("status","No live peer test run."));
+    }
+}

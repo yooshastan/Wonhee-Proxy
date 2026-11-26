@@ -183,3 +183,40 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeProtectionStats(
     if (result != NULL) (*env)->SetLongArrayRegion(env, result, 0, 2, values);
     return result;
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeValidatePeerProfile(
+ JNIEnv *env, jclass type, jstring config) {
+ (void)type;
+ if (config==NULL) return JNI_FALSE;
+ const char *value=(*env)->GetStringUTFChars(env,config,NULL);
+ if (value==NULL) return JNI_FALSE;
+ int result=WNValidatePeerProfile((char *)value);
+ (*env)->ReleaseStringUTFChars(env,config,value);
+ return result?JNI_TRUE:JNI_FALSE;
+}
+JNIEXPORT jlong JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreatePeerSession(
+ JNIEnv *env,jclass type,jstring name,jstring config) {
+ (void)type;
+ if (name==NULL || config==NULL) return -1;
+ const char *n=(*env)->GetStringUTFChars(env,name,NULL);
+ if (n==NULL) return -1;
+ const char *v=(*env)->GetStringUTFChars(env,config,NULL);
+ if (v==NULL) {(*env)->ReleaseStringUTFChars(env,name,n);return -1;}
+ int64_t h=WNCreatePeerSession((char *)n,(char *)v);
+ (*env)->ReleaseStringUTFChars(env,config,v);
+ (*env)->ReleaseStringUTFChars(env,name,n);
+ return (jlong)h;
+}
+JNIEXPORT jlongArray JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePeerStats(
+ JNIEnv *env,jclass type,jlong handle) {
+ (void)type;
+ int64_t hs=0,rx=0,tx=0;
+ if (!WNPeerStats((uint64_t)handle,&hs,&rx,&tx)) hs=rx=tx=-1;
+ jlong values[3]={(jlong)hs,(jlong)rx,(jlong)tx};
+ jlongArray a=(*env)->NewLongArray(env,3);
+ if(a!=NULL) (*env)->SetLongArrayRegion(env,a,0,3,values);
+ return a;
+}

@@ -3,6 +3,7 @@ package dualwg
 import (
 	"errors"
 	"strings"
+	"strconv"
 	"sync"
 
 	"golang.zx2c4.com/wireguard/conn"
@@ -100,4 +101,27 @@ func (s *Session) Close() {
 	s.closed = true
 	s.device.Close()
 	s.Tun.Close()
+}
+
+// PeerSnapshot returns only redacted numeric statistics, never IPC text or keys.
+// Exactly one peer must be present. A newly created session starts at zero.
+func (s *Session) PeerSnapshot() (int64,int64,int64,error) {
+ s.mu.Lock();defer s.mu.Unlock()
+ if s.closed || !s.started {return 0,0,0,ErrClosed}
+ raw,e:=s.device.IpcGet();if e!=nil {return 0,0,0,ErrBadArgument}
+ var hs,rx,tx int64
+ peers:=0
+ count:=0
+ for _,line:=range strings.Split(raw,"\n") {
+  k,v,ok:=strings.Cut(line,"=");if !ok {continue}
+  if k=="public_key" {peers++}
+  switch k {
+  case "last_handshake_time_sec","rx_bytes","tx_bytes":
+   n,e:=strconv.ParseInt(v,10,64);if e!=nil || n<0 {return 0,0,0,ErrBadArgument}
+   count++
+   switch k {case "last_handshake_time_sec":hs=n;case "rx_bytes":rx=n;case "tx_bytes":tx=n}
+  }
+ }
+ if peers!=1 || count!=3 {return 0,0,0,ErrBadArgument}
+ return hs,rx,tx,nil
 }

@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(137)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native083'" in gradle
-assert "versionName.set('0.15.83-native-tun-batch-audit')" in gradle
+assert 'versionCode.set(138)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native084'" in gradle
+assert "versionName.set('0.15.84-native-peer-handshake')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -59,10 +59,10 @@ assert 'RootlessNativeBridge.injectPacket(handle' in tun_service
 assert 'No DNS, default route or root mutation' in tun_service
 assert 'addRoute("0.0.0.0"' not in tun_service and 'addRoute("::"' not in tun_service
 assert 'addDnsServer' not in tun_service
-assert 'RootlessNativeTunPumpActivity' in manifest
-assert 'Native TUN packet pump test' in rootlab
+assert 'RootlessNativePeerActivity' in manifest
+assert 'Native live peer handshake test' in rootlab
 assert 'RootlessNativeTransportActivity' not in rootlab
-assert 'RootlessNativeTunPumpService' in manifest
+assert 'RootlessNativePeerService' in manifest
 assert 'Target.HOME' in router
 assert 'Target.INTERNET' in router
 assert 'Target.DROP' in router
@@ -73,3 +73,11 @@ assert 'hi == 3 && hr == 3 && ni == 3 && nr == 3' in tun_service
 assert 'policyDrops.get() == 0' not in tun_service
 
 print("Wonhee native Android socket + scoped TUN ingress contract passed")
+
+live = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativePeerService.java").read_text()
+profiles = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativePeerProfiles.java").read_text()
+assert 'WNCreatePeerSession' in go and 'WNPeerStats' in go and 'entry.handshakeOnly' in go
+assert 'RootlessNativeTunPumpService' not in manifest
+assert '.establish()' not in live and '.addRoute(' not in live and 'injectPacket(' not in live
+assert 'SecureTunnelProfileStore' in profiles and 'validatePeerProfile' in profiles
+assert 'p[0]!=2L*count' in live and 's[0]>0&&s[1]>0&&s[2]>0' in live

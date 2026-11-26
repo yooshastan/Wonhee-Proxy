@@ -45,6 +45,12 @@ final class RootlessNativeBridge {
         return LOADED ? nativeProtectionStats() : new long[] {0L, 0L};
     }
 
+    static boolean validatePeerProfile(String config) { return LOADED && nativeValidatePeerProfile(config); }
+    static long createPeerSession(String name,String config) { return LOADED ? nativeCreatePeerSession(name,config) : -1L; }
+    static long[] peerStats(long handle) { return LOADED && handle>0 ? nativePeerStats(handle) : new long[]{-1,-1,-1}; }
+    private static native boolean nativeValidatePeerProfile(String config);
+    private static native long nativeCreatePeerSession(String name,String config);
+    private static native long[] nativePeerStats(long handle);
     private static native boolean nativeSetVpnService(VpnService service);
     private static native boolean nativeClearVpnService(VpnService service);
     private static native long nativeCreateTestSession(String name);
