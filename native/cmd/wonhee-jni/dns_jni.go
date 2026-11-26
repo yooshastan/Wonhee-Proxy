@@ -17,6 +17,7 @@ import (
  "sync/atomic"
  "unsafe"
 
+ quic "github.com/quic-go/quic-go"
  "golang.org/x/sys/unix"
  dualwg "github.com/yooshastan/Wonhee-Proxy/native"
 )
@@ -34,9 +35,9 @@ var quicSessions=map[uint64]*dnsQuicSession{}
 var tcpStacks=map[uint64]*dualwg.DnsTCPStack{}
 
 //export WNCreateQuicDns
-func WNCreateQuicDns(provider,mode C.int,roots *C.char,size C.int) C.int64_t{
+func WNCreateQuicDns(provider,mode,alternate C.int,roots *C.char,size C.int) C.int64_t{
  if roots==nil||size<1||size>1048576{return -1}
- ep,err:=dualwg.DNSProvider(int(provider),int(mode));if err!=nil{return -1}
+ ep,err:=dualwg.DNSProviderAddress(int(provider),int(mode),int(alternate));if err!=nil{return -1}
  pool:=x509.NewCertPool()
  if !pool.AppendCertsFromPEM(C.GoBytes(unsafe.Pointer(roots),size)){return -1}
  ctx,cancel:=context.WithCancel(context.Background())
@@ -74,7 +75,7 @@ func WNExchangeQuicDns(id C.uint64_t,fd C.int,query *C.char,size C.int,out *C.ch
  s.client=client;keep=true
  }
  response,err:=s.client.Exchange(C.GoBytes(unsafe.Pointer(query),size))
- if err!=nil{if errors.Is(err,dualwg.ErrQuicDNSResponse){return -6};if errors.Is(err,context.DeadlineExceeded){return -3};var ne net.Error;if errors.As(err,&ne)&&ne.Timeout(){return -3};var ce x509.UnknownAuthorityError;var he x509.HostnameError;var ie x509.CertificateInvalidError;if errors.As(err,&ce)||errors.As(err,&he)||errors.As(err,&ie){return -4};return -5}
+ if err!=nil{if errors.Is(err,dualwg.ErrQuicHandshakeTimeout){return -7};var streamErr *quic.StreamError;var appErr *quic.ApplicationError;var transErr *quic.TransportError;if errors.As(err,&streamErr){return -8};if errors.As(err,&appErr){return -9};if errors.As(err,&transErr){if transErr.ErrorCode>=0x100&&transErr.ErrorCode<=0x1ff{return -11};return -10};if errors.Is(err,dualwg.ErrQuicDNSResponse){return -6};if errors.Is(err,context.DeadlineExceeded){return -3};var ne net.Error;if errors.As(err,&ne)&&ne.Timeout(){return -3};var ce x509.UnknownAuthorityError;var he x509.HostnameError;var ie x509.CertificateInvalidError;if errors.As(err,&ce)||errors.As(err,&he)||errors.As(err,&ie){return -4};return -5}
  if len(response)>int(capacity){return -6}
  copy(unsafe.Slice((*byte)(unsafe.Pointer(out)),int(capacity)),response)
  return C.int(len(response))

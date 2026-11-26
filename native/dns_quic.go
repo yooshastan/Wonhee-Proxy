@@ -21,16 +21,21 @@ import (
 const MaxDnsReply=16384
 const MaxDnsQuery=1252
 var ErrQuicDNSResponse=errors.New("invalid encrypted DNS response")
+var ErrQuicHandshakeTimeout=errors.New("QUIC handshake timeout")
+func handshakeError(err error)error{if err==nil{return nil};var e net.Error;if errors.Is(err,context.DeadlineExceeded)||errors.As(err,&e)&&e.Timeout(){return ErrQuicHandshakeTimeout};return err}
 type DnsEndpoint struct { IP, Host string; Port int; Mode int }
-func DNSProvider(provider,mode int)(DnsEndpoint,error){
+func DNSProvider(provider,mode int)(DnsEndpoint,error){return DNSProviderAddress(provider,mode,0)}
+func DNSProviderAddress(provider,mode,alternate int)(DnsEndpoint,error){
+ if alternate!=0&&alternate!=1{return DnsEndpoint{},ErrBadArgument}
+ pick:=func(a,b string)string{if alternate==1{return b};return a}
  // 1=DoQ; 2=DoH3. Only documented initial provider combinations.
  if mode==1 {
-  switch provider {case 1:return DnsEndpoint{"9.9.9.9","dns.quad9.net",853,1},nil
-  case 2:return DnsEndpoint{"94.140.14.14","dns.adguard-dns.com",853,1},nil}
+  switch provider {case 1:return DnsEndpoint{pick("9.9.9.9","149.112.112.112"),"dns.quad9.net",853,1},nil
+  case 2:return DnsEndpoint{pick("94.140.14.14","94.140.15.15"),"dns.adguard-dns.com",853,1},nil}
  }
  if mode==2 {
-  switch provider {case 0:return DnsEndpoint{"1.1.1.1","cloudflare-dns.com",443,2},nil
-  case 1:return DnsEndpoint{"9.9.9.9","dns.quad9.net",443,2},nil}
+  switch provider {case 0:return DnsEndpoint{pick("1.1.1.1","1.0.0.1"),"cloudflare-dns.com",443,2},nil
+  case 1:return DnsEndpoint{pick("9.9.9.9","149.112.112.112"),"dns.quad9.net",443,2},nil}
  }
  return DnsEndpoint{},errors.New("unsupported encrypted DNS provider")
 }
@@ -73,7 +78,7 @@ func NewQuicDNSClient(parent context.Context,pc net.PacketConn,ep DnsEndpoint,ro
  if pc==nil||roots==nil||ep.Mode!=1&&ep.Mode!=2{return nil,ErrBadArgument}
  ip:=net.ParseIP(ep.IP);if ip==nil||ip.To4()==nil{return nil,ErrBadArgument}
  c:=&QuicDNSClient{pc:pc,ep:ep,addr:&net.UDPAddr{IP:ip.To4(),Port:ep.Port},parent:parent,
- cfg:&quic.Config{HandshakeIdleTimeout:4*time.Second,MaxIdleTimeout:35*time.Second,DisablePathMTUDiscovery:true,InitialPacketSize:1200},
+ cfg:&quic.Config{HandshakeIdleTimeout:4*time.Second,MaxIdleTimeout:15*time.Second,DisablePathMTUDiscovery:true,InitialPacketSize:1200},
  tls:&tls.Config{ServerName:ep.Host,RootCAs:roots,MinVersion:tls.VersionTLS13}}
  c.stop=context.AfterFunc(parent,func(){_ = pc.Close()})
  if ep.Mode==1 { c.tls.NextProtos=[]string{"doq"} } else {
@@ -82,10 +87,10 @@ func NewQuicDNSClient(parent context.Context,pc net.PacketConn,ep DnsEndpoint,ro
    Dial:func(ctx context.Context,destination string,t *tls.Config,q *quic.Config)(quic.EarlyConnection,error){
     if c.used||destination!=net.JoinHostPort(ep.Host,"443"){return nil,errors.New("unexpected HTTP/3 redial")}
     c.used=true
-    conn,err:=quic.DialEarly(ctx,boundedPacketConn{pc},c.addr,t,q);if err!=nil{return nil,err}
+    conn,err:=quic.DialEarly(ctx,boundedPacketConn{pc},c.addr,t,q);if err!=nil{return nil,handshakeError(err)}
     select{case <-conn.HandshakeComplete():return conn,nil
-    case <-conn.Context().Done():return nil,conn.Context().Err()
-    case <-ctx.Done():_ = conn.CloseWithError(0,"");return nil,ctx.Err()}
+    case <-conn.Context().Done():return nil,handshakeError(context.Cause(conn.Context()))
+    case <-ctx.Done():_ = conn.CloseWithError(0,"");return nil,handshakeError(ctx.Err())}
    }}
   c.httpClient=&http.Client{Transport:c.h3,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
  }
@@ -102,7 +107,7 @@ func(c *QuicDNSClient) Close(){
 }
 func(c *QuicDNSClient) Exchange(query []byte)([]byte,error){
  if len(query)<17||len(query)>MaxDnsQuery{return nil,ErrBadArgument}
- ctx,cancel:=context.WithTimeout(c.parent,10*time.Second);defer cancel()
+ ctx,cancel:=context.WithTimeout(c.parent,6*time.Second);defer cancel()
  q:=append([]byte(nil),query...)
  var response []byte
  var err error
@@ -111,7 +116,7 @@ func(c *QuicDNSClient) Exchange(query []byte)([]byte,error){
   if c.doq==nil{
    if c.used{return nil,errors.New("unexpected DoQ redial")};c.used=true
    c.doq,err=quic.Dial(ctx,boundedPacketConn{c.pc},c.addr,c.tls,c.cfg)
-   if err!=nil{return nil,err}
+   if err!=nil{return nil,handshakeError(err)}
   }
   response,err=exchangeDoQStream(ctx,c.doq,q)
  }else{response,err=exchangeH3Request(ctx,c.httpClient,c.ep.Host,q)}
@@ -130,7 +135,7 @@ func exchangeDoQStream(ctx context.Context,conn quic.Connection,q []byte)([]byte
  stop:=context.AfterFunc(ctx,func(){stream.CancelRead(0);stream.CancelWrite(0)});defer stop()
  deadline,_:=ctx.Deadline();_ = stream.SetDeadline(deadline)
  frame:=make([]byte,2+len(q));binary.BigEndian.PutUint16(frame,uint16(len(q)));copy(frame[2:],q)
- if n,err:=stream.Write(frame);err!=nil||n!=len(frame){return nil,errors.New("DoQ write")}
+ if n,err:=stream.Write(frame);err!=nil{return nil,err}else if n!=len(frame){return nil,io.ErrShortWrite}
  if err=stream.Close();err!=nil{return nil,err}
  var prefix [2]byte
  if _,err=io.ReadFull(stream,prefix[:]);err!=nil{return nil,err}
@@ -138,7 +143,7 @@ func exchangeDoQStream(ctx context.Context,conn quic.Connection,q []byte)([]byte
  out:=make([]byte,size)
  if _,err=io.ReadFull(stream,out);err!=nil{return nil,err}
  var extra [1]byte
- if n,err:=stream.Read(extra[:]);n!=0||err!=io.EOF{return nil,ErrQuicDNSResponse}
+ if n,err:=stream.Read(extra[:]);n!=0{return nil,ErrQuicDNSResponse}else if err!=io.EOF{if err!=nil{return nil,err};return nil,ErrQuicDNSResponse}
  return out,nil
 }
 func exchangeH3Request(ctx context.Context,client *http.Client,host string,q []byte)([]byte,error){
@@ -146,6 +151,6 @@ func exchangeH3Request(ctx context.Context,client *http.Client,host string,q []b
  req.Header.Set("Content-Type","application/dns-message");req.Header.Set("Accept","application/dns-message");req.Header.Set("Cache-Control","no-store")
  resp,err:=client.Do(req);if err!=nil{return nil,err};defer resp.Body.Close()
  if resp.StatusCode!=200||resp.ProtoMajor!=3||strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"),";")[0]))!="application/dns-message"{return nil,ErrQuicDNSResponse}
- body,err:=io.ReadAll(io.LimitReader(resp.Body,MaxDnsReply+1));if err!=nil||len(body)>MaxDnsReply{return nil,ErrQuicDNSResponse}
+ body,err:=io.ReadAll(io.LimitReader(resp.Body,MaxDnsReply+1));if err!=nil{return nil,err};if len(body)>MaxDnsReply{return nil,ErrQuicDNSResponse}
  return body,nil
 }

@@ -21,7 +21,7 @@ int wn_clear_service(JNIEnv *env, jobject service);
 int wn_has_service(void);
 int wn_protect_socket(int fd);
 void wn_protection_stats(uint64_t *success, uint64_t *failed);
-int64_t WNCreateQuicDns(int provider,int mode,char *roots,int size);
+int64_t WNCreateQuicDns(int provider,int mode,int alternate,char *roots,int size);
 void WNCloseQuicDns(uint64_t id);
 int WNExchangeQuicDns(uint64_t id,int fd,char *query,int size,char *out,int capacity);
 int64_t WNCreateDnsTcp(void);

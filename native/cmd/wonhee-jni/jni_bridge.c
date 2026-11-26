@@ -279,11 +279,11 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePollRoutePacket(
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_createQuic(JNIEnv *env,jclass cls,jint provider,jint mode,jbyteArray roots){
+Java_com_yooshastan_wonheeproxy_NativeAdvancedDnsBridge_createQuic(JNIEnv *env,jclass cls,jint provider,jint mode,jint alternate,jbyteArray roots){
  (void)cls;if(roots==NULL)return -1;
  jsize size=(*env)->GetArrayLength(env,roots);if(size<1||size>1048576)return -1;
  jbyte *buf=(*env)->GetByteArrayElements(env,roots,NULL);if(buf==NULL)return -1;
- int64_t id=WNCreateQuicDns(provider,mode,(char*)buf,size);
+ int64_t id=WNCreateQuicDns(provider,mode,alternate,(char*)buf,size);
  (*env)->ReleaseByteArrayElements(env,roots,buf,JNI_ABORT);return id;
 }
 JNIEXPORT void JNICALL

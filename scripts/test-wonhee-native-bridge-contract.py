@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(155)' in gradle
+assert 'versionCode.set(156)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.22.0-native-protected-routing')" in gradle
+assert "versionName.set('0.22.1-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -217,3 +217,14 @@ assert 'netstack.CreateNetTUN' in tcp_dns and 'network.ListenTCP' in tcp_dns
 assert 'tcpDNSPacket(p,false)' in tcp_dns and 'dnsRelay.feedTcp(p)' in app_routing and 'dnsRelay.drainTcpQueries()' in app_routing
 assert 'NativeDnsTransportPolicy.supports' in app_routing and 'NativeDnsTransportPolicy.supports' in ui_activity
 assert 'validateFull(q,answer)' in protected_dns
+
+# 0.22.1: bounded retry and explicit same-provider alternate endpoint.
+assert 'DNSProviderAddress(int(provider),int(mode),int(alternate))' in dns_jni
+assert 'remote.IP.Equal(net.ParseIP(s.endpoint.IP))' in dns_jni
+assert 'NativeAdvancedDnsBridge.createQuic(provider,mode,alternate,quicRoots)' in protected_dns
+assert 'if(k.remote!=ip||k.remotePort!=NativeDnsTransportPolicy.port(mode)' in protected_dns
+assert 'freshBackoff.begin' in protected_dns and 'freshBackoff.finish' in protected_dns
+assert 'QUIC_IDLE_LIMIT=10000' in protected_dns and 'quicFreshRetries' in protected_dns
+assert 'dnsRelay.testProvider()' in app_routing and 'DNS_TEST' in ui_activity
+assert 'dnsAlternate.getSelectedItemPosition()' in ui_activity
+assert 'DNS probe attempts=' in app_routing and 'dnsHealth' in ui_activity
