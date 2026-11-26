@@ -34,10 +34,17 @@ jobs:
         run: python3 scripts/test-wonhee-home-entrypoints.py
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
-      - name: Verify debug-only 0.15.81 RootLab APK and read-only readiness screen
+      - name: Verify debug-only 0.15.82 RootLab APK and read-only readiness screen
         run: python3 scripts/test-wonhee-rootlab-preview.py
-      - name: Verify native Android JNI and no-route smoke-test contract
+      - name: Verify native Android JNI and scoped TUN ingress contract
         run: python3 scripts/test-wonhee-native-bridge-contract.py
+      - name: Test fail-closed synthetic TUN packet classification
+        run: |
+          mkdir -p /tmp/wonhee-tun-policy
+          javac -d /tmp/wonhee-tun-policy \
+            app/src/debug/java/com/yooshastan/wonheeproxy/RootlessTunTestPacketRouter.java \
+            core-tests/RootlessTunTestPacketRouterTest.java
+          java -cp /tmp/wonhee-tun-policy com.yooshastan.wonheeproxy.RootlessTunTestPacketRouterTest
       - name: Verify permanent release-signing setup script syntax
         run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh scripts/wonhee-01562-device-preflight.sh
       - name: Prove safe installer refuses unsafe live/root states
@@ -380,7 +387,7 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'lib/arm64-v8a/libwonhee_native.so'
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0.15.81-native-smoke-ipc-apk
+          name: wonhee-0.15.82-native-tun-ingress-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
