@@ -114,7 +114,9 @@ assert 'packageUid(shell, MOKA)' in app_path
 assert 'packageUid(shell, CHROME)' in app_path
 assert 'packageUid(shell, BRAVE)' in app_path
 assert 'RootMokaIpv6CounterParser.target(' in app_path
-assert 'ss -tn' in app_path
+assert 'ss -tnpe' in app_path
+assert 'RootHomeTcpSocketEvidence.summarize(' in app_path
+assert 'RootHomeTcpSocketEvidenceTest.java' in (repo / '.github/workflows/build.yml').read_text()
 for forbidden in ('shell.run(null,', 'ip -4 rule add', 'ip -4 rule del',
                   'ip -4 route add', 'iptables -A', 'iptables -I',
                   'ip6tables -I', 'curl', 'tcpdump', 'logcat -d'):
@@ -341,8 +343,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(131)" in gradle
-assert "output.versionName.set('0.15.77-rootlab-brave-target-evidence')" in gradle
+assert "output.versionCode.set(132)" in gradle
+assert "output.versionName.set('0.15.78-rootlab-socket-uid-mark')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
