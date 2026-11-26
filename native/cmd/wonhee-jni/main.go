@@ -22,6 +22,7 @@ type sessionEntry struct {
 	probe *dualwg.ProbeScope
 	probePorts [4]uint16
 	udpPort uint16
+	routing *dualwg.RouteScope
 }
 
 type androidProtector struct{}
@@ -96,6 +97,7 @@ func WNInjectPacket(handle C.uint64_t, data *C.char, length C.int) C.int {
 	defer entry.mu.Unlock()
 	if entry.session == nil || entry.handshakeOnly { return -3 }
 	if entry.probe != nil && !(entry.probe.OwnedTCP(packet,false,entry.probePorts)) && !entry.probe.MatchUDP(packet,false,entry.udpPort) { return -5 }
+	if entry.routing != nil && !entry.routing.Outgoing(packet) { return -5 }
 	if err := entry.session.Tun.Inject(packet); err != nil { return -4 }
 	return 1
 }
@@ -160,7 +162,7 @@ func WNPeerStats(handle C.uint64_t, hs,rx,tx *C.int64_t) C.int {
  if hs==nil || rx==nil || tx==nil {return 0}
  entry:=lookupSession(uint64(handle));if entry==nil {return 0}
  entry.mu.Lock();defer entry.mu.Unlock()
- if entry.session==nil || (!entry.handshakeOnly && entry.probe==nil) {return 0}
+ if entry.session==nil || (!entry.handshakeOnly && entry.probe==nil && entry.routing==nil) {return 0}
  h,r,t,e:=entry.session.PeerSnapshot();if e!=nil {return 0}
  *hs=C.int64_t(h);*rx=C.int64_t(r);*tx=C.int64_t(t)
  return 1
@@ -205,5 +207,29 @@ func WNRegisterProbePorts(handle C.uint64_t,a,b,c,d,udp C.int) C.int {
  entry.udpPort=uint16(udp)
  entry.probePorts=[4]uint16{uint16(a),uint16(b),uint16(c),uint16(d)}
  return 1
+}
+//export WNCreateRouteSession
+func WNCreateRouteSession(name,config,local,home *C.char) C.int64_t {
+ if name==nil||config==nil||local==nil||home==nil||C.wn_has_service()!=1{return -1}
+ n:=C.GoString(name)
+ scope,ipc,e:=dualwg.NewRouteScope(n,C.GoString(config),C.GoString(local),C.GoString(home));if e!=nil{return -7}
+ session,e:=dualwg.NewProtectedSession(n,1280,512,androidProtector{});if e!=nil{return -2}
+ if e=session.Configure(ipc);e!=nil{session.Close();return -4}
+ if e=session.Start();e!=nil{session.Close();return -5}
+ handle:=nextHandle.Add(1);if handle==0||handle>(1<<63)-1{session.Close();return -6}
+ sessionsMu.Lock();sessions[handle]=&sessionEntry{session:session,routing:scope};sessionsMu.Unlock()
+ return C.int64_t(handle)
+}
+
+//export WNPollRoutePacket
+func WNPollRoutePacket(handle C.uint64_t,data *C.char,capacity C.int) C.int {
+ if data==nil||capacity<1280{return -1}
+ entry:=lookupSession(uint64(handle));if entry==nil{return -2}
+ entry.mu.Lock();defer entry.mu.Unlock()
+ if entry.session==nil||entry.routing==nil{return -3}
+ packet,ok:=entry.session.Tun.Poll();if !ok{return 0}
+ if !entry.routing.Incoming(packet){return -4}
+ copy(unsafe.Slice((*byte)(unsafe.Pointer(data)),int(capacity)),packet)
+ return C.int(len(packet))
 }
 func main() {}

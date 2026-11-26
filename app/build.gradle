@@ -23,7 +23,7 @@ android {
     buildTypes {
         debug {
             // Side-by-side experiment; never replace the user's signed stable app.
-            applicationIdSuffix '.rootlab01562triple1native092'
+            applicationIdSuffix '.rootlab01562triple1native160'
         }
         release {
             if (hasReleaseSigning) {
@@ -57,8 +57,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(146)
-            output.versionName.set('0.15.92-native-transfer-flows')
+            output.versionCode.set(147)
+            output.versionName.set('0.16.0-native-app-routing')
         }
     }
 }

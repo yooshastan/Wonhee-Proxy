@@ -59,6 +59,12 @@ final class RootlessNativeBridge {
     private static native int nativeValidatePeerProfile(String config);
     private static native long nativeCreatePeerSession(String name,String config);
     private static native long[] nativePeerStats(long handle);
+    static long createRouteSession(String name,String config,String local,String home){
+        return LOADED?nativeCreateRouteSession(name,config,local,home):-1L;
+    }
+    static int pollRoutePacket(long handle,byte[] output){return LOADED?nativePollRoutePacket(handle,output):-1;}
+    private static native long nativeCreateRouteSession(String name,String config,String local,String home);
+    private static native int nativePollRoutePacket(long handle,byte[] output);
     private static native boolean nativeSetVpnService(VpnService service);
     private static native boolean nativeClearVpnService(VpnService service);
     private static native long nativeCreateTestSession(String name);

@@ -33,11 +33,11 @@ assert 'PROPERTY_SPECIAL_USE_FGS_SUBTYPE' in manifest
 assert '.addRoute(' not in service
 assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
-assert manifest.count('<action android:name="android.net.VpnService" />') == 1
+assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(146)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native092'" in gradle
-assert "versionName.set('0.15.92-native-transfer-flows')" in gradle
+assert 'versionCode.set(147)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
+assert "versionName.set('0.16.0-native-app-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -125,3 +125,17 @@ assert 'builder.addRoute(streamTarget,32)' in live
 assert 'TRANSFER_BYTES=2*1024*1024' in live and 'NativeTransferBody.read' in live
 assert 'probePorts [4]uint16' in go and 'entry.probe.OwnedTCP(packet,true,entry.probePorts)' in go
 assert 'resolveTransferTarget()' in bootstrap and 'speed.cloudflare.com' in bootstrap
+
+app_routing = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeAppRoutingService.java").read_text()
+app_policy = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeAppRoutingPolicy.java").read_text()
+native_route = (root / "native/route_scope.go").read_text()
+assert 'WNCreateRouteSession' in go and 'WNPollRoutePacket' in go
+assert 'entry.routing.Outgoing(packet)' in go and 'entry.routing.Incoming(packet)' in go
+assert 'getConnectionOwnerUid' in app_routing and 'builder.addAllowedApplication(app)' in app_routing
+assert '.addRoute("0.0.0.0",0)' in app_routing and '.addRoute("::",0)' in app_routing
+assert 'ledger.reply(key,i,now)' in app_routing and 'ledger.admit' in app_routing
+assert 'NativeAppRoutingService' in manifest and 'NativeAppRoutingService' not in (root / "app/src/main/AndroidManifest.xml").read_text()
+assert 'routeMaxFlows=4096' in native_route and 'MAX_FLOWS=4096' in app_policy
+assert 'routePublic(remote)' in native_route and 'if(!publicIp(key.remote))return DROP' in app_policy
+assert 'captured apps held in TUN until Stop' in app_routing
+assert 'allowBypass' not in app_routing and 'Settings.Global.put' not in app_routing

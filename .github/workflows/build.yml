@@ -34,7 +34,7 @@ jobs:
         run: python3 scripts/test-wonhee-home-entrypoints.py
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
-      - name: Verify debug-only 0.15.92 RootLab APK and read-only readiness screen
+      - name: Verify debug-only 0.16.0 RootLab APK and read-only readiness screen
         run: python3 scripts/test-wonhee-rootlab-preview.py
       - name: Verify secure endpoint DNS wire codec
         run: |
@@ -46,6 +46,11 @@ jobs:
           mkdir -p /tmp/wonhee-transfer
           javac -d /tmp/wonhee-transfer app/src/debug/java/com/yooshastan/wonheeproxy/NativeTransferBody.java core-tests/NativeTransferBodyTest.java
           java -cp /tmp/wonhee-transfer com.yooshastan.wonheeproxy.NativeTransferBodyTest
+      - name: Verify selected-app policy and flow ownership
+        run: |
+          mkdir -p /tmp/wonhee-app-routing
+          javac -d /tmp/wonhee-app-routing app/src/main/java/com/yooshastan/wonheeproxy/AppUseCategories.java app/src/main/java/com/yooshastan/wonheeproxy/MultiTunnelIpv4Rewriter.java app/src/debug/java/com/yooshastan/wonheeproxy/NativeAppRoutingPolicy.java core-tests/NativeAppRoutingPolicyTest.java
+          java -cp /tmp/wonhee-app-routing com.yooshastan.wonheeproxy.NativeAppRoutingPolicyTest
       - name: Verify native Android JNI and scoped TUN ingress contract
         run: python3 scripts/test-wonhee-native-bridge-contract.py
       - name: Test fail-closed synthetic TUN packet classification
@@ -397,7 +402,7 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'lib/arm64-v8a/libwonhee_native.so'
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0.15.92-native-transfer-flows-apk
+          name: wonhee-0.16.0-native-app-routing-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
