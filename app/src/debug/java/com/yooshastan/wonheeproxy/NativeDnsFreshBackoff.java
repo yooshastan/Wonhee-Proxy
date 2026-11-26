@@ -20,5 +20,9 @@ final class NativeDnsFreshBackoff {
             trial=false;epoch++;
         }
     }
+    // At most two total attempts; never retry a reused failure twice or a TLS/validation failure.
+    static boolean canRetryHandshake(int freshAttempt,boolean reusedFailed,boolean closed,boolean handshakeTimeout){
+        return freshAttempt==0&&!reusedFailed&&!closed&&handshakeTimeout;
+    }
     synchronized boolean waiting(long now){return retryAfter!=0&&(now<retryAfter||trial);}
 }

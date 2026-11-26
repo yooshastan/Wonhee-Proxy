@@ -13,6 +13,11 @@ public final class NativeDnsFreshBackoffTest {
   long retry=b.begin(1602);check(retry>probe&&b.begin(1602)<0);
   b.finish(retry,true,1603);check(!b.waiting(1603)&&b.begin(1603)>0);
   long fresh=b.begin(1604);b.finish(fresh,false,1604);check(!b.waiting(1604));
+  check(NativeDnsFreshBackoff.canRetryHandshake(0,false,false,true));
+  check(!NativeDnsFreshBackoff.canRetryHandshake(1,false,false,true));
+  check(!NativeDnsFreshBackoff.canRetryHandshake(0,true,false,true));
+  check(!NativeDnsFreshBackoff.canRetryHandshake(0,false,true,true));
+  check(!NativeDnsFreshBackoff.canRetryHandshake(0,false,false,false));
   System.out.println("Fresh QUIC backoff and half-open trial PASS");
  }
 }

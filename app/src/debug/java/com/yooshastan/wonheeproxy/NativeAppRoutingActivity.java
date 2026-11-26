@@ -34,7 +34,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private CheckBox home;
     private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference;
     private CheckBox hostsEnabled,blockExternal853,autoRecovery;
-    private TextView hostsStatus,dnsHealth;
+    private TextView hostsStatus,dnsHealth,dnsPending;
     private Button dnsTestButton;
     private android.content.SharedPreferences draft;
     private static final class AppRow {
@@ -48,10 +48,10 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.22.1 PREVIEW",12);
+        label(header,"PROXY  /  0.22.2 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
-            final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(SECTIONS[i]);t.setTextSize(11);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
+            final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
             t.setOnClickListener(v->showPage(at));nav.addView(t,new LinearLayout.LayoutParams(0,dp(48),1));tabs[i]=t;
         }
         scroll=new ScrollView(this);scroll.setFillViewport(true);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
@@ -106,8 +106,9 @@ public final class NativeAppRoutingActivity extends Activity {
         label(root,"DNS tunnel (all captured system DNS)",14);
         dnsRole=spinner(root,new String[]{"Exit A","Exit B"},draft.getInt("dnsRole",0));
         label(root,"Provider address",14);
-        dnsAlternate=spinner(root,new String[]{"Primary address","Secondary address (same provider)"},draft.getInt("dnsAlternate",0));
-        label(root,"Address changes apply at next Start. No automatic provider, address, exit or protocol fallback.",13);
+        dnsAlternate=spinner(root,new String[]{"Primary address","Secondary address"},draft.getInt("dnsAlternate",0));
+        label(root,"Selections below are for the next Start. No automatic provider, address, exit or protocol fallback.",13);
+        dnsPending=label(root,"Configured DNS · not active",14);
         dnsHealth=label(root,"DNS health · not active",14);
         dnsTestButton=button(root,"Test active DNS provider",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.DNS_TEST)));
         label(root,"Tests example.com through the active encrypted DNS relay without using cache or HOSTS. Does not apply draft settings. Start the desired configuration first.",13);
@@ -164,7 +165,7 @@ public final class NativeAppRoutingActivity extends Activity {
         status=label(root,"",14);
         button(root,"Copy redacted diagnostics",()->{
             android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-            if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Wonhee diagnostics",status.getText()));
+            if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Wonhee diagnostics",getSharedPreferences(NativeAppRoutingService.PREFS,MODE_PRIVATE).getString("status","Not started")));
         });
         button(root,"Test automatic recovery",()->new android.app.AlertDialog.Builder(this).setTitle("Test tunnel recovery?").setMessage("Restarts peer sessions while keeping the existing VPN. Selected apps may temporarily lose connectivity. Enable automatic recovery and restart first.").setPositiveButton("Test",(d,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.RECOVERY_TEST))).setNegativeButton("Cancel",null).show());
         button(root,"Simulate tunnel failure (test guard)",()->new android.app.AlertDialog.Builder(this).setTitle("Test failure guard?").setMessage("This deliberately interrupts captured traffic until you press Stop.").setPositiveButton("Test",(d,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.GUARD_TEST))).setNegativeButton("Cancel",null).show());
@@ -198,11 +199,32 @@ public final class NativeAppRoutingActivity extends Activity {
         if(underlayStatus!=null)underlayStatus.setText(busy?"Physical connection · "+prefs.getString("underlay","pending")+"\n"+prefs.getString("networkPreference","")+" · migrations "+prefs.getLong("networkMigrations",0)+"\nLast recovery: "+prefs.getString("lastRecoveryReason","none")+" · "+prefs.getLong("lastRecoveryMs",0)+" ms":"Physical connection · disconnected");
         speed.setText("↓ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("downRate",0):0)+"    ↑ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("upRate",0):0));
         blocked.setText("Blocked DNS · "+prefs.getLong("blocked",0));
-        if(dnsHealth!=null)dnsHealth.setText("DNS health · "+(state.equals("ACTIVE")?prefs.getString("dnsHealth","Waiting")+"\n"+prefs.getString("dnsActiveConfig","")+"\nTest: "+prefs.getString("dnsProbe","Not tested"):"Not active"));
+        boolean active=state.equals("ACTIVE");
+        if(dnsPending!=null){
+            int provider=dnsProvider.getSelectedItemPosition(),mode=dnsMode.getSelectedItemPosition(),role=dnsRole.getSelectedItemPosition(),alternate=dnsAlternate.getSelectedItemPosition();
+            if(NativeDnsTransportPolicy.supports(provider,mode)&&role>=0&&role<2&&alternate>=0&&alternate<2){
+                String endpoint=(alternate==0?NativeProtectedDnsRelay.IPS:NativeProtectedDnsRelay.SECONDARY_IPS)[provider];
+                String configured=NativeProtectedDnsRelay.NAMES[provider]+" · "+NativeDnsTransportPolicy.LABELS[mode]+" · "+NativePeerProfiles.SLOTS[role]+" · "+endpoint;
+                boolean pending=active&&(provider!=prefs.getInt("dnsActiveProvider",-1)||mode!=prefs.getInt("dnsActiveMode",-1)||role!=prefs.getInt("dnsActiveRole",-1)||alternate!=prefs.getInt("dnsActiveAlternate",-1));
+                dnsPending.setText("Configured for next Start\n"+configured+(pending?"\nRestart required · active DNS unchanged":""));
+            }else dnsPending.setText("Configured DNS · unsupported selection; Start will be refused");
+        }
+        if(dnsHealth!=null)dnsHealth.setText("Active DNS · "+(active?prefs.getString("dnsActiveConfig","")+"\nHealth: "+prefs.getString("dnsHealth","Waiting")+"\nTest: "+prefs.getString("dnsProbe","Not tested"):"Not active"));
         if(dnsTestButton!=null)dnsTestButton.setEnabled(busy&&state.equals("ACTIVE"));
         int selected=0;for(AppRow r:apps)if(r.selected.isChecked())selected++;
         if(summary!=null)summary.setText("Configuration · "+selected+" apps selected · "+(home.isChecked()?"2 exits + Home":"2 exits")+"\nChanges apply on next Start.");
-        startButton.setEnabled(!busy);stopButton.setEnabled(busy);status.setText(report);
+        startButton.setEnabled(!busy);stopButton.setEnabled(busy);status.setText(formatActivity(report));
+    }
+    private static String formatActivity(String report){
+        return report.replace("\nDNS provider=","\n\nDNS relay\nDNS provider=")
+            .replace(" TLS opened=","\n\nTLS pool\nTLS opened=")
+            .replace(" QUIC opened=","\n\nQUIC connections\nQUIC opened=")
+            .replace(" DNS coalesced=","\n\nDNS latency\nDNS coalesced=")
+            .replace(" QUIC fresh retries=","\n\nQUIC failures and retries\nQUIC fresh retries=")
+            .replace(" DNS probe attempts=","\n\nDNS probe\nDNS probe attempts=")
+            .replace("\nunderlay=","\n\nPhysical network\nunderlay=")
+            .replace("\nDNS firewall drops=","\n\nProtection counters\nDNS firewall drops=")
+            .replace("\nactive tuples=","\n\nFlow accounting\nactive tuples=");
     }
     private void pickHomeRoute(){
         try{
