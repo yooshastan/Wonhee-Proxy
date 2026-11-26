@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(141)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native087'" in gradle
-assert "versionName.set('0.15.87-native-scoped-tcp')" in gradle
+assert 'versionCode.set(142)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native088'" in gradle
+assert "versionName.set('0.15.88-native-scoped-http')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -79,7 +79,7 @@ profiles = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativePeerProf
 assert 'WNCreatePeerSession' in go and 'WNPeerStats' in go and 'entry.handshakeOnly' in go
 assert 'RootlessNativeTunPumpService' not in manifest
 assert 'builder.establish()' in live and 'builder.addAllowedApplication(getPackageName())' in live and 'builder.addRoute(targets[i],32)' in live
-assert 'vpn.bindSocket(socket)' in live and 'socket.connect' in live and 'getOutputStream' not in live
+assert 'vpn.bindSocket(socket)' in live and 'socket.connect' in live and 'getOutputStream' in live and 'setEndpointIdentificationAlgorithm("HTTPS")' in live
 assert 'createProbeSession' in live and 'pollProbePacket' in live and 'rewrite[slot].toSession(p)' in live
 assert 'addDnsServer' not in live and 'addRoute("0.0.0.0"' not in live
 assert 'SecureTunnelProfileStore' in profiles and 'validatePeerProfile' in profiles
@@ -96,5 +96,10 @@ assert 'HOSTNAME_REQUIRES_NUMERIC_IP' in profiles and 'applyOverride' in profile
 assert 'getStringArrayExtra("overrides")' in live
 assert 'getAllByName' not in profiles and 'getByName' not in profiles
 
-assert 'WNCreateProbeSession' in go and 'WNPollProbePacket' in go and 'entry.probe.Match(packet,false)' in go
+assert 'WNCreateProbeSession' in go and 'WNPollProbePacket' in go and 'entry.probe.Match(packet,false)' in go and 'dualwg.ProbePort(packet,false,entry.probePorts)' in go
 assert 'PeerProbeConfig' in go and 'replace_allowed_ips=true' in (root / 'native/peer_probe.go').read_text()
+
+assert 'WNRegisterProbePorts' in go and 'registerProbePorts' in live
+assert 'FLOWS=2' in live and 'bindAttempts>=4' in live and 'now-vpnSeenAt>=500L' in live
+assert 'responseBytes.get(f)>0' in live and 'sentPayload[f]>0' in live and 'receivedPayload[f]>0' in live
+assert 'createSocket(socket,host,ports[slot],false)' in live and 'tls.startHandshake()' in live

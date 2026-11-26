@@ -26,10 +26,16 @@ import android.util.Log;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.SSLParameters;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
-/** Debug only. Exact host routes, own UID, one TCP connect per role; no payload or fallback. */
+/** Debug only. Exact host routes, own UID, two owned TCP flows per role, bounded HTTP response, no credentials or fallback. */
 public final class RootlessNativePeerService extends VpnService {
     static final String START="com.yooshastan.wonheeproxy.PEER_START";
     static final String STOP="com.yooshastan.wonheeproxy.PEER_STOP";
@@ -41,8 +47,15 @@ public final class RootlessNativePeerService extends VpnService {
     private final String[] targets={"1.1.1.1","1.0.0.1",null};
     private final int[] ports={443,443,0}, outbound=new int[3], inbound=new int[3];
     private final MultiTunnelIpv4Rewriter[] rewrite=new MultiTunnelIpv4Rewriter[3];
-    private final Socket[] sockets=new Socket[3];
-    private final AtomicIntegerArray localPorts=new AtomicIntegerArray(3), results=new AtomicIntegerArray(3);
+    private static final int FLOWS=2;
+    private final Socket[] sockets=new Socket[6];
+    private final AtomicIntegerArray localPorts=new AtomicIntegerArray(6), results=new AtomicIntegerArray(6);
+    private final AtomicIntegerArray httpStatus=new AtomicIntegerArray(6), responseBytes=new AtomicIntegerArray(6);
+    private final int[] sentPayload=new int[6], receivedPayload=new int[6];
+    private final java.util.concurrent.atomic.AtomicReferenceArray<String> workerStage=new java.util.concurrent.atomic.AtomicReferenceArray<>(6);
+    private int bindAttempts;
+    private long vpnSeenAt, nextBindAt, completedAt;
+    private Network candidateSeen;
     private final byte[] buffer=new byte[1280];
     private ParcelFileDescriptor tun;
     private Network underlay,vpn;
@@ -134,40 +147,100 @@ public final class RootlessNativePeerService extends VpnService {
         int a=MultiTunnelIpv4Rewriter.parseIpv4(ip);
         return InetAddress.getByAddress(new byte[]{(byte)(a>>>24),(byte)(a>>>16),(byte)(a>>>8),(byte)a});
     }
-    private void startProbes() throws Exception {
-        stage="bind-probe-sockets";
+    // Retry only before registration and before ANY connect. No unbound retry.
+    private boolean startProbes() throws Exception {
+        bindAttempts++;
+        try {
+            for(int f=0;f<count*FLOWS;f++){
+                stage="bind-vpn-"+NativePeerProfiles.IDS[f/FLOWS]+"-flow-"+(f%FLOWS+1);
+                Socket socket=new Socket();sockets[f]=socket;
+                vpn.bindSocket(socket);
+                stage="bind-tun-source-"+NativePeerProfiles.IDS[f/FLOWS]+"-flow-"+(f%FLOWS+1);
+                socket.bind(new InetSocketAddress(literal(TUN_IP),0));
+                localPorts.set(f,socket.getLocalPort());
+            }
+        }catch(SocketException failure){
+            String failedStage=stage;
+            for(int f=0;f<sockets.length;f++){
+                if(sockets[f]!=null){try{sockets[f].close();}catch(Exception closeFailed){throw new IllegalStateException("pre-connect cleanup failed");}sockets[f]=null;}
+                localPorts.set(f,0);
+            }
+            if(bindAttempts>=4)throw failure;
+            nextBindAt=SystemClock.elapsedRealtime()+400L;
+            report("RUNNING — "+failedStage+" retry "+bindAttempts+"/4; no connects started.");
+            return false;
+        }
         for(int i=0;i<count;i++){
-            Socket socket=new Socket();sockets[i]=socket;
-            vpn.bindSocket(socket);
-            socket.bind(new InetSocketAddress(literal(TUN_IP),0));
-            localPorts.set(i,socket.getLocalPort());
+            stage="register-flow-ports-"+NativePeerProfiles.IDS[i];
+            if(!RootlessNativeBridge.registerProbePorts(handles[i],localPorts.get(i*FLOWS),localPorts.get(i*FLOWS+1)))throw new IllegalStateException();
         }
         probesStarted=true;
-        stage="tcp-probes";
-        for(int i=0;i<count;i++){
-            final int slot=i;final Socket socket=sockets[i];
-            Thread worker=new Thread(()->{
-                try{
-                    socket.connect(new InetSocketAddress(literal(targets[slot]),ports[slot]),15000);
-                    results.set(slot,1);
-                }catch(Exception failure){results.set(slot,-1);}
-                // Service owns socket close and TUN teardown.
-            },"WonheeTcpProbe-"+i);
+        stage="http-probes";
+        for(int f=0;f<count*FLOWS;f++){
+            final int flow=f,slot=f/FLOWS;final Socket socket=sockets[f];
+            Thread worker=new Thread(()->runHttpProbe(flow,slot,socket),"WonheeHttpProbe-"+f);
             worker.setDaemon(true);worker.start();
+        }
+        return true;
+    }
+    private void runHttpProbe(int flow,int slot,Socket socket){
+        SSLSocket tls=null;
+        try{
+            workerStage.set(flow,"connect");
+            socket.setSoTimeout(12000);
+            socket.connect(new InetSocketAddress(literal(targets[slot]),ports[slot]),15000);
+            Socket wire=socket;
+            String host=targets[slot];
+            if(slot<2){
+                workerStage.set(flow,"verified-tls");
+                host="cloudflare-dns.com";
+                tls=(SSLSocket)((SSLSocketFactory)SSLSocketFactory.getDefault()).createSocket(socket,host,ports[slot],false);
+                SSLParameters parameters=tls.getSSLParameters();
+                parameters.setEndpointIdentificationAlgorithm("HTTPS");
+                tls.setSSLParameters(parameters);tls.setSoTimeout(12000);tls.startHandshake();
+                wire=tls;
+            }
+            workerStage.set(flow,"http-response");
+            // No auth, cookies, redirects, user input or DNS lookup. Only fixed GET.
+            String request="GET / HTTP/1.1\\r\\nHost: "+host+(slot==2?":"+ports[slot]:"")+"\\r\\nConnection: close\\r\\nUser-Agent: Wonhee-Diagnostic/0.15.88\\r\\nAccept: */*\\r\\n\\r\\n";
+            wire.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
+            wire.getOutputStream().flush();
+            InputStream in=wire.getInputStream();
+            byte[] head=new byte[8192];int n=0;
+            long until=SystemClock.elapsedRealtime()+12000L;
+            while(n<head.length&&SystemClock.elapsedRealtime()<until){
+                int value=in.read();if(value<0)break;
+                head[n++]=(byte)value;
+                if(n>=4&&head[n-4]==13&&head[n-3]==10&&head[n-2]==13&&head[n-1]==10)break;
+            }
+            if(n<12||head[n-4]!=13||head[n-3]!=10||head[n-2]!=13||head[n-1]!=10)throw new java.io.IOException("header incomplete");
+            String line=new String(head,0,Math.min(n,64),StandardCharsets.US_ASCII);
+            if(!line.matches("(?s)HTTP/1\\\\.[01] [1-5][0-9]{2}(?:[ \\r\\n]).*"))throw new java.io.IOException("invalid status");
+            httpStatus.set(flow,Integer.parseInt(line.substring(9,12)));
+            responseBytes.set(flow,n);
+            workerStage.set(flow,"response-verified");
+            results.set(flow,1);
+        }catch(Exception failure){
+            workerStage.set(flow,workerStage.get(flow)+"/"+failure.getClass().getSimpleName());
+            results.set(flow,-1);
+        }finally{
+            // Underlying bound socket is always owned by service; TLS wrapper never reconnects.
+            if(tls!=null)try{tls.close();}catch(Exception ignored){}
         }
     }
     private static int u16(byte[] p,int off){return ((p[off]&255)<<8)|(p[off+1]&255);}
     private static int ip(byte[] p,int off){return (u16(p,off)<<16)|u16(p,off+2);}
-    private boolean match(byte[] p,int slot,boolean reply){
+    private boolean match(byte[] p,int flow,boolean reply){
+        int slot=flow/FLOWS;
         if(p.length<40||p.length>1280||p[0]!=0x45||p[9]!=6||u16(p,2)!=p.length||(u16(p,6)&0xbfff)!=0)return false;
         int tcp=((p[32]&255)>>>4)*4;
-        if(tcp<20||20+tcp!=p.length||localPorts.get(slot)==0)return false;
+        if(tcp<20||20+tcp>p.length||localPorts.get(flow)==0)return false;
         int target=MultiTunnelIpv4Rewriter.parseIpv4(targets[slot]);
         int local=MultiTunnelIpv4Rewriter.parseIpv4(TUN_IP);
         // Inbound packet is translated before this check; original local address
         // is independently enforced by native scope and per-peer rewriter.
-        return reply?ip(p,12)==target&&ip(p,16)==local&&u16(p,20)==ports[slot]&&u16(p,22)==localPorts.get(slot)
-             :ip(p,12)==local&&ip(p,16)==target&&u16(p,20)==localPorts.get(slot)&&u16(p,22)==ports[slot];
+        return reply?ip(p,12)==target&&ip(p,16)==local&&u16(p,20)==ports[slot]&&u16(p,22)==localPorts.get(flow)
+             :ip(p,12)==local&&ip(p,16)==target&&u16(p,20)==localPorts.get(flow)&&u16(p,22)==ports[slot];
     }
     private void pump() throws Exception {
         for(int k=0;k<16;k++){
@@ -175,21 +248,26 @@ public final class RootlessNativePeerService extends VpnService {
             try{n=Os.read(tun.getFileDescriptor(),buffer,0,buffer.length);}
             catch(ErrnoException e){if(e.errno==OsConstants.EAGAIN)break;throw e;}
             if(n<=0)throw new IllegalStateException();
-            byte[] p=Arrays.copyOf(buffer,n);int slot=-1;
-            for(int i=0;i<count;i++)if(match(p,i,false)){slot=i;break;}
-            if(slot<0){rejected++;continue;}
+            byte[] p=Arrays.copyOf(buffer,n);int flow=-1;
+            for(int i=0;i<count*FLOWS;i++)if(match(p,i,false)){flow=i;break;}
+            if(flow<0){rejected++;continue;}
+            int slot=flow/FLOWS;
             byte[] translated=rewrite[slot].toSession(p);
             if(translated==null||RootlessNativeBridge.injectPacket(handles[slot],translated)!=1)throw new IllegalStateException("egress rejected");
             outbound[slot]++;
+            sentPayload[flow]+=p.length-20-((p[32]&255)>>>4)*4;
         }
         for(int i=0;i<count;i++)for(int k=0;k<16;k++){
             int n=RootlessNativeBridge.pollProbePacket(handles[i],buffer);
             if(n==0)break;
             if(n<0){rejected++;if(n==-4)continue;throw new IllegalStateException();}
             byte[] p=rewrite[i].toTun(Arrays.copyOf(buffer,n));
-            if(p==null||!match(p,i,true)){rejected++;continue;}
+            int flow=-1;
+            if(p!=null)for(int f=i*FLOWS;f<(i+1)*FLOWS;f++)if(match(p,f,true)){flow=f;break;}
+            if(flow<0){rejected++;continue;}
             if(Os.write(tun.getFileDescriptor(),p,0,p.length)!=p.length)throw new IllegalStateException("short TUN write");
             inbound[i]++;
+            receivedPayload[flow]+=p.length-20-((p[32]&255)>>>4)*4;
         }
     }
     private void pollPeers(){
@@ -204,7 +282,12 @@ public final class RootlessNativePeerService extends VpnService {
                 long[] s=RootlessNativeBridge.peerStats(handles[i]);
                 if(s==null||s.length<3||s[0]<0||s[1]<0||s[2]<0){finish("NOT PASSED — peer statistics unavailable");return;}
                 boolean ok=s[0]>0&&s[1]>0&&s[2]>0;all &=ok;
-                b.append(NativePeerProfiles.SLOTS[i]).append(": ").append(ok?"HANDSHAKE VERIFIED":"awaiting handshake").append(" · TCP=").append(results.get(i)==1?"CONNECTED":results.get(i)==-1?"FAILED":"pending").append(" · TUN out/in=").append(outbound[i]).append('/').append(inbound[i]).append('\n');
+                b.append(NativePeerProfiles.SLOTS[i]).append(": ").append(ok?"HANDSHAKE VERIFIED":"awaiting handshake").append(" · TUN out/in=").append(outbound[i]).append('/').append(inbound[i]).append('\n');
+                for(int f=i*FLOWS;f<(i+1)*FLOWS;f++){
+                    b.append("  flow ").append(f%FLOWS+1).append(": ").append(workerStage.get(f)==null?"pending":workerStage.get(f))
+                     .append(" HTTP=").append(httpStatus.get(f)).append(" header bytes=").append(responseBytes.get(f))
+                     .append(" TCP payload out/in=").append(sentPayload[f]).append('/').append(receivedPayload[f]).append('\n');
+                }
             }
             if(now>=deadline){finish("NOT PASSED — test timeout");return;}
             if(tun==null){
@@ -213,9 +296,11 @@ public final class RootlessNativePeerService extends VpnService {
             }else{
                 Network candidate=ownVpn();
                 if(vpn==null){
-                    if(candidate!=null){vpn=candidate;startProbes();}
-                    else if(now-startedTun>5000L){finish("NOT PASSED — scoped VPN Network not visible");return;}
+                    if(candidate==null){candidateSeen=null;if(now-startedTun>8000L){finish("NOT PASSED — scoped VPN Network not visible");return;}}
+                    else if(!candidate.equals(candidateSeen)){candidateSeen=candidate;vpnSeenAt=now;}
+                    else if(now-vpnSeenAt>=500L){vpn=candidate;nextBindAt=now;}
                 }else if(!vpn.equals(candidate)){finish("NOT PASSED — scoped VPN Network lost");return;}
+                if(vpn!=null&&!probesStarted&&now>=nextBindAt)startProbes();
                 if(vpn!=null){
                     Network active=cm().getActiveNetwork();
                     if(!vpn.equals(active)&&!underlay.equals(active)){finish("NOT PASSED — network changed");return;}
@@ -226,21 +311,26 @@ public final class RootlessNativePeerService extends VpnService {
             for(int i=0;i<count;i++){
                 long[] stats=RootlessNativeBridge.packetStats(handles[i]);
                 if(stats==null||stats.length<3||stats[2]!=0){finish("NOT PASSED — native queue error");return;}
-                complete &= results.get(i)==1 && outbound[i]>0 && inbound[i]>0 && stats[0]>0 && stats[1]>0;
-                failed |= results.get(i)==-1;
+                complete &= outbound[i]>0 && inbound[i]>0 && stats[0]>0 && stats[1]>0;
+                for(int f=i*FLOWS;f<(i+1)*FLOWS;f++){
+                    complete &= results.get(f)==1 && httpStatus.get(f)>=100 && responseBytes.get(f)>0 && sentPayload[f]>0 && receivedPayload[f]>0;
+                    failed |= results.get(f)==-1;
+                }
             }
-            last=(complete?"PASS":"RUNNING")+" — protected sockets="+p[0]+"; failures="+p[1]+"; policy rejections="+rejected+"\n"+b+"Own package and three host routes only; no application payload or DNS changes.";
-            if(complete||failed||now>=reportAt){report(last);reportAt=now+1000L;}
-            if(complete){finish("PASS — scoped bidirectional TCP verified");return;}
+            if(complete&&completedAt==0)completedAt=now;
+            boolean settled=complete&&now-completedAt>=3000L;
+            last=(settled?"PASS":"RUNNING")+" — protected sockets="+p[0]+"; failures="+p[1]+"; policy rejections="+rejected+"; bind attempts="+bindAttempts+"\n"+b+"Two registered flows per peer; bounded HTTP headers; no credentials, redirects or DNS changes.";
+            if(settled||failed||now>=reportAt){report(last);reportAt=now+1000L;}
+            if(settled){finish("PASS — concurrent scoped HTTP responses verified");return;}
             if(failed){finish("NOT PASSED — TCP probe failed");return;}
             handler.postDelayed(tick,tun==null?250L:10L);
         }catch(Exception|LinkageError failure){finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
     }
     private Notification notification(){
         NotificationManager m=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-        if(m!=null)m.createNotificationChannel(new NotificationChannel(CHANNEL,"Native scoped TCP test",NotificationManager.IMPORTANCE_LOW));
+        if(m!=null)m.createNotificationChannel(new NotificationChannel(CHANNEL,"Native scoped HTTP test",NotificationManager.IMPORTANCE_LOW));
         PendingIntent open=PendingIntent.getActivity(this,8401,new Intent(this,RootlessNativePeerActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        return new Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Wonhee scoped TCP test").setContentText("Own package · no application payload").setContentIntent(open).setOngoing(true).build();
+        return new Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Wonhee scoped HTTP test").setContentText("Own package · credential-free HTTP probes").setContentIntent(open).setOngoing(true).build();
     }
     private void report(String s){Log.i(TAG,s);getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("status",s).apply();}
     private boolean cleanup(){

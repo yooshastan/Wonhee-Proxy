@@ -9,7 +9,10 @@ func TestProbeScope(t *testing.T){
  q:=append([]byte(nil),p...);copy(q[12:16],p[16:20]);copy(q[16:20],p[12:16]);copy(q[20:22],p[22:24]);copy(q[22:24],p[20:22])
  if !s.Match(q,true)||s.Match(q,false){t.Fatal("reply scope")}
  q[12]=9;if s.Match(q,true){t.Fatal("foreign peer reply")}
- p=append(p,1);binary.BigEndian.PutUint16(p[2:4],41);if s.Match(p,false){t.Fatal("payload accepted")}
+ p=append(p,1);binary.BigEndian.PutUint16(p[2:4],41);if !s.Match(p,false){t.Fatal("scoped payload rejected")}
+ if !ProbePort(p,false,[2]uint16{40000,40001})||ProbePort(p,false,[2]uint16{40002,40003})||ProbePort(p,false,[2]uint16{}){t.Fatal("port ownership")}
+ if ProbePort(q,true,[2]uint16{40002,40003})||!ProbePort(q,true,[2]uint16{40000,40001}){t.Fatal("reply port ownership")}
+ p[32]=0xf0;if s.Match(p,false){t.Fatal("truncated TCP header")}
  if _,e:=NewProbeScope("exit-b","10.1.2.3","1.1.1.1",443);e==nil{t.Fatal("cross exit")}
  if _,e:=NewProbeScope("home","10.1.2.3","1.1.1.1",443);e==nil{t.Fatal("public home target")}
  a,_:=ecdh.X25519().GenerateKey(rand.Reader);b,_:=ecdh.X25519().GenerateKey(rand.Reader);enc:=base64.StdEncoding.EncodeToString

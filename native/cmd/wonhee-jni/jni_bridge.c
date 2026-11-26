@@ -245,3 +245,10 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePollProbePacket(
  if(n>0&&n<=1280)(*env)->SetByteArrayRegion(env,out,0,n,bytes);
  return n;
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeRegisterProbePorts(
+ JNIEnv *env,jclass type,jlong handle,jint a,jint b){
+ (void)env;(void)type;
+ return WNRegisterProbePorts((uint64_t)handle,a,b)?JNI_TRUE:JNI_FALSE;
+}

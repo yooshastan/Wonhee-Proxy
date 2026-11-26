@@ -6,7 +6,7 @@ import (
  "strings"
 )
 
-// ProbeScope permits only payload-free TCP for one numeric IPv4 destination.
+// ProbeScope permits bounded-size IPv4 TCP segments for one numeric IPv4 destination.
 // The Android side additionally owns the ephemeral source port and TUN address.
 type ProbeScope struct {
  Local, Target netip.Addr
@@ -26,7 +26,7 @@ func NewProbeScope(role,local,target string,port int) (*ProbeScope,error) {
 func (s *ProbeScope) Match(p []byte,reply bool) bool {
  if s==nil || len(p)<40 || len(p)>1280 || p[0]!=0x45 || p[9]!=6 || int(binary.BigEndian.Uint16(p[2:4]))!=len(p) || binary.BigEndian.Uint16(p[6:8])&0xbfff!=0 {return false}
  header:=int(p[32]>>4)*4
- if header<20 || 20+header!=len(p) {return false}
+ if header<20 || 20+header>len(p) {return false}
  src:=netip.AddrFrom4([4]byte(p[12:16]));dst:=netip.AddrFrom4([4]byte(p[16:20]))
  sp:=binary.BigEndian.Uint16(p[20:22]);dp:=binary.BigEndian.Uint16(p[22:24])
  if sp==0||dp==0 {return false}
@@ -49,4 +49,13 @@ func PeerProbeConfig(input string,scope *ProbeScope)(string,error) {
  }
  if !covered{return "",ErrBadArgument}
  return ipc+"replace_allowed_ips=true\nallowed_ip="+scope.Target.String()+"/32\n",nil
+}
+
+// ProbePort matches one of the explicitly registered local TCP ports.
+// Called under the owning JNI session lock; never infer flow from remote IP alone.
+func ProbePort(p []byte,reply bool,ports [2]uint16) bool {
+ if len(p)<40 || p[0]!=0x45 || p[9]!=6{return false}
+ offset:=20;if reply{offset=22}
+ port:=binary.BigEndian.Uint16(p[offset:offset+2])
+ return port!=0&&(port==ports[0]||port==ports[1])
 }
