@@ -34,8 +34,30 @@ func TestActualJNISmokeConfigAcceptedByWireGuard(t *testing.T) {
 			s.Close()
 			t.Fatal("actual JNI smoke configuration rejected by wireguard-go")
 		}
-		// Host CI tests the exact production IPC parser path, not Android protect.
-		// Do not activate a host session or open sockets here.
 		s.Close()
+	}
+}
+
+func TestPacketPumpSmokeConfigsAreExactAndAccepted(t *testing.T) {
+	for _, route := range []string{"198.18.1.0/24", "0.0.0.0/0"} {
+		config, err := NewEphemeralSmokeConfigForAllowedIP(route)
+		if err != nil { t.Fatal("synthetic route config rejected") }
+		if !strings.Contains(config, "allowed_ip="+route+"\n")
+			|| strings.Contains(config, "endpoint=")
+			|| strings.Contains(config, "dns=") {
+			t.Fatal("packet-pump config contains unexpected fields")
+		}
+		session, err := NewProtectedSession("packet", 1280, 8, smokeNoProtect{})
+		if err != nil { t.Fatal("protected session construction failed") }
+		if err := session.Configure(config); err != nil {
+			session.Close()
+			t.Fatal("packet-pump config rejected by wireguard-go IPC parser")
+		}
+		session.Close()
+	}
+	for _, route := range []string{"198.18.0.0/15", "10.0.0.0/8", "::/0", "0.0.0.0/0,::/0", ""} {
+		if _, err := NewEphemeralSmokeConfigForAllowedIP(route); err == nil {
+			t.Fatalf("unapproved synthetic route accepted: %q", route)
+		}
 	}
 }
