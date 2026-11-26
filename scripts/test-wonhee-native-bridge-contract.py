@@ -31,7 +31,8 @@ assert 'foregroundServiceType="specialUse"' in manifest
 assert 'PROPERTY_SPECIAL_USE_FGS_SUBTYPE' in manifest
 assert '.addRoute(' not in service
 assert 'stats[0] != 4L || stats[1] != 0L' in service
-assert 'RootlessNativeTransportService' in manifest
+assert 'RootlessNativeTransportService' not in manifest
+assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
 assert 'versionCode.set(136)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native082'" in gradle
