@@ -37,17 +37,24 @@ func TestDoQAuthenticatedLoopback(t *testing.T){
  server:=make(chan error,1)
  go func(){
   c,e:=listener.Accept(ctx);if e!=nil{server<-e;return}
+  for i:=0;i<2;i++{
   stream,e:=c.AcceptStream(ctx);if e!=nil{server<-e;return}
   var p [2]byte;if _,e=io.ReadFull(stream,p[:]);e!=nil{server<-e;return}
   q:=make([]byte,int(binary.BigEndian.Uint16(p[:])));if _,e=io.ReadFull(stream,q);e!=nil{server<-e;return}
   if q[0]!=0||q[1]!=0{server<-ErrBadArgument;return}
   q[2]=0x81
-  frame:=append(p[:],q...);_,e=stream.Write(frame);if e==nil{e=stream.Close()};server<-e
+  frame:=append(p[:],q...);_,e=stream.Write(frame);if e==nil{e=stream.Close()};if e!=nil{server<-e;return}
+  }
+  server<-nil
  }()
  pc,err:=net.ListenPacket("udp4","127.0.0.1:0");if err!=nil{t.Fatal(err)};defer pc.Close()
  ep:=DnsEndpoint{"127.0.0.1","dns.test",listener.Addr().(*net.UDPAddr).Port,1}
- a,err:=ExchangeQuicDNS(ctx,pc,ep,roots,testQuestion())
- if err!=nil||len(a)!=len(testQuestion())||a[0]!=0x12||a[1]!=0x34||a[2]!=0x81{t.Fatalf("DoQ response: %v",err)}
+ client,err:=NewQuicDNSClient(ctx,pc,ep,roots);if err!=nil{t.Fatal(err)};defer client.Close()
+ for i:=0;i<2;i++{
+  q:=testQuestion();q[1]=byte(0x34+i)
+  a,err:=client.Exchange(q)
+  if err!=nil||len(a)!=len(q)||a[0]!=q[0]||a[1]!=q[1]||a[2]!=0x81{t.Fatalf("DoQ reused response %d: %v",i,err)}
+ }
  if e:=<-server;e!=nil{t.Fatal(e)}
 }
 func TestHTTP3AuthenticatedLoopback(t *testing.T){
@@ -63,6 +70,10 @@ func TestHTTP3AuthenticatedLoopback(t *testing.T){
  ctx,cancel:=context.WithTimeout(context.Background(),6*time.Second);defer cancel()
  pc,err:=net.ListenPacket("udp4","127.0.0.1:0");if err!=nil{t.Fatal(err)};defer pc.Close()
  ep:=DnsEndpoint{"127.0.0.1","dns.test",socket.LocalAddr().(*net.UDPAddr).Port,2}
- a,err:=ExchangeQuicDNS(ctx,pc,ep,roots,testQuestion())
- if err!=nil||len(a)!=len(testQuestion())||a[0]!=0x12||a[1]!=0x34||a[2]!=0x81{t.Fatalf("HTTP/3 response: %v",err)}
+ client,err:=NewQuicDNSClient(ctx,pc,ep,roots);if err!=nil{t.Fatal(err)};defer client.Close()
+ for i:=0;i<2;i++{
+  q:=testQuestion();q[1]=byte(0x34+i)
+  a,err:=client.Exchange(q)
+  if err!=nil||len(a)!=len(q)||a[0]!=q[0]||a[1]!=q[1]||a[2]!=0x81{t.Fatalf("HTTP/3 reused response %d: %v",i,err)}
+ }
 }

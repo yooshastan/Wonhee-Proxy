@@ -44,7 +44,7 @@ public final class NativeAppRoutingService extends VpnService {
     private long deniedRoute,deniedLedger,deniedNative,relayEnded;
     private String notificationLine="Connecting…";
     private NativeProtectedDnsRelay dnsRelay;
-    private long dnsFirewallDrops,ipv6Drops,otherUnsupported;
+    private long dnsFirewallDrops,ipv6Drops,otherUnsupported,unsupportedIpv4TcpUdp,unsupportedIpv4Other,unsupportedVersion,unknownTcp,unknownUdp,unknownDns;
     private boolean blockExternal853;
     private int dnsProvider,dnsRole,dnsMode;
     private Set<String> blocklist=Collections.emptySet();
@@ -251,12 +251,15 @@ public final class NativeAppRoutingService extends VpnService {
     private void run(Intent intent){
         String stage="preflight";boolean captured=false;
         try{
-            if(Build.VERSION.SDK_INT<29||!dnsOff()||VpnService.prepare(this)!=null||!RootlessNativeBridge.available())throw new IllegalStateException();
+            if(Build.VERSION.SDK_INT<29){stage="preflight/API_UNSUPPORTED";throw new IllegalStateException();}
+            if(!dnsOff()){stage="preflight/PRIVATE_DNS_NOT_OFF";throw new IllegalStateException();}
+            if(VpnService.prepare(this)!=null){stage="preflight/VPN_PERMISSION_REQUIRED";throw new IllegalStateException();}
+            if(!RootlessNativeBridge.available()){stage="preflight/NATIVE_LIBRARY_LOAD_FAILED";throw new IllegalStateException();}
             autoRecovery=intent.getBooleanExtra("autoRecovery",true);
             networkPreference=intent.getIntExtra("networkPreference",NativeUnderlayPolicy.WIFI_FIRST);
             if(!NativeUnderlayPolicy.valid(networkPreference)){networkPreference=NativeUnderlayPolicy.WIFI_FIRST;throw new IllegalArgumentException();}
             watchNetworks();
-            underlay=initialNetwork();if(underlay==null)throw new IllegalStateException();
+            underlay=initialNetwork();if(underlay==null){stage=noVpn()?"preflight/NO_VALIDATED_PHYSICAL_NETWORK (check connectivity or firewall)":"preflight/EXISTING_VPN_ACTIVE";throw new IllegalStateException();}
             boolean home=intent.getBooleanExtra("home",false);
             String homeCidr=home?intent.getStringExtra("homeCidr"):"";sessionHomeCidr=homeCidr;
             policy=new NativeAppRoutingPolicy(home?new NativeAppRoutingPolicy.Prefix(homeCidr):null,intent.getIntExtra("default",0),intent.getIntArrayExtra("categories"),intent.getIntArrayExtra("protocols"));
@@ -411,11 +414,11 @@ public final class NativeAppRoutingService extends VpnService {
             if(n<=0)throw new IllegalStateException();
             byte[] p=Arrays.copyOf(buffer,n);
             NativeAppRoutingPolicy.Key key=NativeAppRoutingPolicy.key(p,false);
-            if(key==null){unsupported++;if((p[0]&0xf0)==0x60)ipv6Drops++;else otherUnsupported++;continue;}
+            if(key==null){unsupported++;if((p[0]&0xf0)==0x60)ipv6Drops++;else{otherUnsupported++;if((p[0]&0xf0)==0x40&&p.length>=20){int proto=p[9]&255;if(proto==6||proto==17)unsupportedIpv4TcpUdp++;else unsupportedIpv4Other++;}else unsupportedVersion++;}continue;}
             NativeAppRoutingPolicy.Owner prior=ledger.get(key,now);
             boolean syn=NativeAppRoutingPolicy.syn(p);
             int owner=prior!=null&&key.proto==6&&!syn?prior.uid:uid(key);
-            if(owner==-1){unknown++;continue;}
+            if(owner==-1){unknown++;if(key.proto==6)unknownTcp++;else if(key.proto==17)unknownUdp++;if(key.fixedDns())unknownDns++;continue;}
             if(key.remotePort==53){
                 if(key.fixedDns()&&dnsRelay!=null&&policy.choose(key,owners.get(owner),owner==UNKNOWN_DNS)>=0){
                     if(key.proto==17){dnsRelay.submit(p);continue;}
@@ -463,13 +466,13 @@ public final class NativeAppRoutingService extends VpnService {
     private String stats(String prefix){
         StringBuilder b=new StringBuilder(prefix);
         for(int i=0;i<count;i++)b.append("\n").append(NativePeerProfiles.SLOTS[i]).append(" new flows=").append(opened[i]).append(" packets out/in=").append(outgoing[i]).append('/').append(incoming[i]).append(" bytes out/in=").append(outBytes[i]).append('/').append(inBytes[i]);
-        if(dnsRelay!=null)b.append("\nDNS provider=").append(NativeProtectedDnsRelay.NAMES[dnsProvider]).append(" role=").append(NativePeerProfiles.SLOTS[dnsRole]).append(" queries=").append(dnsRelay.queries.get()).append(" authenticated=").append(dnsRelay.verified.get()).append(" blocked=").append(dnsRelay.blocked.get()).append(" failed=").append(dnsRelay.failed.get()).append(" overflow=").append(dnsRelay.overflow.get()).append(" hosts=").append(blocklist.size()).append(" cache hits=").append(dnsRelay.cacheHits.get()).append(" cached entries=").append(dnsRelay.cacheSize()).append(" TLS opened=").append(dnsRelay.tlsConnections.get()).append(" TLS reused=").append(dnsRelay.tlsReuse.get()).append(" TLS fresh retries=").append(dnsRelay.tlsRetries.get()).append(" TLS closed=").append(dnsRelay.tlsClosed.get()).append(" retry EOF=").append(dnsRelay.retryEof.get()).append(" retry timeout=").append(dnsRelay.retryTimeout.get()).append(" retry TLS=").append(dnsRelay.retryTls.get()).append(" retry other=").append(dnsRelay.retryOther.get()).append(" active relay sockets=").append(dnsRelay.socketCount()).append(" registered relay ports=").append(dnsRelay.portCount()).append(" DNS transport=").append(NativeDnsTransportPolicy.LABELS[dnsMode]).append(" UDP queries=").append(dnsRelay.udpQueries.get()).append(" TCP queries=").append(dnsRelay.tcpQueries.get()).append(" TCP rejected=").append(dnsRelay.tcpRejected.get()).append(" UDP truncated=").append(dnsRelay.udpTruncated.get()).append(" QUIC opened=").append(dnsRelay.quicOpened.get()).append(" QUIC verified=").append(dnsRelay.quicVerified.get()).append(" QUIC failed=").append(dnsRelay.quicFailed.get());
+        if(dnsRelay!=null)b.append("\nDNS provider=").append(NativeProtectedDnsRelay.NAMES[dnsProvider]).append(" role=").append(NativePeerProfiles.SLOTS[dnsRole]).append(" queries=").append(dnsRelay.queries.get()).append(" authenticated=").append(dnsRelay.verified.get()).append(" blocked=").append(dnsRelay.blocked.get()).append(" failed=").append(dnsRelay.failed.get()).append(" overflow=").append(dnsRelay.overflow.get()).append(" hosts=").append(blocklist.size()).append(" cache hits=").append(dnsRelay.cacheHits.get()).append(" cached entries=").append(dnsRelay.cacheSize()).append(" TLS opened=").append(dnsRelay.tlsConnections.get()).append(" TLS reused=").append(dnsRelay.tlsReuse.get()).append(" TLS fresh retries=").append(dnsRelay.tlsRetries.get()).append(" TLS closed=").append(dnsRelay.tlsClosed.get()).append(" retry EOF=").append(dnsRelay.retryEof.get()).append(" retry timeout=").append(dnsRelay.retryTimeout.get()).append(" retry TLS=").append(dnsRelay.retryTls.get()).append(" retry other=").append(dnsRelay.retryOther.get()).append(" active relay sockets=").append(dnsRelay.socketCount()).append(" registered relay ports=").append(dnsRelay.portCount()).append(" DNS transport=").append(NativeDnsTransportPolicy.LABELS[dnsMode]).append(" UDP queries=").append(dnsRelay.udpQueries.get()).append(" TCP queries=").append(dnsRelay.tcpQueries.get()).append(" TCP rejected=").append(dnsRelay.tcpRejected.get()).append(" UDP truncated=").append(dnsRelay.udpTruncated.get()).append(" QUIC opened=").append(dnsRelay.quicOpened.get()).append(" QUIC verified=").append(dnsRelay.quicVerified.get()).append(" QUIC failed=").append(dnsRelay.quicFailed.get()).append(" QUIC attempts=").append(dnsRelay.quicAttempts.get()).append(" QUIC reused=").append(dnsRelay.quicReused.get()).append(" QUIC closed=").append(dnsRelay.quicClosed.get()).append(" QUIC backoff=").append(dnsRelay.quicBackoff.get()).append(" QUIC timeout=").append(dnsRelay.quicTimeout.get()).append(" QUIC certificate=").append(dnsRelay.quicCertificate.get()).append(" QUIC socket error=").append(dnsRelay.quicSocketError.get()).append(" QUIC invalid=").append(dnsRelay.quicInvalid.get()).append(" QUIC other=").append(dnsRelay.quicOther.get()).append(" DNS coalesced=").append(dnsRelay.coalesced.get()).append(" DNS latency samples=").append(dnsRelay.dnsLatencySamples.get()).append(" DNS upstream total ms=").append(dnsRelay.dnsLatencyTotalMs.get()).append(" DNS upstream max ms=").append(dnsRelay.dnsLatencyMaxMs.get());
         if(dnsRelay==null&&!retiredDnsStats.isEmpty())b.append("\n").append(retiredDnsStats);
         b.append("\n").append(underlaySummary());
         b.append("\nrecovery attempts=").append(recoveryAttempts).append(" successes=").append(recoverySuccess).append(" discarded packets=").append(recoveryDiscard).append(" DNS generation=").append(dnsGeneration).append(" session blocked=").append(priorBlocked+(dnsRelay==null?0:dnsRelay.blocked.get()));
-        b.append("\nDNS firewall drops=").append(dnsFirewallDrops).append(" IPv6 drops=").append(ipv6Drops).append(" other unsupported=").append(otherUnsupported);
+        b.append("\nDNS firewall drops=").append(dnsFirewallDrops).append(" IPv6 drops=").append(ipv6Drops).append(" other unsupported=").append(otherUnsupported).append(" unsupported IPv4 TCP/UDP=").append(unsupportedIpv4TcpUdp).append(" unsupported IPv4 other protocol=").append(unsupportedIpv4Other).append(" unsupported version/header=").append(unsupportedVersion);
         b.append("\npolicy classification route=").append(deniedRoute).append(" ledger=").append(deniedLedger).append(" native=").append(deniedNative).append(" relay port no longer registered=").append(relayEnded);
-        return b.append("\nactive tuples=").append(ledger.entries.size()).append(" unknown UID drops=").append(unknown).append(" policy drops=").append(policyDrop).append(" unsupported drops=").append(unsupported).append(" foreign reply drops=").append(foreignReply).append(" queue drops=").append(queueDrop).toString();
+        return b.append("\nactive tuples=").append(ledger.entries.size()).append(" unknown UID drops=").append(unknown).append(" unknown TCP=").append(unknownTcp).append(" unknown UDP=").append(unknownUdp).append(" unknown fixed DNS=").append(unknownDns).append(" policy drops=").append(policyDrop).append(" unsupported drops=").append(unsupported).append(" foreign reply drops=").append(foreignReply).append(" queue drops=").append(queueDrop).toString();
     }
     private void report(String s){
         Log.i(TAG,s);getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("status",s).apply();

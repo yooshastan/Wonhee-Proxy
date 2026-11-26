@@ -11,6 +11,7 @@ import (
  "net"
  "net/http"
  "strings"
+ "sync"
  "time"
 
  quic "github.com/quic-go/quic-go"
@@ -19,6 +20,7 @@ import (
 
 const MaxDnsReply=16384
 const MaxDnsQuery=1252
+var ErrQuicDNSResponse=errors.New("invalid encrypted DNS response")
 type DnsEndpoint struct { IP, Host string; Port int; Mode int }
 func DNSProvider(provider,mode int)(DnsEndpoint,error){
  // 1=DoQ; 2=DoH3. Only documented initial provider combinations.
@@ -50,69 +52,100 @@ func (p boundedPacketConn) WriteTo(b []byte,a net.Addr)(int,error){
  return p.PacketConn.WriteTo(b,a)
 }
 
-func ExchangeQuicDNS(parent context.Context,pc net.PacketConn,ep DnsEndpoint,roots *x509.CertPool,query []byte)([]byte,error){
- if pc==nil||roots==nil||len(query)<17||len(query)>MaxDnsQuery{return nil,ErrBadArgument}
- if ep.Mode!=1&&ep.Mode!=2{return nil,ErrBadArgument}
+// QuicDNSClient owns exactly one caller-supplied socket. Exchanges are serialized
+// per client; the relay can run four clients concurrently. Never redial a failed
+// connection on the same socket, or switch endpoint/transport.
+type QuicDNSClient struct {
+ pc net.PacketConn
+ ep DnsEndpoint
+ addr *net.UDPAddr
+ cfg *quic.Config
+ tls *tls.Config
+ parent context.Context
+ stop func() bool
+ closeOnce sync.Once
+ doq quic.Connection
+ h3 *http3.Transport
+ httpClient *http.Client
+ used bool
+}
+func NewQuicDNSClient(parent context.Context,pc net.PacketConn,ep DnsEndpoint,roots *x509.CertPool)(*QuicDNSClient,error){
+ if pc==nil||roots==nil||ep.Mode!=1&&ep.Mode!=2{return nil,ErrBadArgument}
  ip:=net.ParseIP(ep.IP);if ip==nil||ip.To4()==nil{return nil,ErrBadArgument}
- ctx,cancel:=context.WithTimeout(parent,10*time.Second);defer cancel()
- // Closing the caller-owned duplicate wakes any socket reads on cancellation.
- stop:=context.AfterFunc(ctx,func(){_ = pc.Close()});defer stop()
- socket:=boundedPacketConn{pc}
- addr:=&net.UDPAddr{IP:ip.To4(),Port:ep.Port}
- cfg:=&quic.Config{HandshakeIdleTimeout:4*time.Second,MaxIdleTimeout:5*time.Second,DisablePathMTUDiscovery:true,InitialPacketSize:1200}
- tlsCfg:=&tls.Config{ServerName:ep.Host,RootCAs:roots,MinVersion:tls.VersionTLS13}
+ c:=&QuicDNSClient{pc:pc,ep:ep,addr:&net.UDPAddr{IP:ip.To4(),Port:ep.Port},parent:parent,
+ cfg:&quic.Config{HandshakeIdleTimeout:4*time.Second,MaxIdleTimeout:35*time.Second,DisablePathMTUDiscovery:true,InitialPacketSize:1200},
+ tls:&tls.Config{ServerName:ep.Host,RootCAs:roots,MinVersion:tls.VersionTLS13}}
+ c.stop=context.AfterFunc(parent,func(){_ = pc.Close()})
+ if ep.Mode==1 { c.tls.NextProtos=[]string{"doq"} } else {
+  c.tls.NextProtos=[]string{http3.NextProtoH3}
+  c.h3=&http3.Transport{TLSClientConfig:c.tls,QUICConfig:c.cfg,DisableCompression:true,
+   Dial:func(ctx context.Context,destination string,t *tls.Config,q *quic.Config)(quic.EarlyConnection,error){
+    if c.used||destination!=net.JoinHostPort(ep.Host,"443"){return nil,errors.New("unexpected HTTP/3 redial")}
+    c.used=true
+    conn,err:=quic.DialEarly(ctx,boundedPacketConn{pc},c.addr,t,q);if err!=nil{return nil,err}
+    select{case <-conn.HandshakeComplete():return conn,nil
+    case <-conn.Context().Done():return nil,conn.Context().Err()
+    case <-ctx.Done():_ = conn.CloseWithError(0,"");return nil,ctx.Err()}
+   }}
+  c.httpClient=&http.Client{Transport:c.h3,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
+ }
+ return c,nil
+}
+// Close is called after the owning exchange returns. Parent cancellation wakes IO.
+func(c *QuicDNSClient) Close(){
+ c.closeOnce.Do(func(){
+  c.stop()
+  if c.doq!=nil{_ = c.doq.CloseWithError(0,"")}
+  if c.h3!=nil{_ = c.h3.Close()}
+  _ = c.pc.Close()
+ })
+}
+func(c *QuicDNSClient) Exchange(query []byte)([]byte,error){
+ if len(query)<17||len(query)>MaxDnsQuery{return nil,ErrBadArgument}
+ ctx,cancel:=context.WithTimeout(c.parent,10*time.Second);defer cancel()
  q:=append([]byte(nil),query...)
  var response []byte
  var err error
- if ep.Mode==1{
+ if c.ep.Mode==1{
   q[0],q[1]=0,0
-  tlsCfg.NextProtos=[]string{"doq"}
-  response,err=exchangeDoQ(ctx,socket,addr,tlsCfg,cfg,q)
- }else{
-  tlsCfg.NextProtos=[]string{http3.NextProtoH3}
-  response,err=exchangeH3(ctx,socket,addr,tlsCfg,cfg,ep.Host,q)
- }
+  if c.doq==nil{
+   if c.used{return nil,errors.New("unexpected DoQ redial")};c.used=true
+   c.doq,err=quic.Dial(ctx,boundedPacketConn{c.pc},c.addr,c.tls,c.cfg)
+   if err!=nil{return nil,err}
+  }
+  response,err=exchangeDoQStream(ctx,c.doq,q)
+ }else{response,err=exchangeH3Request(ctx,c.httpClient,c.ep.Host,q)}
  if err!=nil{return nil,err}
- if len(response)<12||len(response)>MaxDnsReply||!bytes.Equal(response[:2],q[:2]){return nil,errors.New("DNS response ID or size")}
- // DoQ requires ID zero on the wire; restore only after verifying zero.
+ if len(response)<12||len(response)>MaxDnsReply||!bytes.Equal(response[:2],q[:2]){return nil,ErrQuicDNSResponse}
  response[0],response[1]=query[0],query[1]
  return response,nil
 }
-func exchangeDoQ(ctx context.Context,pc net.PacketConn,addr net.Addr,tlsCfg *tls.Config,cfg *quic.Config,q []byte)([]byte,error){
- conn,err:=quic.Dial(ctx,pc,addr,tlsCfg,cfg);if err!=nil{return nil,err}
- defer conn.CloseWithError(0,"")
+func ExchangeQuicDNS(parent context.Context,pc net.PacketConn,ep DnsEndpoint,roots *x509.CertPool,query []byte)([]byte,error){
+ if len(query)<17||len(query)>MaxDnsQuery{return nil,ErrBadArgument}
+ c,err:=NewQuicDNSClient(parent,pc,ep,roots);if err!=nil{return nil,err};defer c.Close()
+ return c.Exchange(query)
+}
+func exchangeDoQStream(ctx context.Context,conn quic.Connection,q []byte)([]byte,error){
  stream,err:=conn.OpenStreamSync(ctx);if err!=nil{return nil,err}
+ stop:=context.AfterFunc(ctx,func(){stream.CancelRead(0);stream.CancelWrite(0)});defer stop()
  deadline,_:=ctx.Deadline();_ = stream.SetDeadline(deadline)
  frame:=make([]byte,2+len(q));binary.BigEndian.PutUint16(frame,uint16(len(q)));copy(frame[2:],q)
  if n,err:=stream.Write(frame);err!=nil||n!=len(frame){return nil,errors.New("DoQ write")}
  if err=stream.Close();err!=nil{return nil,err}
  var prefix [2]byte
  if _,err=io.ReadFull(stream,prefix[:]);err!=nil{return nil,err}
- size:=int(binary.BigEndian.Uint16(prefix[:]));if size<12||size>MaxDnsReply{return nil,errors.New("DoQ size")}
+ size:=int(binary.BigEndian.Uint16(prefix[:]));if size<12||size>MaxDnsReply{return nil,ErrQuicDNSResponse}
  out:=make([]byte,size)
  if _,err=io.ReadFull(stream,out);err!=nil{return nil,err}
  var extra [1]byte
- if n,err:=stream.Read(extra[:]);n!=0||err!=io.EOF{return nil,errors.New("DoQ extra response")}
+ if n,err:=stream.Read(extra[:]);n!=0||err!=io.EOF{return nil,ErrQuicDNSResponse}
  return out,nil
 }
-func exchangeH3(ctx context.Context,pc net.PacketConn,addr net.Addr,tlsCfg *tls.Config,cfg *quic.Config,host string,q []byte)([]byte,error){
- // No alternate endpoints, redirects, HTTP/2 fallback or early DNS request.
- used:=false
- transport:=&http3.Transport{TLSClientConfig:tlsCfg,QUICConfig:cfg,DisableCompression:true,
-  Dial:func(ctx context.Context,destination string,t *tls.Config,c *quic.Config)(quic.EarlyConnection,error){
-   if used||destination!=net.JoinHostPort(host,"443"){return nil,errors.New("unexpected HTTP/3 dial")}
-   used=true
-   conn,err:=quic.DialEarly(ctx,pc,addr,t,c);if err!=nil{return nil,err}
-   select{case <-conn.HandshakeComplete():return conn,nil
-   case <-conn.Context().Done():return nil,conn.Context().Err()
-   case <-ctx.Done():_ = conn.CloseWithError(0,"");return nil,ctx.Err()}
-  }}
- defer transport.Close()
- client:=&http.Client{Transport:transport,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
+func exchangeH3Request(ctx context.Context,client *http.Client,host string,q []byte)([]byte,error){
  req,err:=http.NewRequestWithContext(ctx,http.MethodPost,"https://"+host+"/dns-query",bytes.NewReader(q));if err!=nil{return nil,err}
  req.Header.Set("Content-Type","application/dns-message");req.Header.Set("Accept","application/dns-message");req.Header.Set("Cache-Control","no-store")
  resp,err:=client.Do(req);if err!=nil{return nil,err};defer resp.Body.Close()
- if resp.StatusCode!=200||resp.ProtoMajor!=3||strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"),";")[0]))!="application/dns-message"{return nil,errors.New("HTTP/3 DNS response")}
- body,err:=io.ReadAll(io.LimitReader(resp.Body,MaxDnsReply+1));if err!=nil||len(body)>MaxDnsReply{return nil,errors.New("HTTP/3 DNS body")}
+ if resp.StatusCode!=200||resp.ProtoMajor!=3||strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"),";")[0]))!="application/dns-message"{return nil,ErrQuicDNSResponse}
+ body,err:=io.ReadAll(io.LimitReader(resp.Body,MaxDnsReply+1));if err!=nil||len(body)>MaxDnsReply{return nil,ErrQuicDNSResponse}
  return body,nil
 }

@@ -19,7 +19,15 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     static final String[] IPS={"1.1.1.1","9.9.9.9","94.140.14.14","8.8.8.8"};
     static final String[] HOSTS={"cloudflare-dns.com","dns.quad9.net","dns.adguard-dns.com","dns.google"};
     final int role,ip,provider,mode;
-    private final long quicHandle,tcpHandle;
+    private final long tcpHandle;
+    private final byte[] quicRoots;
+    private final ArrayDeque<QuicConnection> quicIdle=new ArrayDeque<>();
+    private final Set<QuicConnection> quicConnections=ConcurrentHashMap.newKeySet();
+    final AtomicLong quicAttempts=new AtomicLong(),quicReused=new AtomicLong(),quicClosed=new AtomicLong(),quicBackoff=new AtomicLong(),quicTimeout=new AtomicLong(),quicCertificate=new AtomicLong(),quicSocketError=new AtomicLong(),quicOther=new AtomicLong(),quicInvalid=new AtomicLong(),coalesced=new AtomicLong();
+    final AtomicLong dnsLatencySamples=new AtomicLong(),dnsLatencyTotalMs=new AtomicLong(),dnsLatencyMaxMs=new AtomicLong();
+    private int quicFailureStreak;
+    private long quicRetryAfter;
+    private final Map<String,List<AnswerSink>> pending=new HashMap<>();
     final AtomicLong tcpQueries=new AtomicLong(),udpQueries=new AtomicLong(),tcpRejected=new AtomicLong(),udpTruncated=new AtomicLong(),quicOpened=new AtomicLong(),quicVerified=new AtomicLong(),quicFailed=new AtomicLong();
     private final Set<DatagramSocket> quicSockets=ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<Integer,DatagramSocket> quicPorts=new ConcurrentHashMap<>();
@@ -44,21 +52,19 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     NativeProtectedDnsRelay(Network network,int provider,int role,int mode,Set<String> domains)throws Exception{
         if(network==null||!NativeDnsTransportPolicy.supports(provider,mode)||role<0||role>1)throw new IllegalArgumentException();
         this.network=network;this.provider=provider;this.role=role;this.mode=mode;this.ip=MultiTunnelIpv4Rewriter.parseIpv4(IPS[provider]);this.domains=domains;
-        long q=0,t=0;
+        long t=0;byte[] roots=null;
         try{
             if(mode!=NativeDnsTransportPolicy.DOT){
-                q=NativeAdvancedDnsBridge.createQuic(provider,mode,systemRoots());
-                if(q<=0)throw new IOException("QUIC initialization refused");
+                roots=systemRoots();
             }
             t=NativeAdvancedDnsBridge.createTcp();
             if(t<=0)throw new IOException("TCP DNS initialization refused");
             reaper.scheduleWithFixedDelay(this::expireIdle,5,5,TimeUnit.SECONDS);
         }catch(Exception|LinkageError e){
-            if(q>0)NativeAdvancedDnsBridge.closeQuic(q);
             if(t>0)NativeAdvancedDnsBridge.closeTcp(t);
             workers.shutdownNow();reaper.shutdownNow();throw e;
         }
-        quicHandle=q;tcpHandle=t;
+        quicRoots=roots;tcpHandle=t;
     }
     // Android system trust roots only; Go verifies the hostname and certificate chain.
     private static byte[] systemRoots()throws Exception{
@@ -123,18 +129,77 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         }catch(IOException malformed){failed.incrementAndGet();return;}
         byte[] cached=cache.get(query,SystemClock.elapsedRealtime());
         if(cached!=null){cacheHits.incrementAndGet();try{sink.send(cached);}catch(IOException e){failed.incrementAndGet();}return;}
+        // Exact normalized question and flags, excluding only the transaction ID.
+        // Bound waiter count and total outstanding keys; never merge different questions.
+        String key=Base64.getEncoder().encodeToString(Arrays.copyOfRange(query,2,query.length));
+        AnswerSink waiter=answer->{
+            byte[] copy=answer.clone();copy[0]=query[0];copy[1]=query[1];sink.send(copy);
+        };
+        synchronized(pending){
+            if(closed)return;
+            List<AnswerSink> list=pending.get(key);
+            if(list!=null&&list.size()<16){list.add(waiter);coalesced.incrementAndGet();return;}
+            if(list!=null||pending.size()>=68){overflow.incrementAndGet();try{sink.send(NativeProtectedDnsMessage.error(query,2,false));}catch(IOException ignored){}return;}
+            List<AnswerSink> first=new ArrayList<>();first.add(waiter);pending.put(key,first);
+        }
         try{workers.execute(()->{
+            byte[] answer=null;boolean success=false;
             try{
-                byte[] answer=mode==NativeDnsTransportPolicy.DOT?exchange(query):exchangeQuic(query);
-                verified.incrementAndGet();
-                if(!closed)cache.put(query,answer,SystemClock.elapsedRealtime());
-                if(!closed)sink.send(answer);
+                long started=SystemClock.elapsedRealtime();
+                answer=mode==NativeDnsTransportPolicy.DOT?exchange(query):exchangeQuic(query);
+                if(!closed){long elapsed=SystemClock.elapsedRealtime()-started;dnsLatencyTotalMs.addAndGet(elapsed);dnsLatencyMaxMs.accumulateAndGet(elapsed,Math::max);dnsLatencySamples.incrementAndGet();cache.put(query,answer,SystemClock.elapsedRealtime());success=true;}
+            }catch(Exception|LinkageError e){
+                if(!closed)try{answer=NativeProtectedDnsMessage.error(query,2,false);}catch(IOException ignored){}
+            }finally{
+                List<AnswerSink> list;
+                synchronized(pending){list=pending.remove(key);}
+                if(!closed&&list!=null){
+                    if(success)verified.incrementAndGet();else failed.incrementAndGet();
+                    if(answer!=null)for(AnswerSink target:list)try{target.send(answer);}catch(IOException e){overflow.incrementAndGet();}
+                }
             }
-            catch(Exception|LinkageError e){if(!closed){failed.incrementAndGet();try{sink.send(NativeProtectedDnsMessage.error(query,2,false));}catch(IOException ignored){}}}
-        });}catch(RejectedExecutionException full){if(!closed){overflow.incrementAndGet();try{sink.send(NativeProtectedDnsMessage.error(query,2,false));}catch(IOException ignored){}}}
+        });}catch(RejectedExecutionException full){
+            List<AnswerSink> list;synchronized(pending){list=pending.remove(key);}
+            if(!closed&&list!=null){overflow.addAndGet(list.size());try{byte[] err=NativeProtectedDnsMessage.error(query,2,false);for(AnswerSink target:list)try{target.send(err);}catch(IOException ignored){}}catch(IOException ignored){}}
+        }
     }
-    private byte[] exchangeQuic(byte[] query)throws Exception{
-        DatagramSocket raw=new DatagramSocket(null);int port=0;boolean registered=false;
+    private synchronized boolean quicAllowed(){return SystemClock.elapsedRealtime()>=quicRetryAfter;}
+    private synchronized void quicSucceeded(){quicFailureStreak=0;quicRetryAfter=0;}
+    private synchronized void quicFailure(){
+        quicFailureStreak=Math.min(6,quicFailureStreak+1);
+        if(quicFailureStreak>=2)quicRetryAfter=SystemClock.elapsedRealtime()+Math.min(16000L,1000L<<(quicFailureStreak-1));
+    }
+    private final class QuicConnection implements AutoCloseable{
+        final DatagramSocket raw;final int port;final long handle;
+        long lastUsed=SystemClock.elapsedRealtime();int exchanges;
+        private boolean disposed;
+        QuicConnection(DatagramSocket raw,int port,long handle){this.raw=raw;this.port=port;this.handle=handle;}
+        boolean expired(long now){return raw.isClosed()||exchanges>=MAX_EXCHANGES||now-lastUsed>=IDLE_LIMIT;}
+        byte[] query(byte[] query)throws Exception{
+            try(ParcelFileDescriptor descriptor=ParcelFileDescriptor.fromDatagramSocket(raw)){
+                byte[] output=new byte[NativeProtectedDnsMessage.MAX_REPLY];
+                int n=NativeAdvancedDnsBridge.exchangeQuic(handle,descriptor.getFd(),query,output);
+                if(n<12||n>output.length){
+                    if(n==-3)quicTimeout.incrementAndGet();else if(n==-4)quicCertificate.incrementAndGet();
+                    else if(n==-1||n==-2)quicSocketError.incrementAndGet();else if(n==-6)quicInvalid.incrementAndGet();else quicOther.incrementAndGet();
+                    throw new IOException("QUIC exchange refused");
+                }
+                byte[] answer;
+                try{answer=NativeProtectedDnsMessage.validateFull(query,Arrays.copyOf(output,n));}
+                catch(IOException invalid){quicInvalid.incrementAndGet();throw invalid;}
+                exchanges++;lastUsed=SystemClock.elapsedRealtime();return answer;
+            }
+        }
+        @Override public synchronized void close(){
+            if(disposed)return;disposed=true;
+            raw.close();
+            try{NativeAdvancedDnsBridge.closeQuic(handle);}finally{
+                quicPorts.remove(port,raw);quicSockets.remove(raw);quicConnections.remove(this);quicClosed.incrementAndGet();
+            }
+        }
+    }
+    private QuicConnection openQuic()throws Exception{
+        DatagramSocket raw=new DatagramSocket(null);int port=0;long handle=0;boolean success=false;
         quicSockets.add(raw);
         try{
             if(closed)throw new IOException("relay stopped");
@@ -142,20 +207,33 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
             raw.bind(new InetSocketAddress(numeric(NativeAppRoutingPolicy.TUN),0));
             port=raw.getLocalPort();
             if(quicPorts.putIfAbsent(port,raw)!=null)throw new IOException("port collision");
-            registered=true;
-            if(closed)throw new IOException("relay stopped");
             raw.connect(new InetSocketAddress(numeric(ip),NativeDnsTransportPolicy.port(mode)));
-            // Native receives only a duplicate of this VPN-bound, connected descriptor.
-            try(ParcelFileDescriptor descriptor=ParcelFileDescriptor.fromDatagramSocket(raw)){
-                byte[] output=new byte[NativeProtectedDnsMessage.MAX_REPLY];
-                quicOpened.incrementAndGet();
-                int n=NativeAdvancedDnsBridge.exchangeQuic(quicHandle,descriptor.getFd(),query,output);
-                if(n<12||n>output.length)throw new IOException("QUIC exchange failed");
-                byte[] answer=NativeProtectedDnsMessage.validateFull(query,Arrays.copyOf(output,n));
-                quicVerified.incrementAndGet();return answer;
-            }
-        }catch(Exception|LinkageError failure){quicFailed.incrementAndGet();throw failure;}
-        finally{raw.close();if(registered)quicPorts.remove(port,raw);quicSockets.remove(raw);}
+            handle=NativeAdvancedDnsBridge.createQuic(provider,mode,quicRoots);
+            if(handle<=0)throw new IOException("QUIC initialization refused");
+            QuicConnection c=new QuicConnection(raw,port,handle);
+            quicConnections.add(c);
+            if(closed){c.close();handle=0;throw new IOException("relay stopped");}
+            quicOpened.incrementAndGet();success=true;return c;
+        }finally{
+            if(!success){raw.close();if(handle>0)NativeAdvancedDnsBridge.closeQuic(handle);if(port!=0)quicPorts.remove(port,raw);quicSockets.remove(raw);}
+        }
+    }
+    private byte[] exchangeQuic(byte[] query)throws Exception{
+        if(!quicAllowed()){quicBackoff.incrementAndGet();throw new IOException("QUIC backoff");}
+        QuicConnection c;
+        synchronized(quicIdle){c=quicIdle.pollFirst();}
+        if(c!=null&&c.expired(SystemClock.elapsedRealtime())){c.close();c=null;}
+        quicAttempts.incrementAndGet();
+        try{
+            if(c==null){try{c=openQuic();}catch(Exception|LinkageError e){quicSocketError.incrementAndGet();throw e;}}
+            else quicReused.incrementAndGet();
+            byte[] answer=c.query(query);
+            quicVerified.incrementAndGet();quicSucceeded();
+            boolean keep;
+            synchronized(quicIdle){keep=!closed&&!c.expired(SystemClock.elapsedRealtime())&&quicIdle.size()<4;if(keep)quicIdle.addLast(c);}
+            if(!keep)c.close();
+            return answer;
+        }catch(Exception|LinkageError e){if(c!=null)c.close();if(!closed){quicFailed.incrementAndGet();quicFailure();}throw e;}
     }
     private static InetAddress numeric(int n)throws UnknownHostException{return InetAddress.getByAddress(new byte[]{(byte)(n>>>24),(byte)(n>>>16),(byte)(n>>>8),(byte)n});}
     private final class Connection implements AutoCloseable {
@@ -231,6 +309,9 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
             while(it.hasNext()){Connection c=it.next();if(c.expired(now)){it.remove();expired.add(c);}}
         }
         for(Connection c:expired)c.close();
+        List<QuicConnection> stale=new ArrayList<>();
+        synchronized(quicIdle){Iterator<QuicConnection> it=quicIdle.iterator();while(it.hasNext()){QuicConnection q=it.next();if(q.expired(SystemClock.elapsedRealtime())){it.remove();stale.add(q);}}}
+        for(QuicConnection q:stale)q.close();
     }
     private byte[] exchange(byte[] query)throws Exception{
         if(closed)throw new IOException("relay stopped");
@@ -272,10 +353,12 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     }
     @Override public void close(){
         closed=true;
-        if(quicHandle>0)NativeAdvancedDnsBridge.closeQuic(quicHandle);
         NativeAdvancedDnsBridge.closeTcp(tcpHandle);
         for(DatagramSocket s:quicSockets)s.close();
         workers.shutdownNow();reaper.shutdownNow();
+        synchronized(quicIdle){quicIdle.clear();}
+        for(QuicConnection q:quicConnections)q.close();
+        synchronized(pending){pending.clear();}
         List<Connection> drain;
         synchronized(idle){drain=new ArrayList<>(idle);idle.clear();}
         for(Socket s:sockets)try{s.close();}catch(IOException ignored){}

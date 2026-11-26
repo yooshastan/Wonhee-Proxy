@@ -11,6 +11,7 @@ import (
  "context"
  "crypto/x509"
  "net"
+ "errors"
  "os"
  "sync"
  "sync/atomic"
@@ -24,6 +25,8 @@ type dnsQuicSession struct{
  cancel context.CancelFunc
  roots *x509.CertPool
  endpoint dualwg.DnsEndpoint
+ mu sync.Mutex
+ client *dualwg.QuicDNSClient
 }
 var dnsMu sync.Mutex
 var dnsNext atomic.Uint64
@@ -38,34 +41,41 @@ func WNCreateQuicDns(provider,mode C.int,roots *C.char,size C.int) C.int64_t{
  if !pool.AppendCertsFromPEM(C.GoBytes(unsafe.Pointer(roots),size)){return -1}
  ctx,cancel:=context.WithCancel(context.Background())
  dnsMu.Lock();defer dnsMu.Unlock()
- if len(quicSessions)>=2{cancel();return -1}
+ if len(quicSessions)>=8{cancel();return -1}
  id:=dnsNext.Add(1)
- quicSessions[id]=&dnsQuicSession{ctx,cancel,pool,ep}
+ quicSessions[id]=&dnsQuicSession{ctx:ctx,cancel:cancel,roots:pool,endpoint:ep}
  return C.int64_t(id)
 }
 //export WNCloseQuicDns
 func WNCloseQuicDns(id C.uint64_t){
  dnsMu.Lock();s:=quicSessions[uint64(id)];delete(quicSessions,uint64(id));dnsMu.Unlock()
- if s!=nil{s.cancel()}
+ if s!=nil{s.cancel();s.mu.Lock();if s.client!=nil{s.client.Close();s.client=nil};s.mu.Unlock()}
 }
 //export WNExchangeQuicDns
 func WNExchangeQuicDns(id C.uint64_t,fd C.int,query *C.char,size C.int,out *C.char,capacity C.int) C.int{
  if fd<0||query==nil||out==nil||size<17||size>dualwg.MaxDnsQuery||capacity<dualwg.MaxDnsReply{return -1}
  dnsMu.Lock();s:=quicSessions[uint64(id)];dnsMu.Unlock()
  if s==nil||s.ctx.Err()!=nil{return -1}
+ s.mu.Lock();defer s.mu.Unlock()
+ if s.ctx.Err()!=nil{return -1}
+ if s.client==nil{
  // Do not close or rebind the Java socket. The duplicated descriptor keeps
  // the existing Android network mark and source port.
  copyFD,err:=unix.FcntlInt(uintptr(fd),unix.F_DUPFD_CLOEXEC,0);if err!=nil{return -1}
  file:=os.NewFile(uintptr(copyFD),"wonhee-vpn-dns");if file==nil{unix.Close(copyFD);return -1}
  pc,err:=net.FilePacketConn(file);file.Close();if err!=nil{return -1}
- defer pc.Close()
+ keep:=false;defer func(){if !keep{pc.Close()}}()
  udp,ok:=pc.(*net.UDPConn);if !ok{return -1}
  local,ok:=udp.LocalAddr().(*net.UDPAddr)
  if !ok||!local.IP.Equal(net.IPv4(10,253,0,1))||local.Port==0{return -1}
  remote,ok:=udp.RemoteAddr().(*net.UDPAddr)
  if !ok||!remote.IP.Equal(net.ParseIP(s.endpoint.IP))||remote.Port!=s.endpoint.Port{return -1}
- response,err:=dualwg.ExchangeQuicDNS(s.ctx,dualwg.ConnectedDNSPacketConn{UDPConn:udp,Peer:remote},s.endpoint,s.roots,C.GoBytes(unsafe.Pointer(query),size))
- if err!=nil||len(response)>int(capacity){return -1}
+ client,err:=dualwg.NewQuicDNSClient(s.ctx,dualwg.ConnectedDNSPacketConn{UDPConn:udp,Peer:remote},s.endpoint,s.roots);if err!=nil{return -2}
+ s.client=client;keep=true
+ }
+ response,err:=s.client.Exchange(C.GoBytes(unsafe.Pointer(query),size))
+ if err!=nil{if errors.Is(err,dualwg.ErrQuicDNSResponse){return -6};if errors.Is(err,context.DeadlineExceeded){return -3};var ne net.Error;if errors.As(err,&ne)&&ne.Timeout(){return -3};var ce x509.UnknownAuthorityError;var he x509.HostnameError;var ie x509.CertificateInvalidError;if errors.As(err,&ce)||errors.As(err,&he)||errors.As(err,&ie){return -4};return -5}
+ if len(response)>int(capacity){return -6}
  copy(unsafe.Slice((*byte)(unsafe.Pointer(out)),int(capacity)),response)
  return C.int(len(response))
 }
