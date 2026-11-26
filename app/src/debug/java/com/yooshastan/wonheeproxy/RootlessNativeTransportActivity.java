@@ -6,6 +6,8 @@ import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.widget.ScrollView;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -32,9 +34,9 @@ public final class RootlessNativeTransportActivity extends Activity {
         explanation.setText(
                 "This debug-only test starts two independent wireguard-go crypto devices "
                 + "with temporary test keys and no peer endpoints. It verifies Android "
-                + "VpnService.protect() on each IPv4 and IPv6 UDP socket. The test TUN has "
-                + "NO routes, so no phone app traffic is captured or routed. No user "
-                + "WireGuard profiles, DNS, Moka traffic or production settings are used.\n\n"
+                + "VpnService.protect() on each IPv4 and IPv6 UDP socket. It does NOT "
+                + "establish a TUN interface, add routes, capture app traffic, or send packets. "
+                + "No user WireGuard profiles, DNS, Moka traffic or production settings are used.\n\n"
                 + "Disconnect the official Wonhee VPN and any other VPN first. "
                 + "Android Private DNS must remain OFF.");
         explanation.setTextSize(14);
@@ -66,7 +68,19 @@ public final class RootlessNativeTransportActivity extends Activity {
         refresh.setOnClickListener(v -> refresh());
         root.addView(refresh);
 
-        setContentView(root);
+        ScrollView scroller = new ScrollView(this);
+        scroller.setFillViewport(true);
+        scroller.setClipToPadding(false);
+        scroller.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scroller.setOnApplyWindowInsetsListener((view, insets) -> {
+            int bottom = Build.VERSION.SDK_INT >= 30
+                    ? insets.getInsets(WindowInsets.Type.systemBars()).bottom
+                    : insets.getSystemWindowInsetBottom();
+            view.setPadding(0, 0, 0, bottom);
+            return insets;
+        });
+        setContentView(scroller);
         refresh();
     }
 

@@ -45,7 +45,10 @@
             android:exported="false" android:label="Native Socket Protection Test" />
         <service android:name=".RootlessNativeTransportService"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false" android:foregroundServiceType="systemExempted">
+            android:exported="false" android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-initiated debug diagnostic verifying Android VpnService.protect for four native WireGuard UDP sockets without establishing a TUN or routing application traffic" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>

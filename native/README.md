@@ -24,3 +24,7 @@ The protected-bind adapter requires both IPv4 and IPv6 sockets and synchronously
 
 ## Android JNI protection smoke test (debug only)
 The Android debug APK builds `cmd/wonhee-jni` as an ARM64 shared library with the Android NDK. A debug-only `VpnService` establishes an address-only TUN with no routes, then starts two independent wireguard-go devices using generated ephemeral keys and peers with no endpoints. The native protected bind asks the owning service to protect both IPv4 and IPv6 UDP sockets before exposing receive functions. The expected result is four successful socket protections and zero failures. The test sends no packets and does not import user profiles, route applications, resolve DNS or validate multi-exit forwarding. Stop the test to close both devices and release the VPN interface. The official signed release does not package this JNI library or test service.
+
+
+## 0.15.80 socket-test lifecycle correction
+The 0.15.80 debug smoke test no longer calls `VpnService.Builder.establish()`. The Android `VpnService.protect(int)` contract requires the VPN app to be prepared, not an OS TUN to be established. This removes the unrelated `tun0`/ConnectivityService network-agent lifecycle from a test whose only purpose is to prove JNI socket protection. The test uses a declared `specialUse` foreground-service type with an explicit user-initiated diagnostic subtype, and records the exact stage if Android destroys the service unexpectedly.

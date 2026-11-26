@@ -15,12 +15,18 @@ assert 'wn_protect_socket(C.int(fd)) == 1' in go
 assert 'dualwg.NewProtectedSession' in go and 'session.Start()' in go
 assert 'crypto/ecdh' in go and 'endpoint=' not in go
 assert 'System.loadLibrary("wonhee_native")' in java
-assert 'Builder()' in service and '.addAddress("10.255.255.1", 32)' in service
+assert 'VpnService.prepare(this)' in service
+assert 'VpnService.protect' in service
+assert '.establish()' not in service
+assert 'ParcelFileDescriptor' not in service
+assert 'FOREGROUND_SERVICE_TYPE_SPECIAL_USE' in service
+assert 'foregroundServiceType="specialUse"' in manifest
+assert 'PROPERTY_SPECIAL_USE_FGS_SUBTYPE' in manifest
 assert '.addRoute(' not in service
 assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' in manifest
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(133)' in gradle
-assert "versionName.set('0.15.79-native-socket-protection')" in gradle
+assert 'versionCode.set(134)' in gradle
+assert "versionName.set('0.15.80-native-socket-protection-lifecycle')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 print("Wonhee native Android bridge contract passed")

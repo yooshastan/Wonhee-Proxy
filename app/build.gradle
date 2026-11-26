@@ -57,8 +57,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(133)
-            output.versionName.set('0.15.79-native-socket-protection')
+            output.versionCode.set(134)
+            output.versionName.set('0.15.80-native-socket-protection-lifecycle')
         }
     }
 }
