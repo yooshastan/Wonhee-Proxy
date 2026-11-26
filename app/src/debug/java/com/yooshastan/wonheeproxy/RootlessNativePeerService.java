@@ -202,7 +202,9 @@ public final class RootlessNativePeerService extends VpnService {
             }
             workerStage.set(flow,"http-response");
             // No auth, cookies, redirects, user input or DNS lookup. Only fixed GET.
-            String request="GET / HTTP/1.1\\r\\nHost: "+host+(slot==2?":"+ports[slot]:"")+"\\r\\nConnection: close\\r\\nUser-Agent: Wonhee-Diagnostic/0.15.88\\r\\nAccept: */*\\r\\n\\r\\n";
+            String crlf=String.valueOf((char)13)+(char)10;
+            String request="GET / HTTP/1.1"+crlf+"Host: "+host+(slot==2?":"+ports[slot]:"")+crlf
+                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.88"+crlf+"Accept: */*"+crlf+crlf;
             wire.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
             wire.getOutputStream().flush();
             InputStream in=wire.getInputStream();
@@ -215,7 +217,10 @@ public final class RootlessNativePeerService extends VpnService {
             }
             if(n<12||head[n-4]!=13||head[n-3]!=10||head[n-2]!=13||head[n-1]!=10)throw new java.io.IOException("header incomplete");
             String line=new String(head,0,Math.min(n,64),StandardCharsets.US_ASCII);
-            if(!line.matches("(?s)HTTP/1\\\\.[01] [1-5][0-9]{2}(?:[ \\r\\n]).*"))throw new java.io.IOException("invalid status");
+            if(!(line.startsWith("HTTP/1.0 ")||line.startsWith("HTTP/1.1 "))||line.length()<13
+                    ||line.charAt(9)<'1'||line.charAt(9)>'5'||line.charAt(10)<'0'||line.charAt(10)>'9'
+                    ||line.charAt(11)<'0'||line.charAt(11)>'9'||(line.charAt(12)!=' '&&line.charAt(12)!=13))
+                throw new java.io.IOException("invalid status");
             httpStatus.set(flow,Integer.parseInt(line.substring(9,12)));
             responseBytes.set(flow,n);
             workerStage.set(flow,"response-verified");
