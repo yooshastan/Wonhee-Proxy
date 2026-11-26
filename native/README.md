@@ -18,3 +18,6 @@ atomic teardown, reconnect and test coverage. No live dual tunnel is claimed.
 
 Implementation is based on WireGuard's public Go APIs and must retain the
 appropriate upstream licensing and notices when distributed.
+
+## Protected UDP bind foundation
+The protected-bind adapter requires both IPv4 and IPv6 sockets and synchronously invokes the supplied platform protection callback for each before exposing receive functions or permitting send. Failed protection closes the underlying sockets; reopening repeats protection; arbitrary profile fwmarks are rejected. The native protected session has an explicit guarded Start method, while legacy inactive sessions cannot activate. The callback is not yet connected to Android: the actual VpnService, JNI/mobile binding, TUN packet pump and independent multi-exit flow classifier remain required. Mock tests are not device proof.

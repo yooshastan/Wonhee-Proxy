@@ -23,3 +23,6 @@ No installable transport-aware build or new VPN service is claimed by this commi
 
 ## Follow-up: explicit RootLab transport trial
 The debug-only kernel adapter now implements a narrow Home IPv6 transport trial, using the device-tested candidate mark rather than declaring a production reservation. Requires existing exact UID/dual-stack/fallback ownership, exactly three known links with marks off, an unchanged cellular route and numeric endpoint/ports. Immutable write-ahead ownership records boot/link identity and exact rule parameters before writes. Recovery removes the exact exception before restoring the mark; unknown state retains the journal and pauses Safe Stop. No Android VPN service, production mark allocation, authenticated Moka traffic or comprehensive leak protection is authorized. Stable release and version are unchanged. This is not a consolidated upgrade.
+
+## Native protected socket foundation
+Added a protected wireguard-go bind wrapper with both-family protection before packet I/O, close-on-failure, re-protection on reopen and refusal of profile fwmarks. Added a guarded native session activation method. The Android-facing callback, actual TUN data plane, application/protocol classification and device-level tests remain blocked on integration. This is not an Android VPN frontend or installable upgrade.

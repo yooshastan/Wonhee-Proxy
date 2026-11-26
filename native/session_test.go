@@ -96,3 +96,13 @@ func TestInvalidTunRejected(t *testing.T) {
 		if _, err := NewPacketTun(args.name, args.mtu, args.depth); err == nil { t.Fatalf("accepted invalid %+v", args) }
 	}
 }
+
+func TestInactiveSessionCannotBeActivated(t *testing.T) {
+	s,err:=NewInactiveSession("inactive",1280,2)
+	if err!=nil {t.Fatal(err)}
+	defer s.Close()
+	if err=s.Start();!errors.Is(err,ErrBadArgument) {t.Fatal("inactive device activated")}
+	if p,err:=NewProtectedSession("protected",1280,2,nil);p!=nil||!errors.Is(err,errProtection) {
+		t.Fatal("accepted missing socket protection callback")
+	}
+}
