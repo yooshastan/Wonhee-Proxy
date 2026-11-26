@@ -6,6 +6,7 @@ import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -75,6 +76,13 @@ public final class RootlessNativeTunPumpActivity extends Activity {
         scroller.setClipToPadding(false);
         scroller.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scroller.setOnApplyWindowInsetsListener((view, insets) -> {
+            int bottom = Build.VERSION.SDK_INT >= 30
+                    ? insets.getInsets(WindowInsets.Type.systemBars()).bottom
+                    : insets.getSystemWindowInsetBottom();
+            view.setPadding(0, 0, 0, bottom);
+            return insets;
+        });
         setContentView(scroller);
         refresh();
     }

@@ -29,6 +29,33 @@ public final class RootlessTunTestPacketRouterTest {
         byte[] ipv6 = new byte[48];
         ipv6[0] = 0x60;
         expect(RootlessTunTestPacketRouter.Target.DROP, ipv6);
+        if (RootlessTunTestPacketRouter.rejection(fragmented, fragmented.length)
+                != RootlessTunTestPacketRouter.Reason.FRAGMENT) throw new AssertionError("fragment reason");
+        if (RootlessTunTestPacketRouter.rejection(badChecksum, badChecksum.length)
+                != RootlessTunTestPacketRouter.Reason.IP_CHECKSUM) throw new AssertionError("checksum reason");
+        if (RootlessTunTestPacketRouter.rejection(ipv6, ipv6.length)
+                != RootlessTunTestPacketRouter.Reason.NON_IPV4) throw new AssertionError("IPv6 reason");
+        byte[] nonce = new byte[16];
+        Arrays.fill(nonce, (byte) 37);
+        byte[] probe = Arrays.copyOf(udp("198.18.1.10"), 45);
+        probe[3] = 45;
+        probe[22] = (byte)(43434 >>> 8);
+        probe[23] = (byte)43434;
+        probe[25] = 25;
+        System.arraycopy(nonce, 0, probe, 28, 16);
+        probe[44] = 0;
+        checksum(probe);
+        if (RootlessTunTestPacketRouter.probeIndex(probe, probe.length, 0xA601, nonce) != 0)
+            throw new AssertionError("valid probe rejected");
+        if (RootlessTunTestPacketRouter.probeIndex(probe, probe.length, 0xA602, nonce) != -1)
+            throw new AssertionError("foreign source port accepted");
+        probe[44] = 1;
+        if (RootlessTunTestPacketRouter.probeIndex(probe, probe.length, 0xA601, nonce) != -1)
+            throw new AssertionError("wrong destination accepted");
+        probe[44] = 0;
+        probe[28] ^= 1;
+        if (RootlessTunTestPacketRouter.probeIndex(probe, probe.length, 0xA601, nonce) != -1)
+            throw new AssertionError("foreign batch accepted");
         System.out.println("Rootless TUN test packet router PASS");
     }
 

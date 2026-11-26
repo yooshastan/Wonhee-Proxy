@@ -13,6 +13,7 @@ import android.net.NetworkCapabilities;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -23,6 +24,8 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.util.Arrays;
 import java.util.Locale;
+import java.security.SecureRandom;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -54,6 +57,30 @@ public final class RootlessNativeTunPumpService extends VpnService {
     private final AtomicInteger internetQueued = new AtomicInteger();
     private final AtomicInteger policyDrops = new AtomicInteger();
     private final AtomicInteger injectionFailures = new AtomicInteger();
+    private final AtomicIntegerArray rejectionCounts = new AtomicIntegerArray(RootlessTunTestPacketRouter.Reason.values().length);
+    private volatile ProbeBatch activeBatch;
+
+    private static final class ProbeBatch {
+        final int port;
+        final byte[] nonce = new byte[16];
+        final AtomicInteger seen = new AtomicInteger();
+        final AtomicInteger duplicates = new AtomicInteger();
+        ProbeBatch(int port) { this.port = port; new SecureRandom().nextBytes(nonce); }
+    }
+
+    private void reject(RootlessTunTestPacketRouter.Reason reason) {
+        policyDrops.incrementAndGet();
+        rejectionCounts.incrementAndGet(reason.ordinal());
+    }
+
+    private String rejectionSummary() {
+        StringBuilder out = new StringBuilder();
+        for (RootlessTunTestPacketRouter.Reason reason : RootlessTunTestPacketRouter.Reason.values()) {
+            int count = rejectionCounts.get(reason.ordinal());
+            if (count != 0) out.append(reason.name()).append('=').append(count).append(' ');
+        }
+        return out.length() == 0 ? "none" : out.toString().trim();
+    }
 
     private ParcelFileDescriptor tun;
     private FileInputStream input;
@@ -64,7 +91,7 @@ public final class RootlessNativeTunPumpService extends VpnService {
     private boolean registered;
     private boolean foregroundStarted;
     private boolean startRequested;
-    private boolean terminalReportPreserved;
+    private volatile boolean terminalReportPreserved;
     private String stage = "service-created";
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -225,22 +252,34 @@ public final class RootlessNativeTunPumpService extends VpnService {
                 if (length < 0) break;
                 if (length == 0) continue;
                 tunPackets.incrementAndGet();
+                RootlessTunTestPacketRouter.Reason reason = RootlessTunTestPacketRouter.rejection(buffer, length);
+                if (reason != null) { reject(reason); continue; }
+                ProbeBatch batch = activeBatch;
+                if (batch == null) { reject(RootlessTunTestPacketRouter.Reason.OUTSIDE_BATCH); continue; }
+                int index = RootlessTunTestPacketRouter.probeIndex(buffer, length, batch.port, batch.nonce);
+                if (index < 0) { reject(RootlessTunTestPacketRouter.Reason.PROBE_MISMATCH); continue; }
+                int bit = 1 << index;
+                if ((batch.seen.get() & bit) != 0) {
+                    batch.duplicates.incrementAndGet();
+                    reject(RootlessTunTestPacketRouter.Reason.DUPLICATE);
+                    continue;
+                }
                 RootlessTunTestPacketRouter.Target target =
                         RootlessTunTestPacketRouter.select(buffer, length);
                 long handle;
                 if (target == RootlessTunTestPacketRouter.Target.HOME) handle = homeHandle;
                 else if (target == RootlessTunTestPacketRouter.Target.INTERNET) handle = internetHandle;
                 else {
-                    policyDrops.incrementAndGet();
+                    reject(RootlessTunTestPacketRouter.Reason.PROBE_MISMATCH);
                     continue;
                 }
                 int result = RootlessNativeBridge.injectPacket(handle, Arrays.copyOf(buffer, length));
                 if (result != 1) {
                     injectionFailures.incrementAndGet();
-                } else if (target == RootlessTunTestPacketRouter.Target.HOME) {
-                    homeQueued.incrementAndGet();
                 } else {
-                    internetQueued.incrementAndGet();
+                    if (target == RootlessTunTestPacketRouter.Target.HOME) homeQueued.incrementAndGet();
+                    else internetQueued.incrementAndGet();
+                    batch.seen.getAndUpdate(value -> value | bit);
                 }
             }
         } catch (Exception | LinkageError failure) {
@@ -266,72 +305,79 @@ public final class RootlessNativeTunPumpService extends VpnService {
         if (!probeRunning.compareAndSet(false, true)) return;
         Thread worker = new Thread(() -> {
             try (DatagramSocket socket = new DatagramSocket()) {
-                byte[] payload = new byte[] {0x57, 0x4E, 0x54, 0x55, 0x4E, 0x31};
-                InetAddress home = InetAddress.getByAddress(
-                        new byte[] {(byte) 198, 18, 1, 10});
-                InetAddress internet = InetAddress.getByAddress(
-                        new byte[] {(byte) 198, 18, 2, 10});
-                for (int i = 0; i < EXPECTED_PER_ROUTE && running.get(); i++) {
-                    socket.send(new DatagramPacket(payload, payload.length, home, TEST_PORT));
-                    if (!running.get()) break;
-                    socket.send(new DatagramPacket(payload, payload.length, internet, TEST_PORT));
+                if (!running.get()) return;
+                long[] homeBefore = RootlessNativeBridge.packetStats(homeHandle);
+                long[] internetBefore = RootlessNativeBridge.packetStats(internetHandle);
+                if (!validStats(homeBefore) || !validStats(internetBefore)) {
+                    if (running.get()) report("NOT PASSED — native baseline unavailable.");
+                    return;
                 }
-            } catch (Exception failure) {
-                if (running.get()) {
-                    report("PROBE SEND FAILED — " + failure.getClass().getSimpleName());
+                int failureBefore = injectionFailures.get();
+                ProbeBatch batch = new ProbeBatch(socket.getLocalPort());
+                activeBatch = batch;
+                InetAddress home = InetAddress.getByAddress(new byte[] {(byte) 198, 18, 1, 10});
+                InetAddress internet = InetAddress.getByAddress(new byte[] {(byte) 198, 18, 2, 10});
+                for (int i = 0; i < 6 && running.get(); i++) {
+                    byte[] payload = Arrays.copyOf(batch.nonce, 17);
+                    payload[16] = (byte) i;
+                    socket.send(new DatagramPacket(payload, payload.length,
+                            i % 2 == 0 ? home : internet, TEST_PORT));
                 }
-                probeRunning.set(false);
-                return;
-            }
 
-            long deadline = System.currentTimeMillis() + 5000L;
-            long[] homeStats = new long[] {-1L, -1L, -1L};
-            long[] internetStats = new long[] {-1L, -1L, -1L};
-            while (running.get() && System.currentTimeMillis() < deadline) {
-                homeStats = RootlessNativeBridge.packetStats(homeHandle);
-                internetStats = RootlessNativeBridge.packetStats(internetHandle);
-                if (homeStats.length >= 3 && internetStats.length >= 3
-                        && homeStats[1] >= EXPECTED_PER_ROUTE
-                        && internetStats[1] >= EXPECTED_PER_ROUTE) break;
-                try { Thread.sleep(50L); }
-                catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    break;
+                long deadline = SystemClock.elapsedRealtime() + 5000L;
+                long[] h = new long[] {-1L, -1L, -1L};
+                long[] n = new long[] {-1L, -1L, -1L};
+                while (running.get() && SystemClock.elapsedRealtime() < deadline) {
+                    h = RootlessNativeBridge.packetStats(homeHandle);
+                    n = RootlessNativeBridge.packetStats(internetHandle);
+                    if (batch.seen.get() == 63 && validStats(h) && validStats(n)
+                            && h[1] - homeBefore[1] >= EXPECTED_PER_ROUTE
+                            && n[1] - internetBefore[1] >= EXPECTED_PER_ROUTE) break;
+                    Thread.sleep(50L);
                 }
+                if (running.get()) reportResult(batch, homeBefore, internetBefore, h, n, failureBefore);
+            } catch (InterruptedException stopped) {
+                Thread.currentThread().interrupt();
+            } catch (Exception | LinkageError failure) {
+                if (running.get()) report("NOT PASSED — probe worker failed: " + failure.getClass().getSimpleName());
+            } finally {
+                activeBatch = null;
+                probeRunning.set(false);
             }
-            if (running.get()) reportResult(homeStats, internetStats);
-            probeRunning.set(false);
         }, "WonheeNativeTunProbes");
         worker.setDaemon(true);
         probeThread = worker;
         worker.start();
     }
 
-    private void reportResult(long[] homeStats, long[] internetStats) {
+    private static boolean validStats(long[] stats) {
+        return stats != null && stats.length >= 3 && stats[0] >= 0 && stats[1] >= 0 && stats[2] >= 0;
+    }
+
+    private static long delta(long[] after, long[] before, int field) {
+        return validStats(after) && validStats(before) ? after[field] - before[field] : -1L;
+    }
+
+    private void reportResult(ProbeBatch batch, long[] hb, long[] nb,
+                              long[] h, long[] n, int failureBefore) {
+        long hi = delta(h, hb, 0), hr = delta(h, hb, 1), hd = delta(h, hb, 2);
+        long ni = delta(n, nb, 0), nr = delta(n, nb, 1), nd = delta(n, nb, 2);
         long[] protection = RootlessNativeBridge.protectionStats();
-        boolean pass = tunPackets.get() >= EXPECTED_PER_ROUTE * 2
-                && homeQueued.get() >= EXPECTED_PER_ROUTE
-                && internetQueued.get() >= EXPECTED_PER_ROUTE
-                && homeStats.length >= 3 && internetStats.length >= 3
-                && homeStats[1] >= EXPECTED_PER_ROUTE
-                && internetStats[1] >= EXPECTED_PER_ROUTE
-                && homeStats[2] == 0L && internetStats[2] == 0L
-                && policyDrops.get() == 0 && injectionFailures.get() == 0
-                && protection.length >= 2 && protection[0] == 4L && protection[1] == 0L;
-        String value = String.format(Locale.US,
-                "%s — TUN packets=%d; Home injected/read=%d/%d; Internet injected/read=%d/%d; "
-                        + "policy drops=%d; injection failures=%d; protected sockets=%d; protection failures=%d. "
-                        + "No peer endpoints, handshakes, DNS or reply path were used.",
-                pass ? "PASS" : "NOT PASSED",
-                tunPackets.get(),
-                homeStats.length > 0 ? homeStats[0] : -1L,
-                homeStats.length > 1 ? homeStats[1] : -1L,
-                internetStats.length > 0 ? internetStats[0] : -1L,
-                internetStats.length > 1 ? internetStats[1] : -1L,
-                policyDrops.get(), injectionFailures.get(),
-                protection.length > 0 ? protection[0] : -1L,
-                protection.length > 1 ? protection[1] : -1L);
-        report(value);
+        int failures = injectionFailures.get() - failureBefore;
+        boolean pass = running.get() && batch.seen.get() == 63 && batch.duplicates.get() == 0
+                && hi == 3 && hr == 3 && ni == 3 && nr == 3
+                && hd == 0 && nd == 0 && failures == 0
+                && protection != null && protection.length >= 2 && protection[0] == 4L && protection[1] == 0L;
+        report(String.format(Locale.US,
+                "%s — current batch unique probes=%d/6; Home injected/read=%d/%d; Internet injected/read=%d/%d; "
+                        + "duplicates=%d; native drops=%d/%d; injection failures=%d; protected sockets=%d; protection failures=%d. "
+                        + "Session totals: TUN packets=%d; rejected by policy=%d (%s). "
+                        + "Rejected packets never enter native queues. No peer endpoints, handshakes, DNS or reply path.",
+                pass ? "PASS" : "NOT PASSED", Integer.bitCount(batch.seen.get()), hi, hr, ni, nr,
+                batch.duplicates.get(), hd, nd, failures,
+                protection != null && protection.length > 0 ? protection[0] : -1L,
+                protection != null && protection.length > 1 ? protection[1] : -1L,
+                tunPackets.get(), policyDrops.get(), rejectionSummary()));
     }
 
     private Notification notification(String message) {

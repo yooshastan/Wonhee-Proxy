@@ -31,3 +31,6 @@ The existing official signed package and release signing configuration remain un
 6. Verify ordinary apps and the official Wonhee installation remain untouched.
 
 A pass proves the Android TUN-to-native ingress and per-session queue boundary only. The next milestone is secure real-profile conversion, actual peer endpoint handshakes, bidirectional packet forwarding, IPv4/IPv6 policy, DNS, tunnel-loss fail-closed behavior, and exact teardown before any app routing or release claim.
+
+## 0.15.83 correction
+Pixel 8a observed six intended packets delivered to the separate native queues, four protected sockets and seven unidentified policy rejections in the initial run. A subsequent capture showed exactly six intended probes, zero kernel capture drops. Rejection is not injection failure. This revision additionally gates JNI ingress on the active batch's source address, UDP source/destination ports, random nonce, index and exact destination. Each batch requires six unique indices, exactly three native injections and reads per session relative to its baseline, no duplicates or native/injection drops, and four protected sockets with zero failures. Other packets remain rejected and reason counts are reported. No real traffic or reply path is validated. The new package ID ends in native083 to avoid debug signing conflicts.

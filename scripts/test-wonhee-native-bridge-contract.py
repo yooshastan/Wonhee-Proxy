@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(136)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native082'" in gradle
-assert "versionName.set('0.15.82-native-tun-ingress')" in gradle
+assert 'versionCode.set(137)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native083'" in gradle
+assert "versionName.set('0.15.83-native-tun-batch-audit')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -67,5 +67,9 @@ assert 'Target.HOME' in router
 assert 'Target.INTERNET' in router
 assert 'Target.DROP' in router
 assert 'No peer endpoints, handshakes, DNS or reply path' in tun_service
+assert 'probeIndex(buffer, length, batch.port, batch.nonce)' in tun_service
+assert 'batch.seen.get() == 63' in tun_service
+assert 'hi == 3 && hr == 3 && ni == 3 && nr == 3' in tun_service
+assert 'policyDrops.get() == 0' not in tun_service
 
 print("Wonhee native Android socket + scoped TUN ingress contract passed")

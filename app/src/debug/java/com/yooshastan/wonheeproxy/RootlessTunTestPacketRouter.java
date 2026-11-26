@@ -12,36 +12,51 @@ package com.yooshastan.wonheeproxy;
  */
 final class RootlessTunTestPacketRouter {
     enum Target { HOME, INTERNET, DROP }
+    enum Reason { SIZE, NON_IPV4, IP_HEADER, IP_LENGTH, IP_CHECKSUM, NON_UDP, FRAGMENT, UDP_LENGTH, DESTINATION, OUTSIDE_BATCH, PROBE_MISMATCH, DUPLICATE }
 
     private static final int MTU = 1280;
 
     private RootlessTunTestPacketRouter() { }
 
-    static Target select(byte[] packet, int length) {
-        if (packet == null || length < 28 || length > MTU || length > packet.length) {
-            return Target.DROP;
-        }
-        if (((packet[0] & 0xff) >>> 4) != 4 || (packet[0] & 0x0f) != 5) {
-            return Target.DROP;
-        }
+    static Reason rejection(byte[] packet, int length) {
+        if (packet == null || length < 1 || length > MTU || length > packet.length) return Reason.SIZE;
+        if (((packet[0] & 0xff) >>> 4) != 4) return Reason.NON_IPV4;
+        if (length < 20 || (packet[0] & 0x0f) != 5) return Reason.IP_HEADER;
         int total = u16(packet, 2);
-        if (total != length || total < 28 || !validIpv4Checksum(packet)) {
-            return Target.DROP;
-        }
-        if ((packet[9] & 0xff) != 17) return Target.DROP; // UDP only
-        int fragment = u16(packet, 6);
-        if ((fragment & 0xbfff) != 0) return Target.DROP; // no reserved/MF/offset bits
+        if (total != length || total < 20) return Reason.IP_LENGTH;
+        if (!validIpv4Checksum(packet)) return Reason.IP_CHECKSUM;
+        if ((u16(packet, 6) & 0xbfff) != 0) return Reason.FRAGMENT;
+        if ((packet[9] & 0xff) != 17) return Reason.NON_UDP;
+        if (length < 28) return Reason.UDP_LENGTH;
         int udpLength = u16(packet, 24);
-        if (udpLength < 8 || udpLength != total - 20) return Target.DROP;
-
+        if (udpLength < 8 || udpLength != total - 20) return Reason.UDP_LENGTH;
         int first = packet[16] & 0xff;
         int second = packet[17] & 0xff;
-        int third = packet[18] & 0xff;
-        if (first != 198 || (second != 18 && second != 19)) return Target.DROP;
+        if (first != 198 || (second != 18 && second != 19)) return Reason.DESTINATION;
+        return null;
+    }
 
-        // More-specific Home test route wins over the broad Internet test route.
-        if (second == 18 && third == 1) return Target.HOME;
+    static Target select(byte[] packet, int length) {
+        if (rejection(packet, length) != null) return Target.DROP;
+        if ((packet[17] & 0xff) == 18 && (packet[18] & 0xff) == 1) return Target.HOME;
         return Target.INTERNET;
+    }
+
+    // Only the exact generated batch, source and destination may reach JNI.
+    // Return the probe index, or -1. Nonces are never logged.
+    static int probeIndex(byte[] packet, int length, int sourcePort, byte[] nonce) {
+        if (nonce == null || nonce.length != 16 || rejection(packet, length) != null
+                || length != 45 || u16(packet, 20) != sourcePort
+                || u16(packet, 22) != 43434
+                || (packet[12] & 255) != 10 || (packet[13] & 255) != 253
+                || packet[14] != 0 || packet[15] != 1) return -1;
+        for (int i = 0; i < nonce.length; i++) {
+            if (packet[28 + i] != nonce[i]) return -1;
+        }
+        int index = packet[44] & 255;
+        if (index >= 6 || (packet[17] & 255) != 18 || (packet[19] & 255) != 10
+                || (packet[18] & 255) != (index % 2 == 0 ? 1 : 2)) return -1;
+        return index;
     }
 
     private static int u16(byte[] packet, int offset) {
