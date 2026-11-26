@@ -86,6 +86,11 @@ func TestQueueIsolationAndBackpressure(t *testing.T) {
 	got, ok := tun.Poll()
 	if !ok || !bytes.Equal(got, []byte{4, 5, 6}) { t.Fatal("decrypted data not isolated") }
 	if _, ok = tun.Poll(); ok { t.Fatal("unexpected second packet") }
+	stats := tun.Stats()
+	if stats.Injected != 1 || stats.Read != 1 || stats.Written != 1
+		|| stats.Polled != 1 || stats.Dropped != 2 {
+		t.Fatalf("unexpected packet queue counters: %+v", stats)
+	}
 }
 
 func TestInvalidTunRejected(t *testing.T) {
