@@ -298,7 +298,7 @@ public final class RootlessNativeTunPumpService extends VpnService {
                     break;
                 }
             }
-            reportResult(homeStats, internetStats);
+            if (running.get()) reportResult(homeStats, internetStats);
             probeRunning.set(false);
         }, "WonheeNativeTunProbes");
         worker.setDaemon(true);
