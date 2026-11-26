@@ -21,9 +21,7 @@ jobs:
         working-directory: native
         run: |
           go mod tidy
-          test -s go.sum
-          echo '--- GENERATED NATIVE GO SUM (to be pinned in repository) ---'
-          cat go.sum
+          git diff --exit-code -- go.mod go.sum
           go list -m golang.zx2c4.com/wireguard
       - name: Test independent packet bridges and crypto-device lifecycle
         working-directory: native

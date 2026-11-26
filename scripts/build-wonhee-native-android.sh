@@ -17,7 +17,7 @@ mkdir -p "$OUT/arm64-v8a"
   export GOOS=android GOARCH=arm64 CGO_ENABLED=1
   export CC
   export CGO_CFLAGS="${CGO_CFLAGS:-} -D__ANDROID_API__=26"
-  go build -trimpath -buildmode=c-shared \
+  go build -mod=readonly -trimpath -buildmode=c-shared \
     -ldflags='-s -w -extldflags=-Wl,-z,max-page-size=16384' \
     -o "$OUT/arm64-v8a/libwonhee_native.so" ./cmd/wonhee-jni
 )
