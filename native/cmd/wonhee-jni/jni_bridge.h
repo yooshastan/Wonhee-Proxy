@@ -4,6 +4,9 @@
 #include <stdint.h>
 
 int64_t WNCreateTestSession(char *name);
+int64_t WNCreatePacketTestSession(char *name, char *allowed_ip);
+int WNInjectPacket(uint64_t handle, char *data, int length);
+int WNPacketStats(uint64_t handle, int64_t *injected, int64_t *read, int64_t *dropped);
 int WNCloseSession(uint64_t handle);
 int wn_set_service(JNIEnv *env, jobject service);
 int wn_clear_service(JNIEnv *env, jobject service);
