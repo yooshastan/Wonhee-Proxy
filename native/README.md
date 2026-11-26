@@ -31,3 +31,7 @@ The 0.15.80 debug smoke test no longer calls `VpnService.Builder.establish()`. T
 
 ## 0.15.81 smoke IPC regression
 The Android JNI smoke profile now uses the same host-tested ephemeral config generator as the native regression test. WireGuard userspace IPC accepts hexadecimal keys, not wg-quick Base64. CI exercises the actual generator against the real protected-session configuration parser without opening host UDP sockets. JNI reports fixed negative stage codes for construction, key generation, configuration and bind activation; no keys or raw IPC error strings are logged. Android socket protection still requires device testing.
+
+
+## 0.15.81 diagnostic package installation
+The 0.15.81 debug diagnostic uses package ID `com.yooshastan.wonheeproxy.rootlab01562triple1native081`. It is intentionally distinct from the 0.15.80 diagnostic package because GitHub-hosted debug signing keys are ephemeral between runs. Install it alongside 0.15.80 with `adb install`; do not uninstall either diagnostic or the existing RootLab app. This smoke test uses generated ephemeral keys only and does not require importing real profiles.

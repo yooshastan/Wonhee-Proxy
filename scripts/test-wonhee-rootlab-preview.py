@@ -345,7 +345,7 @@ assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" 
 assert "selector().withBuildType('debug')" in gradle
 assert "output.versionCode.set(135)" in gradle
 assert "output.versionName.set('0.15.81-native-smoke-ipc')" in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native080'" in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native081'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
 assert "Private DNS" in source and "READ-ONLY" in source

@@ -32,6 +32,7 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' in manifest
 assert 'tools:node="remove"' in manifest
 assert 'versionCode.set(135)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native081'" in gradle
 assert "versionName.set('0.15.81-native-smoke-ipc')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 print("Wonhee native Android bridge contract passed")
