@@ -23,7 +23,7 @@ android {
     buildTypes {
         debug {
             // Side-by-side experiment; never replace the user's signed stable app.
-            applicationIdSuffix '.rootlab01562triple1'
+            applicationIdSuffix '.rootlab01562triple1native080'
         }
         release {
             if (hasReleaseSigning) {
