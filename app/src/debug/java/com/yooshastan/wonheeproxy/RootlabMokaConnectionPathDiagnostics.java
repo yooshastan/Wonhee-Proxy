@@ -95,25 +95,14 @@ final class RootlabMokaConnectionPathDiagnostics {
         return "OTHER";
     }
 
-    private static String socketStates(RootShell shell) throws Exception {
-        // Summarize only TCP states for the fixed private endpoint; never
-        // export arbitrary sockets, remote IPs/ports, app names or tokens.
-        List<String> lines = read(shell, "ss -tn");
+    private static String socketOwnership(RootShell shell, int mokaUid,
+            int braveUid) throws Exception {
+        // Real kernel TCP sockets; no probes or network changes.
+        // Android may deny UID/fwmark metadata even to the root shell.
+        List<String> lines = read(shell, "ss -tnpe");
         if (lines == null) return "SOCKET_INVENTORY_UNAVAILABLE";
-        int matches = 0;
-        StringBuilder states = new StringBuilder();
-        for (String line : lines) {
-            if (!line.contains("10.0.0.169:4533")
-                    && !line.contains("10.0.0.169%")) continue;
-            if (matches++ >= 12) break;
-            String[] fields = line.trim().split("\\s+");
-            if (fields.length > 0 && fields[0].matches("[A-Za-z0-9_-]{3,24}")) {
-                if (states.length() > 0) states.append(", ");
-                states.append(fields[0]);
-            }
-        }
-        return matches == 0 ? "NONE_VISIBLE_AT_SNAPSHOT"
-                : "VISIBLE_ENDPOINT_TCP_STATES=" + states;
+        return RootHomeTcpSocketEvidence.summarize(
+                join(lines), mokaUid, braveUid);
     }
 
     String inspect(String homeDevice) throws Exception {
@@ -142,7 +131,7 @@ final class RootlabMokaConnectionPathDiagnostics {
                 journal, rule, last);
 
         StringBuilder out = new StringBuilder(
-                "WONHEE 0.15.77 - MOKA/BROWSER CONNECTION PATH (READ ONLY)\n");
+                "WONHEE 0.15.78 - MOKA/BROWSER CONNECTION PATH (READ ONLY)\n");
         out.append("Android active transport: ")
                 .append(activeTransport(app)).append('\n');
         out.append("Android Private DNS: ")
@@ -208,8 +197,8 @@ final class RootlabMokaConnectionPathDiagnostics {
         out.append("Moka IPv6 OUTPUT hook: ")
                 .append(counts(shell, "ip6tables", "OUTPUT",
                         RootMokaHomeFirewallPilotPlan.CHAIN6)).append('\n');
-        out.append("Target TCP sockets: ")
-                .append(socketStates(shell)).append('\n');
+        out.append("Navidrome TCP sockets (read-only UID/mark evidence): ")
+                .append(socketOwnership(shell, mokaUid, braveUid)).append('\n');
         out.append("No packets, app routing, DNS or VPN configurations "
                 + "were changed. Zero counters or no visible sockets "
                 + "do NOT prove that no connection was attempted. "
