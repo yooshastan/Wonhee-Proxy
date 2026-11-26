@@ -26,6 +26,9 @@ public class NativeProtectedDnsMessageTest {
   if(NativeProtectedDnsMessage.udpLimit(edns)!=1252)throw new AssertionError("EDNS clamp");
   NativeProtectedDnsMessage.put(edns,q.length+3,1000);
   if(NativeProtectedDnsMessage.udpLimit(edns)!=1000)throw new AssertionError("EDNS limit");
+  byte[] probe=NativeProtectedDnsMessage.testQuery("ads.example.com",0x1234);
+  if(!NativeProtectedDnsMessage.question(probe).name.equals("ads.example.com")||NativeProtectedDnsMessage.u16(probe,0)!=0x1234)throw new AssertionError("test query");
+  try{NativeProtectedDnsMessage.testQuery("bad..example.com",1);throw new AssertionError();}catch(IOException expected){}
   System.out.println("Protected DNS message checks PASS");
  }
 }

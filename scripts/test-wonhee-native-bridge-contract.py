@@ -228,3 +228,8 @@ assert 'QUIC_IDLE_LIMIT=10000' in protected_dns and 'quicFreshRetries' in protec
 assert 'dnsRelay.testProvider()' in app_routing and 'DNS_TEST' in ui_activity
 assert 'dnsAlternate.getSelectedItemPosition()' in ui_activity
 assert 'DNS probe attempts=' in app_routing and 'dnsHealth' in ui_activity
+
+assert 'functionalOwns(key)' in app_routing and 'return UNKNOWN_DNS' in app_routing
+assert 'network.bindSocket(socket)' in protected_dns and 'NativeAppRoutingPolicy.DNS),53)' in protected_dns
+assert 'closeFunctional();functionalWorker.shutdownNow()' in protected_dns
+assert 'DNS_FUNCTIONAL_TEST' in ui_activity and 'dnsRelay.testFunctional()' in app_routing

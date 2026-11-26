@@ -30,6 +30,11 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     private static final class HandshakeTimeout extends IOException {
         HandshakeTimeout(){super("QUIC handshake timeout");}
     }
+    private final ExecutorService functionalWorker=Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean functionalRunning=new java.util.concurrent.atomic.AtomicBoolean();
+    private volatile String functionalStatus="Not tested";
+    private volatile int functionalPort;
+    private Socket functionalSocket;
     private volatile String probeStatus="Not tested";
     private final java.util.concurrent.atomic.AtomicBoolean probeRunning=new java.util.concurrent.atomic.AtomicBoolean();
     private volatile long lastSuccessMs,lastFailureMs;
@@ -75,7 +80,7 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
             reaper.scheduleWithFixedDelay(this::expireIdle,5,5,TimeUnit.SECONDS);
         }catch(Exception|LinkageError e){
             if(t>0)NativeAdvancedDnsBridge.closeTcp(t);
-            workers.shutdownNow();reaper.shutdownNow();throw e;
+            workers.shutdownNow();reaper.shutdownNow();functionalWorker.shutdownNow();throw e;
         }
         quicRoots=roots;tcpHandle=t;
     }
@@ -98,6 +103,70 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     boolean owns(NativeAppRoutingPolicy.Key k){
         if(k.remote!=ip||k.remotePort!=NativeDnsTransportPolicy.port(mode)||k.proto!=NativeDnsTransportPolicy.protocol(mode))return false;
         return mode==NativeDnsTransportPolicy.DOT?ports.containsKey(k.localPort):quicPorts.containsKey(k.localPort);
+    }
+    boolean functionalOwns(NativeAppRoutingPolicy.Key k){
+        return !closed&&functionalPort!=0&&k.proto==6&&k.fixedDns()&&k.localPort==functionalPort;
+    }
+    String functionalStatus(){return functionalStatus;}
+    private synchronized void registerFunctional(Socket socket)throws IOException{
+        if(closed)throw new IOException("relay stopped");
+        functionalSocket=socket;functionalPort=socket.getLocalPort();
+    }
+    private synchronized void closeFunctional(){
+        if(functionalSocket!=null)try{functionalSocket.close();}catch(IOException ignored){}
+        functionalPort=0;functionalSocket=null;
+    }
+    // Real TCP to the virtual resolver, not a direct public DNS connection.
+    // Only the registered own-UID tuple is admitted to the existing local stack.
+    private byte[] functionalQuery(byte[] q)throws IOException{
+        try(Socket socket=new Socket()){
+            network.bindSocket(socket);
+            socket.bind(new InetSocketAddress(numeric(NativeAppRoutingPolicy.TUN),0));
+            registerFunctional(socket);
+            try{
+                socket.connect(new InetSocketAddress(numeric(NativeAppRoutingPolicy.DNS),53),4000);
+                socket.setSoTimeout(19000);
+                DataOutputStream out=new DataOutputStream(socket.getOutputStream());
+                DataInputStream in=new DataInputStream(socket.getInputStream());
+                out.writeShort(q.length);out.write(q);out.flush();
+                int size=in.readUnsignedShort();if(size<12||size>NativeProtectedDnsMessage.MAX_REPLY)throw new IOException("test size");
+                byte[] answer=new byte[size];in.readFully(answer);return NativeProtectedDnsMessage.validateFull(q,answer);
+            }finally{closeFunctional();}
+        }
+    }
+    void testFunctional(){
+        if(closed||!functionalRunning.compareAndSet(false,true))return;
+        functionalStatus="Testing…";
+        try{functionalWorker.execute(()->{
+            String hosts="Skipped · no usable active HOSTS entry",tcp="Not tested";
+            try{
+                byte[] blockedQuery=null;
+                for(String name:domains){
+                    if(closed)return;
+                    try{blockedQuery=NativeProtectedDnsMessage.testQuery(name,0x5678);break;}catch(IOException ignored){}
+                }
+                if(blockedQuery!=null){
+                    hosts="Failed";
+                    try{
+                        long before=blocked.get();
+                        byte[] answer=functionalQuery(blockedQuery);
+                        if((answer[3]&15)==3&&NativeProtectedDnsMessage.u16(answer,6)==0&&blocked.get()>before)hosts="Passed · NXDOMAIN and block counter";
+                    }catch(IOException|RuntimeException ignored){}
+                }
+                if(closed)return;
+                functionalStatus="HOSTS: "+hosts+" · TCP: Testing…";
+                String name=NativeProtectedDnsMessage.blocked("example.com",domains)?"example.net":"example.com";
+                if(NativeProtectedDnsMessage.blocked(name,domains))tcp="Skipped · public test names blocked";
+                else{
+                    tcp="Failed";
+                    try{
+                        byte[] answer=functionalQuery(NativeProtectedDnsMessage.testQuery(name,0x5679));
+                        if((answer[3]&15)==0&&NativeProtectedDnsMessage.u16(answer,6)>0)tcp="Passed · DNS answer";
+                    }catch(IOException|RuntimeException ignored){}
+                }
+                if(!closed)functionalStatus="HOSTS: "+hosts+" · TCP: "+tcp;
+            }finally{functionalRunning.set(false);}
+        });}catch(RejectedExecutionException e){functionalRunning.set(false);functionalStatus="Busy · retry later";}
     }
     boolean quicOwns(NativeAppRoutingPolicy.Key k){return k!=null&&mode!=NativeDnsTransportPolicy.DOT&&owns(k);}
     boolean feedTcp(byte[] packet){
@@ -414,7 +483,7 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         boolean interrupted=Thread.interrupted();
         long deadline=SystemClock.elapsedRealtime()+4000;
         try{
-            for(ExecutorService executor:new ExecutorService[]{workers,reaper}){
+            for(ExecutorService executor:new ExecutorService[]{workers,reaper,functionalWorker}){
                 while(!executor.isTerminated()){
                     long left=deadline-SystemClock.elapsedRealtime();if(left<=0)return false;
                     try{if(!executor.awaitTermination(left,TimeUnit.MILLISECONDS))return false;}
@@ -426,6 +495,7 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     }
     @Override public void close(){
         closed=true;
+        closeFunctional();functionalWorker.shutdownNow();
         NativeAdvancedDnsBridge.closeTcp(tcpHandle);
         for(DatagramSocket s:quicSockets)s.close();
         workers.shutdownNow();reaper.shutdownNow();

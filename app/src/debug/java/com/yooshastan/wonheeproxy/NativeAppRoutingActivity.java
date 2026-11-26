@@ -35,7 +35,8 @@ public final class NativeAppRoutingActivity extends Activity {
     private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference;
     private CheckBox hostsEnabled,blockExternal853,autoRecovery;
     private TextView hostsStatus,dnsHealth,dnsPending;
-    private Button dnsTestButton;
+    private Button dnsTestButton,functionalTestButton;
+    private TextView functionalStatus;
     private android.content.SharedPreferences draft;
     private static final class AppRow {
         final String pkg;final CheckBox selected;final Spinner category,role;
@@ -112,6 +113,9 @@ public final class NativeAppRoutingActivity extends Activity {
         dnsHealth=label(root,"DNS health · not active",14);
         dnsTestButton=button(root,"Test active DNS provider",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.DNS_TEST)));
         label(root,"Tests example.com through the active encrypted DNS relay without using cache or HOSTS. Does not apply draft settings. Start the desired configuration first.",13);
+        functionalTestButton=button(root,"Test TCP DNS and HOSTS",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.DNS_FUNCTIONAL_TEST)));
+        functionalStatus=label(root,"Functional DNS test · not active",14);
+        label(root,"Uses the active VPN virtual TCP resolver, a local HOSTS entry and a fixed public test name. No direct DNS or transport fallback. Public answer may use cache.",13);
         blockExternal853=new CheckBox(this);blockExternal853.setText("Block app-owned TCP/UDP port 853");blockExternal853.setChecked(draft.getBoolean("blockExternal853",true));root.addView(blockExternal853);
         hostsEnabled=new CheckBox(this);hostsEnabled.setText("Enable imported hosts filtering");hostsEnabled.setChecked(draft.getBoolean("hostsEnabled",false));root.addView(hostsEnabled);
         hostsStatus=label(root,"",14);
@@ -211,6 +215,8 @@ public final class NativeAppRoutingActivity extends Activity {
         }
         if(dnsHealth!=null)dnsHealth.setText("Active DNS · "+(active?prefs.getString("dnsActiveConfig","")+"\nHealth: "+prefs.getString("dnsHealth","Waiting")+"\nTest: "+prefs.getString("dnsProbe","Not tested"):"Not active"));
         if(dnsTestButton!=null)dnsTestButton.setEnabled(busy&&state.equals("ACTIVE"));
+        if(functionalTestButton!=null)functionalTestButton.setEnabled(busy&&active);
+        if(functionalStatus!=null)functionalStatus.setText("Functional DNS test · "+(active?prefs.getString("dnsFunctional","Not tested"):"Not active"));
         int selected=0;for(AppRow r:apps)if(r.selected.isChecked())selected++;
         if(summary!=null)summary.setText("Configuration · "+selected+" apps selected · "+(home.isChecked()?"2 exits + Home":"2 exits")+"\nChanges apply on next Start.");
         startButton.setEnabled(!busy);stopButton.setEnabled(busy);status.setText(formatActivity(report));

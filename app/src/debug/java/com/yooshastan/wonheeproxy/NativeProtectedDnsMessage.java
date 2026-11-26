@@ -31,6 +31,14 @@ final class NativeProtectedDnsMessage {
         if(n.length()==0||pos+4>b.length)throw new IOException("question missing");
         return new Question(n.toString().toLowerCase(Locale.ROOT),u16(b,pos),u16(b,pos+2),pos+4);
     }
+    static byte[] testQuery(String name,int id)throws IOException{
+        if(name==null||name.length()>253||!name.matches("[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)+"))throw new IOException("invalid test name");
+        java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();
+        byte[] head=new byte[12];put(head,0,id);put(head,2,0x0100);put(head,4,1);out.write(head);
+        for(String label:name.split("\\.")){byte[] bytes=label.getBytes(StandardCharsets.US_ASCII);if(bytes.length>63)throw new IOException("invalid test label");out.write(bytes.length);out.write(bytes);}
+        out.write(new byte[]{0,0,1,0,1});
+        return normalize(out.toByteArray());
+    }
     static byte[] normalize(byte[] b)throws IOException{
         if(b.length>MAX_DNS||b.length<12||(u16(b,2)&0xf800)!=0||u16(b,6)!=0||u16(b,8)!=0)throw new IOException("query shape");
         Question q=question(b);if(q.clazz!=1||q.type==0)throw new IOException("query class");
