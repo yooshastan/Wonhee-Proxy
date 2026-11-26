@@ -40,7 +40,7 @@ public final class RootlessNativeTunPumpActivity extends Activity {
                 + "No user profiles, peer endpoints, DNS, credentials, root commands, "
                 + "default routes or other-app routing are used. No remote handshake or "
                 + "reply path is claimed. IPv6 and non-UDP packets are outside this test.\n\n"
-                + "Stop the 0.15.81 socket-only test using its Stop test and release sockets button, then disconnect every other VPN. Android Private DNS must remain OFF.");
+                + "Stop the 0.15.81 socket-only test using its Stop test and release sockets button. Use Exact-owned Safe Stop for any active RootLab kernel links, then disconnect every other VPN. Android Private DNS must remain OFF.");
         explanation.setTextSize(14);
         root.addView(explanation);
 
