@@ -8,10 +8,6 @@ package main
 import "C"
 
 import (
-	"crypto/ecdh"
-	"crypto/rand"
-	"encoding/base64"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -35,39 +31,29 @@ var (
 	nextHandle atomic.Uint64
 )
 
-func makeEphemeralSmokeConfig() (string, error) {
-	curve := ecdh.X25519()
-	private, err := curve.GenerateKey(rand.Reader)
-	if err != nil { return "", err }
-	peer, err := curve.GenerateKey(rand.Reader)
-	if err != nil { return "", err }
-	return fmt.Sprintf(
-		"private_key=%s\nreplace_peers=true\npublic_key=%s\nallowed_ip=192.0.2.0/24\n",
-		base64.StdEncoding.EncodeToString(private.Bytes()),
-		base64.StdEncoding.EncodeToString(peer.PublicKey().Bytes())), nil
-}
-
 //export WNCreateTestSession
-func WNCreateTestSession(name *C.char) C.uint64_t {
-	if name == nil || C.wn_has_service() != 1 { return 0 }
+func WNCreateTestSession(name *C.char) C.int64_t {
+	// Negative results are fixed redacted stage codes; positive results alone
+	// are session handles. Never return IPC input or upstream error strings.
+	if name == nil || C.wn_has_service() != 1 { return -1 }
 	session, err := dualwg.NewProtectedSession(C.GoString(name), 1280, 32, androidProtector{})
-	if err != nil { return 0 }
-	config, err := makeEphemeralSmokeConfig()
-	if err != nil { session.Close(); return 0 }
+	if err != nil { return -2 }
+	config, err := dualwg.NewEphemeralSmokeConfig()
+	if err != nil { session.Close(); return -3 }
 	if err = session.Configure(config); err != nil {
 		session.Close()
-		return 0
+		return -4
 	}
 	if err = session.Start(); err != nil {
 		session.Close()
-		return 0
+		return -5
 	}
 	handle := nextHandle.Add(1)
-	if handle == 0 { session.Close(); return 0 }
+	if handle == 0 || handle > (1<<63)-1 { session.Close(); return -6 }
 	sessionsMu.Lock()
 	sessions[handle] = &sessionEntry{session: session}
 	sessionsMu.Unlock()
-	return C.uint64_t(handle)
+	return C.int64_t(handle)
 }
 
 //export WNCloseSession

@@ -3,7 +3,7 @@
 #include <jni.h>
 #include <stdint.h>
 
-uint64_t WNCreateTestSession(char *name);
+int64_t WNCreateTestSession(char *name);
 int WNCloseSession(uint64_t handle);
 int wn_set_service(JNIEnv *env, jobject service);
 int wn_clear_service(JNIEnv *env, jobject service);

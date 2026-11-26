@@ -28,3 +28,6 @@ The Android debug APK builds `cmd/wonhee-jni` as an ARM64 shared library with th
 
 ## 0.15.80 socket-test lifecycle correction
 The 0.15.80 debug smoke test no longer calls `VpnService.Builder.establish()`. The Android `VpnService.protect(int)` contract requires the VPN app to be prepared, not an OS TUN to be established. This removes the unrelated `tun0`/ConnectivityService network-agent lifecycle from a test whose only purpose is to prove JNI socket protection. The test uses a declared `specialUse` foreground-service type with an explicit user-initiated diagnostic subtype, and records the exact stage if Android destroys the service unexpectedly.
+
+## 0.15.81 smoke IPC regression
+The Android JNI smoke profile now uses the same host-tested ephemeral config generator as the native regression test. WireGuard userspace IPC accepts hexadecimal keys, not wg-quick Base64. CI exercises the actual generator against the real protected-session configuration parser without opening host UDP sockets. JNI reports fixed negative stage codes for construction, key generation, configuration and bind activation; no keys or raw IPC error strings are logged. Android socket protection still requires device testing.

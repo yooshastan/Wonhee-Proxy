@@ -115,7 +115,7 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreateTestSession(
     if (name == NULL) return 0;
     const char *value = (*env)->GetStringUTFChars(env, name, NULL);
     if (value == NULL) return 0;
-    uint64_t handle = WNCreateTestSession((char *)value);
+    int64_t handle = WNCreateTestSession((char *)value);
     (*env)->ReleaseStringUTFChars(env, name, value);
     return (jlong)handle;
 }

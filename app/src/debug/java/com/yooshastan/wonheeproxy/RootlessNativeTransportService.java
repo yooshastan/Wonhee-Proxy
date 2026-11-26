@@ -129,16 +129,10 @@ public final class RootlessNativeTransportService extends VpnService {
             registered = true;
 
             setStage("start-home-crypto-device");
-            homeHandle = RootlessNativeBridge.createTestSession("home");
-            if (homeHandle == 0L) {
-                throw new IllegalStateException("Home crypto device or socket protection failed.");
-            }
+            homeHandle = requireTestSession("home");
 
             setStage("start-internet-crypto-device");
-            internetHandle = RootlessNativeBridge.createTestSession("internet");
-            if (internetHandle == 0L) {
-                throw new IllegalStateException("Internet crypto device or socket protection failed.");
-            }
+            internetHandle = requireTestSession("internet");
 
             setStage("verify-four-socket-protections");
             long[] stats = RootlessNativeBridge.protectionStats();
@@ -158,6 +152,25 @@ public final class RootlessNativeTransportService extends VpnService {
             fail("Native protection test failed at " + stage + " ("
                     + failure.getClass().getSimpleName() + "); no app traffic was routed.");
         }
+    }
+
+    // The JNI boundary returns only fixed stage codes and positive handles.
+    private long requireTestSession(String name) {
+        long result = RootlessNativeBridge.createTestSession(name);
+        if (result > 0L) return result;
+        String reason;
+        if (result == -1L) reason = "callback-unavailable";
+        else if (result == -2L) reason = "session-construction";
+        else if (result == -3L) reason = "temporary-key-generation";
+        else if (result == -4L) reason = "ipc-config-rejected";
+        else if (result == -5L) reason = "protected-bind-activation";
+        else if (result == -6L) reason = "handle-allocation";
+        else reason = "unknown-native-result";
+        long[] counts = RootlessNativeBridge.protectionStats();
+        setStage(stage + "/" + reason + " [protected="
+                + (counts.length > 0 ? counts[0] : -1L) + ", failed="
+                + (counts.length > 1 ? counts[1] : -1L) + "]");
+        throw new IllegalStateException("Native smoke stage failed: " + reason);
     }
 
     private Notification notification(String message) {
