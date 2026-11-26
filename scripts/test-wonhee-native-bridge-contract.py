@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(148)' in gradle
+assert 'versionCode.set(149)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.17.0-native-protected-routing')" in gradle
+assert "versionName.set('0.17.1-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -147,3 +147,18 @@ assert 'ports.putIfAbsent(port,raw)' in protected_dns and 'dnsRelay.owns(key)' i
 assert 'key.remotePort==53' in app_routing and 'dnsRelay.submit(p)' in app_routing
 assert 'RootBlocklistStore.current(getFilesDir())' in app_routing
 assert 'controlled-guard-test' in app_routing and 'dnsRelay.close()' in app_routing
+
+# Only protected routing may be launched from the app drawer.
+import xml.etree.ElementTree as ET
+ns="{http://schemas.android.com/apk/res/android}"
+xml=ET.fromstring(manifest)
+launchers=[]
+for activity_node in xml.findall("./application/activity"):
+    for filt in activity_node.findall("intent-filter"):
+        if any(x.get(ns+"name")=="android.intent.action.MAIN" for x in filt.findall("action")) and any(x.get(ns+"name")=="android.intent.category.LAUNCHER" for x in filt.findall("category")):
+            launchers.append(activity_node.get(ns+"name"))
+assert launchers==[".NativeAppRoutingActivity"], launchers
+for name in (".RootlabTwoPeerActivity",".RootlessNativePeerActivity",".RootlabReadinessActivity",".WonheeDashboardPreviewActivity"):
+    node=next(x for x in xml.findall("./application/activity") if x.get(ns+"name")==name)
+    assert node.get(ns+"exported")=="false"
+    assert not node.findall("intent-filter")

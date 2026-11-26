@@ -34,7 +34,7 @@ public final class NativeAppRoutingActivity extends Activity {
         draft=getSharedPreferences("native_app_route_draft_v1",MODE_PRIVATE);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
         int pad=(int)(16*getResources().getDisplayMetrics().density);root.setPadding(pad,pad,pad,pad);
-        label(root,"Wonhee 0.17.0 · Protected app routing",22);
+        label(root,"Wonhee 0.17.1 · Protected app routing",22);
         label(root,"Experimental rootless VPN. Only checked apps are captured; other apps use normal networking. IPv4 TCP/UDP only; IPv6 and unsupported traffic blocked inside the VPN. Private DNS must remain OFF. System UDP DNS is relayed over authenticated TLS inside a selected tunnel; direct port 53 is blocked. TCP DNS fallback is not supported yet. Application DoH over port 443 is not identifiable. No protection before startup or after Stop.",14);
         button(root,"Start selected-app routing",()->{
             try{makeIntent();save();Intent consent=VpnService.prepare(this);if(consent!=null)startActivityForResult(consent,VPN);else launch();}
@@ -93,7 +93,13 @@ public final class NativeAppRoutingActivity extends Activity {
             apps.add(new AppRow(pkg,selected,category,role));
         }
         button(root,"Save routing choices",()->{save();status.setText("Saved locally. Stop and Start to apply changes.");});
-        button(root,"Run previous scoped transfer regression",()->startActivity(new Intent(this,RootlessNativePeerActivity.class)));
+        button(root,"Advanced diagnostics",()->new android.app.AlertDialog.Builder(this)
+            .setTitle("Advanced diagnostics — stop VPN first")
+            .setItems(new String[]{"Native transfer regression","Read-only readiness","Legacy kernel lab / Safe Stop"},(dialog,index)->{
+                Class<?> target=index==0?RootlessNativePeerActivity.class:index==1?RootlabReadinessActivity.class:RootlabTwoPeerActivity.class;
+                if(index==2)new android.app.AlertDialog.Builder(this).setTitle("Legacy kernel laboratory").setMessage("This is not the current connection screen. Use only for deliberate diagnostics or exact-owned Safe Stop of old root links. Do not start it while protected routing is active.").setPositiveButton("Open legacy lab",(d,b)->startActivity(new Intent(this,target))).setNegativeButton("Cancel",null).show();
+                else startActivity(new Intent(this,target));
+            }).setNegativeButton("Cancel",null).show());
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(root);scroll.setFitsSystemWindows(true);setContentView(scroll);refresh();
     }
     private TextView label(LinearLayout root,String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);root.addView(v);return v;}
