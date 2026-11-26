@@ -29,10 +29,10 @@ public final class RootlessNativePeerActivity extends Activity {
         int pad=(int)(16*getResources().getDisplayMetrics().density);
         root.setPadding(pad,pad,pad,pad);
         TextView title=new TextView(this);
-        title.setText("Wonhee 0.15.89 · Scoped TCP + UDP lab");
+        title.setText("Wonhee 0.15.90 · Secure endpoint bootstrap");
         title.setTextSize(22);root.addView(title);
         TextView info=new TextView(this);
-        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles can be saved without DNS. For a hostname endpoint, enter its provider-confirmed numeric IP in the corresponding optional override box. Original port and encrypted configuration stay unchanged. Two concurrent flows per peer through one package-scoped TUN. Exits use certificate-verified HTTPS; optional Home uses a credential-free HTTP GET /. Response headers and declared body samples are bounded. Five fixed UDP DNS requests per Internet exit test datagrams through the same tunnel; no system DNS changes. No redirects, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
+        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles are validated offline. Leave overrides blank for automatic DNS-over-TLS to Cloudflare (1.1.1.1:853) on the physical network before tunnels start. The resolver sees endpoint hostnames; no plaintext fallback. A provider-confirmed numeric override remains optional. Original port and encrypted configuration stay unchanged. Two concurrent flows per peer through one package-scoped TUN. Exits use certificate-verified HTTPS; optional Home uses a credential-free HTTP GET /. Response headers and declared body samples are bounded. Five fixed UDP DNS requests per Internet exit test datagrams through the same tunnel; no system DNS changes. No redirects, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
         root.addView(info);
         slots=new TextView(this);root.addView(slots);
         for(int i=0;i<3;i++) {
@@ -42,7 +42,7 @@ public final class RootlessNativePeerActivity extends Activity {
             EditText ip=new EditText(this);
             ip.setSingleLine(true);
             ip.setSaveEnabled(false);
-            ip.setHint("Numeric IP override for hostname only");
+            ip.setHint("Optional numeric override; blank = secure DNS");
             overrides[i]=ip;root.addView(ip);
         }
         home=new CheckBox(this);home.setText("Include Home (third peer)");home.setChecked(true);root.addView(home);
@@ -99,7 +99,7 @@ public final class RootlessNativePeerActivity extends Activity {
             if(home.isChecked()) RootlessNativePeerService.validateHome(homeTarget.getText().toString().trim(),homePort.getText().toString().trim());
             String[] validated=NativePeerProfiles.prepare(this,home.isChecked(),endpointOverrides(),new String[3]);
             java.util.Arrays.fill(validated,null);
-            status.setText("PROFILE CHECK PASSED — selected profiles present and distinct. No network started.");
+            status.setText("PROFILE CHECK PASSED — selected profiles present and distinct. Hostnames resolved only at Start; no network started.");
             return true;
         } catch(NativePeerProfiles.Rejected rejected) {
             status.setText("PROFILE CHECK FAILED — "+rejected.code);

@@ -77,7 +77,7 @@ final class NativePeerProfiles {
         }
     }
     // Explicit, temporary numeric override applies only to hostname endpoints.
-    // Original port and all peer keys remain unchanged; never resolve via DNS.
+    // Original port and all peer keys remain unchanged; resolution is supplied explicitly.
     private static String applyOverride(String canonical,String override,int slot) {
         int code=RootlessNativeBridge.validatePeerProfile(canonical);
         if(code==1) return canonical;
@@ -104,6 +104,9 @@ final class NativePeerProfiles {
         return prepare(context,home,overrides,null);
     }
     static String[] prepare(Context context,boolean home,String[] overrides,String[] localAddresses) throws Exception {
+        return prepare(context,home,overrides,localAddresses,null,true);
+    }
+    static String[] prepare(Context context,boolean home,String[] overrides,String[] localAddresses,NativeEndpointBootstrap resolver,boolean offline) throws Exception {
         SecureTunnelProfileStore.Profile[] slots;
         try { slots=load(context); }
         catch(Exception failure) { throw new Rejected("ENCRYPTED_STORE_UNAVAILABLE"); }
@@ -131,7 +134,23 @@ final class NativePeerProfiles {
                 if(address==null) throw reject(i,"IPV4_ADDRESS_MISSING");
                 localAddresses[i]=address;
             }
-            configs[i]=applyOverride(checkedCanonical(c,i,true),overrides!=null&&i<overrides.length?overrides[i]:null,i);
+            String canonical=checkedCanonical(c,i,true);
+            String override=overrides!=null&&i<overrides.length?overrides[i]:null;
+            if(RootlessNativeBridge.validatePeerProfile(canonical)==9 && (override==null||override.trim().isEmpty())) {
+                if(offline) configs[i]=canonical;
+                else {
+                    if(resolver==null) throw reject(i,"SECURE_BOOTSTRAP_UNAVAILABLE");
+                    try {
+                        String host=null;
+                        for(String line:canonical.split("\\n")) if(line.startsWith("Endpoint = ")) {
+                            String endpoint=line.substring("Endpoint = ".length());
+                            host=endpoint.substring(0,endpoint.lastIndexOf(':'));
+                        }
+                        override=resolver.resolve(host,i);
+                        configs[i]=applyOverride(canonical,override,i);
+                    } catch(Exception failure) { throw reject(i,"SECURE_BOOTSTRAP_FAILED"); }
+                }
+            } else configs[i]=applyOverride(canonical,override,i);
             String pair=c.getInterface().getKeyPair().getPublicKey().toBase64()+":"
                     +c.getPeers().get(0).getPublicKey().toBase64();
             Integer prior=pairs.putIfAbsent(pair,i);

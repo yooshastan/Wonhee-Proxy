@@ -69,6 +69,7 @@ public final class RootlessNativePeerService extends VpnService {
     private final byte[] buffer=new byte[1280];
     private ParcelFileDescriptor tun;
     private Network underlay,vpn;
+    private NativeEndpointBootstrap bootstrap;
     private int count,rejected;
     private long deadline,startedTun,reportAt;
     private boolean registered,started,terminal,probesStarted;
@@ -97,7 +98,35 @@ public final class RootlessNativePeerService extends VpnService {
             boolean home=intent.getBooleanExtra("home",true);
             if(home){targets[2]=intent.getStringExtra("target");ports[2]=validateHome(targets[2],intent.getStringExtra("port"));}
             String[] addresses=new String[3];
-            String[] configs=NativePeerProfiles.prepare(this,home,intent.getStringArrayExtra("overrides"),addresses);
+            String[] overrides=intent.getStringArrayExtra("overrides");
+            stage="secure-endpoint-bootstrap";
+            NativeEndpointBootstrap resolver=new NativeEndpointBootstrap(this,underlay);
+            bootstrap=resolver;
+            report("RUNNING — checking endpoints; hostname queries use authenticated DNS-over-TLS before VPN establishment.");
+            new Thread(()->{
+                try {
+                    String[] configs=NativePeerProfiles.prepare(this,home,overrides,addresses,resolver,false);
+                    String summary=resolver.summary();
+                    handler.post(()->{
+                        if(terminal){Arrays.fill(configs,null);return;}
+                        resolver.close();bootstrap=null;
+                        if(!dnsOff()||!underlay.equals(physicalNetwork())){
+                            Arrays.fill(configs,null);finish("NOT PASSED — bootstrap underlay changed");return;
+                        }
+                        report(summary);
+                        startResolved(configs,addresses);
+                    });
+                }catch(NativePeerProfiles.Rejected failure){
+                    handler.post(()->finish("NOT PASSED — secure-endpoint-bootstrap/"+failure.code));
+                }catch(Exception|LinkageError failure){
+                    handler.post(()->finish("NOT PASSED — secure-endpoint-bootstrap ("+failure.getClass().getSimpleName()+")"));
+                }finally{resolver.close();}
+            },"wonhee-endpoint-bootstrap").start();
+        }catch(Exception|LinkageError failure){finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
+        return START_NOT_STICKY;
+    }
+    private void startResolved(String[] configs,String[] addresses) {
+        try {
             count=configs.length;
             for(int i=0;i<count;i++)rewrite[i]=new MultiTunnelIpv4Rewriter(TUN_IP,addresses[i]);
             stage="callback-registration";
@@ -114,9 +143,8 @@ public final class RootlessNativePeerService extends VpnService {
             deadline=SystemClock.elapsedRealtime()+120000L;
             stage="peer-handshakes";report("RUNNING — waiting for peer handshakes before creating scoped TUN.");
             handler.post(tick);
-        }catch(NativePeerProfiles.Rejected failure){finish("NOT PASSED — "+stage+"/"+failure.code);}
-        catch(Exception|LinkageError failure){finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
-        return START_NOT_STICKY;
+        }catch(Exception|LinkageError failure){finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
+        finally{Arrays.fill(configs,null);}
     }
     private boolean dnsOff(){return "off".equals(Settings.Global.getString(getContentResolver(),"private_dns_mode"));}
     private ConnectivityManager cm(){return (ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);}
@@ -250,7 +278,7 @@ public final class RootlessNativePeerService extends VpnService {
             // No auth, cookies, redirects, user input or DNS lookup. Only fixed GET.
             String crlf=String.valueOf((char)13)+(char)10;
             String request="GET / HTTP/1.1"+crlf+"Host: "+host+(slot==2?":"+ports[slot]:"")+crlf
-                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.89"+crlf+"Accept: */*"+crlf+crlf;
+                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.90"+crlf+"Accept: */*"+crlf+crlf;
             wire.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
             wire.getOutputStream().flush();
             InputStream in=wire.getInputStream();
@@ -429,6 +457,7 @@ public final class RootlessNativePeerService extends VpnService {
     private void report(String s){Log.i(TAG,s);getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("status",s).apply();}
     private boolean cleanup(){
         handler.removeCallbacks(tick);boolean ok=true;
+        if(bootstrap!=null){bootstrap.close();bootstrap=null;}
         // Close bound probe sockets first. They cannot fall back after TUN removal.
         for(int i=0;i<sockets.length;i++)if(sockets[i]!=null){try{sockets[i].close();}catch(Exception failure){ok=false;}sockets[i]=null;}
         for(int i=0;i<2;i++)if(udpSockets[i]!=null){udpSockets[i].close();udpSockets[i]=null;}

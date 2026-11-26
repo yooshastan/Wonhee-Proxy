@@ -23,7 +23,7 @@ android {
     buildTypes {
         debug {
             // Side-by-side experiment; never replace the user's signed stable app.
-            applicationIdSuffix '.rootlab01562triple1native089'
+            applicationIdSuffix '.rootlab01562triple1native090'
         }
         release {
             if (hasReleaseSigning) {
@@ -57,8 +57,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(143)
-            output.versionName.set('0.15.89-native-scoped-tcp-udp')
+            output.versionCode.set(144)
+            output.versionName.set('0.15.90-native-secure-bootstrap')
         }
     }
 }

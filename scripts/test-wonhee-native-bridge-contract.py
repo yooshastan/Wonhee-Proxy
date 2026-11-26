@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(143)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native089'" in gradle
-assert "versionName.set('0.15.89-native-scoped-tcp-udp')" in gradle
+assert 'versionCode.set(144)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native090'" in gradle
+assert "versionName.set('0.15.90-native-secure-bootstrap')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -108,3 +108,10 @@ assert 'MatchUDP(packet,false,entry.udpPort)' in go and 'MatchUDP(packet,true,en
 assert 'vpn.bindSocket(udp)' in live and 'udpVerified.get(i)==UDP_COUNT' in live
 assert 'UDP_COUNT=5' in live and 'bodyBytes.set(flow,read)' in live
 assert 'udpSockets[i].close()' in live and 'rejectIpv6' in live
+
+bootstrap = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEndpointBootstrap.java").read_text()
+assert 'network.bindSocket(raw)' in bootstrap and 'service.protect(raw)' in bootstrap
+assert 'setEndpointIdentificationAlgorithm("HTTPS")' in bootstrap and 'tls.startHandshake()' in bootstrap
+assert 'getByName' not in bootstrap and 'getAllByName' not in bootstrap
+assert 'resolver.close()' in live and 'bootstrap.close()' in live
+assert 'if(offline) configs[i]=canonical' in profiles and 'resolver.resolve(host,i)' in profiles
