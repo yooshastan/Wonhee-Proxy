@@ -2,7 +2,7 @@ package com.yooshastan.wonheeproxy;
 
 import android.net.VpnService;
 
-/** Debug-only JNI entry points for the native protected-socket smoke test. */
+/** Debug-only JNI entry points for protected WireGuard sockets and TUN queues. */
 final class RootlessNativeBridge {
     private static final boolean LOADED;
     static {
@@ -27,6 +27,17 @@ final class RootlessNativeBridge {
     static long createTestSession(String name) {
         return LOADED ? nativeCreateTestSession(name) : 0L;
     }
+    static long createPacketTestSession(String name, String allowedIp) {
+        return LOADED ? nativeCreatePacketTestSession(name, allowedIp) : 0L;
+    }
+    static int injectPacket(long handle, byte[] packet) {
+        return LOADED && handle != 0L && packet != null
+                ? nativeInjectPacket(handle, packet) : -1;
+    }
+    static long[] packetStats(long handle) {
+        return LOADED && handle != 0L
+                ? nativePacketStats(handle) : new long[] {-1L, -1L, -1L};
+    }
     static boolean closeSession(long handle) {
         return LOADED && handle != 0L && nativeCloseSession(handle);
     }
@@ -37,6 +48,9 @@ final class RootlessNativeBridge {
     private static native boolean nativeSetVpnService(VpnService service);
     private static native boolean nativeClearVpnService(VpnService service);
     private static native long nativeCreateTestSession(String name);
+    private static native long nativeCreatePacketTestSession(String name, String allowedIp);
+    private static native int nativeInjectPacket(long handle, byte[] packet);
+    private static native long[] nativePacketStats(long handle);
     private static native boolean nativeCloseSession(long handle);
     private static native long[] nativeProtectionStats();
 }
