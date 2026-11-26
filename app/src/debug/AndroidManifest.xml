@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:name=".RootlabApplication"
+        tools:replace="android:name">
+        <!-- This separate debug package cannot auto-register a normal VPN,
+             schedule root recovery jobs, or reconfigure networking at boot. -->
+        <service android:name="com.wireguard.android.backend.GoBackend$VpnService"
+            tools:node="remove" />
+        <service android:name=".VpnTrafficNotificationService"
+            tools:node="remove" />
+        <service android:name=".RootMultiTrafficNotificationService"
+            tools:node="remove" />
+        <service android:name=".VpnRecoveryJobService"
+            tools:node="remove" />
+        <service android:name=".RootMultiRecoveryJobService"
+            tools:node="remove" />
+        <service android:name=".WonheeQuickSettingsTile"
+            tools:node="remove" />
+        <receiver android:name=".RootMultiRecoveryBootReceiver"
+            tools:node="remove" />
+        <activity android:name=".VpnActivity"
+            android:exported="false"
+            tools:replace="android:exported" />
+        <!-- Disable the ordinary Connect/Start dashboard in this diagnostic
+             variant. This is NOT the live multi-exit beta yet. -->
+        <activity
+            android:name=".WonheeDashboardPreviewActivity"
+            android:enabled="false" />
+        <!-- Explicitly opted-in, debug-only independent WireGuard link pilot.
+             Neither its label nor its controls claim Android app routing. -->
+        <activity
+            android:name=".RootlabTwoPeerActivity"
+            android:exported="true"
+            android:label="Wonhee Two Exits + Home Lab">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- RootLab-only separate launcher icon. The official release
+             does not include this activity or any new root capability. -->
+        <activity
+            android:name=".RootlabReadinessActivity"
+            android:exported="true"
+            android:label="Wonhee Multi-Exit Readiness">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

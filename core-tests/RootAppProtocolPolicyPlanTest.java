@@ -121,6 +121,35 @@ public final class RootAppProtocolPolicyPlanTest {
                 "NL privacy", Collections.singletonList(
                         entry("NL privacy", "10.150.0.2/32", "0.0.0.0/0")),
                 Collections.singletonList(app)), "IPv4-only default must refuse");
+        // Independent Internet route tables do NOT isolate local interface
+        // addresses. Reject exact and subnet-overlapping tunnel assignments.
+        List<RootMultiTunnelPlan.Entry> duplicateAddresses = Arrays.asList(
+                entry("NL privacy", "10.150.0.2/32", "0.0.0.0/0", "::/0"),
+                entry("US regional", "10.150.0.2/32", "0.0.0.0/0", "::/0"),
+                home);
+        expectRefused(() -> RootPerAppUidPolicyPlan.prepare(
+                "NL privacy", duplicateAddresses, Collections.singletonList(app)),
+                "overlapping WireGuard local addresses across distinct tables");
+        List<RootMultiTunnelPlan.Entry> subnetOverlap = Arrays.asList(
+                entry("NL privacy", "10.150.0.1/24", "0.0.0.0/0", "::/0"),
+                entry("US regional", "10.150.0.2/32", "0.0.0.0/0", "::/0"),
+                home);
+        expectRefused(() -> RootPerAppUidPolicyPlan.prepare(
+                "NL privacy", subnetOverlap, Collections.singletonList(app)),
+                "subnet overlap cannot be fixed by another route table");
+        List<RootMultiTunnelPlan.Entry> v6Overlap = Arrays.asList(
+                new RootMultiTunnelPlan.Entry("NL privacy",
+                        Arrays.asList("0.0.0.0/0", "::/0"),
+                        Arrays.asList("10.150.0.2/32", "fd00::2/128")),
+                new RootMultiTunnelPlan.Entry("US regional",
+                        Arrays.asList("0.0.0.0/0", "::/0"),
+                        Arrays.asList("10.151.0.2/32", "fd00::2/128")),
+                home);
+        expectRefused(() -> RootPerAppUidPolicyPlan.prepare(
+                "NL privacy", v6Overlap, Collections.singletonList(app)),
+                "overlapping local IPv6 interface identity");
+        RootMultiTunnelPlan.validateIndependentInterfaceAddresses(peers);
+
         System.out.println("RootAppProtocolPolicyPlanTest passed");
     }
 }

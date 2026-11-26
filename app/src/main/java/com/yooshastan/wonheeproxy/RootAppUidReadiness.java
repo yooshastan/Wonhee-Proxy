@@ -104,11 +104,37 @@ final class RootAppUidReadiness {
                 }
                 selected.add(profile);
             }
+            List<RootMultiTunnelPlan.Entry> effectiveRoutes =
+                    RootMultiKernelSession.previewAppUidRoutes(selected);
             RootPerAppUidPolicyPlan.Plan plan =
                     RootPerAppUidPolicyPlan.prepare(defaultName,
-                            RootMultiKernelSession.previewAppUidRoutes(selected),
-                            resolved, overrides, globalRules, categoryExits);
-            return plan.summary()
+                            effectiveRoutes, resolved, overrides,
+                            globalRules, categoryExits);
+            // These independent compilers only summarize candidate plans.
+            // Neither can start WireGuard, change Android routes or read keys.
+            RootMultiExitKernelPlan.Result kernel =
+                    RootMultiExitKernelPlan.compile(plan);
+            String bootstrap;
+            try {
+                bootstrap = RootIsolatedWireGuardBootstrapPlan
+                        .compile(effectiveRoutes, plan).summary();
+            } catch (IllegalArgumentException notIsolated) {
+                bootstrap = "ISOLATED WIREGUARD BOOTSTRAP — NOT READY: "
+                        + "selected tunnel interface host prefixes or private "
+                        + "route-table identities require correction. Do not "
+                        + "edit imported profiles just to satisfy a dry run.";
+            }
+            String uidOnly;
+            try {
+                uidOnly = RootIsolatedUidOnlyPolicyPlan.compile(plan).summary();
+            } catch (IllegalArgumentException hasProtocolRules) {
+                uidOnly = "UID-ONLY PILOT — NOT APPLICABLE: the selected apps "
+                        + "include transport or port overrides that are "
+                        + "not supported by the Pixel 8a ip rule command. "
+                        + "Overrides remain saved, but are NOT applied.";
+            }
+            return plan.summary() + "\n" + kernel.summary()
+                    + "\n" + bootstrap + "\n" + uidOnly
                     + "\nGLOBAL RULE SCOPE: This read-only proposal only "
                     + "checks explicitly assigned, launcher-visible apps. "
                     + "It does not enumerate or enforce every Android "

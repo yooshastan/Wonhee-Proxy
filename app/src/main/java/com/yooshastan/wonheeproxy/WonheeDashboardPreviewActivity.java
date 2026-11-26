@@ -495,6 +495,47 @@ public final class WonheeDashboardPreviewActivity extends Activity {
                 .show();
     }
 
+    /**
+     * Make the actual current single-default limitation visible on Home.
+     * Choosing a primary changes only the saved UI preference, never a
+     * kernel route, imported profile or running VPN. More than one Internet
+     * exit requires the separate, not-yet-activated multi-exit backend.
+     */
+    private void chooseRootPrimaryExit() {
+        if (rootHomeBusy || session == null || session.isBusy()) {
+            showHomeNotice("Finish the current connection operation first.");
+            return;
+        }
+        final RootTunnelStartSelection.Review plan;
+        try {
+            plan = RootMultiKernelSession.reviewMultiStartSelection(
+                    selectedHomeProfiles(), preferredHomePrimary());
+        } catch (Exception | LinkageError failure) {
+            showSelectionNeedsAdjustment("The selected tunnel routes could not be read. "
+                    + "No connection was changed.");
+            return;
+        }
+        if (plan.primaryChoices.size() < 2) {
+            showHomeNotice("Select at least two full Internet exits to choose a primary. "
+                    + "A Home-only destination tunnel does not need this setting.");
+            return;
+        }
+        final String[] options = plan.primaryChoices.toArray(new String[0]);
+        int checked = java.util.Arrays.asList(options).indexOf(preferredHomePrimary());
+        new AlertDialog.Builder(this)
+                .setTitle("Which VPN carries normal Internet traffic?")
+                .setSingleChoiceItems(options, checked, (dialog, which) -> {
+                    getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                            .putString(HOME_PRIMARY_KEY, options[which]).apply();
+                    dialog.dismiss();
+                    if (rootSelectionMessage != null && tab == 0) {
+                        rootSelectionMessage.setText(homeSelectionSummary());
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     /** Selection belongs on Home rather than in the advanced connection laboratory. */
     private void showQuickTunnelPicker(LinearLayout parent, boolean includeStatus) {
         if (profileStoreError) {
@@ -562,6 +603,10 @@ public final class WonheeDashboardPreviewActivity extends Activity {
         text(hero, "CHOOSE YOUR TUNNELS", 13, LAVENDER);
         showQuickTunnelPicker(hero, false);
         rootSelectionMessage = text(hero, homeSelectionSummary(), 12, MUTED);
+        // Keep this shortcut on screen even before the second Internet exit is
+        // checked, so adding a profile never requires reopening the page.
+        secondaryButton(hero, "Choose primary Internet tunnel",
+                this::chooseRootPrimaryExit);
         secondaryButton(hero, "Check setup · no connection changes",
                 this::checkRootHomeSetup);
 
@@ -698,10 +743,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             String[] names = review.primaryChoices.toArray(new String[0]);
             new AlertDialog.Builder(this)
                     .setTitle("Choose the Internet tunnel")
-                    .setMessage("Only this tunnel will carry ordinary Internet "
-                            + "traffic. Compatible private destinations can "
-                            + "connect alongside it. Other unrestricted exits "
-                            + "stay saved, not active.")
                     .setItems(names, (dialog, which) -> {
                         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
                                 .putString(HOME_PRIMARY_KEY, names[which]).apply();
@@ -765,10 +806,6 @@ public final class WonheeDashboardPreviewActivity extends Activity {
             String[] names = reviewed.primaryChoices.toArray(new String[0]);
             new AlertDialog.Builder(this)
                     .setTitle("Choose your primary Internet exit")
-                    .setMessage("Additional Internet exits stay available "
-                            + "but won't connect until app-specific multi-exit "
-                            + "routing is verified. Destination-specific "
-                            + "tunnels can run alongside your primary exit.")
                     .setItems(names, (dialog, which) -> {
                         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
                                 .putString(HOME_PRIMARY_KEY, names[which]).apply();

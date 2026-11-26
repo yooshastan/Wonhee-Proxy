@@ -67,6 +67,21 @@ dashboard = (JAVA / "WonheeDashboardPreviewActivity.java").read_text(
     encoding="utf-8")
 require("showQuickTunnelPicker(hero, false)" in dashboard,
         "Root Home selection missing")
+require('secondaryButton(hero, "Choose primary Internet tunnel"' in dashboard,
+        "Root Home must expose primary Internet selection without Lab navigation")
+primary_begin = dashboard.index("    private void chooseRootPrimaryExit() {")
+primary_end = dashboard.index("    /** Selection belongs on Home", primary_begin)
+primary_dialog = dashboard[primary_begin:primary_end]
+require(".setSingleChoiceItems(options, checked" in primary_dialog
+        and ".setMessage(" not in primary_dialog,
+        "Primary exit choices must be visible, not hidden by a dialog message")
+check_begin = dashboard.index("    private void checkRootHomeSetup() {")
+check_end = dashboard.index("    private void beginHomeSafeStop(", check_begin)
+start_flows = dashboard[check_begin:check_end]
+require('.setItems(names, (dialog, which)' in start_flows
+        and ".setMessage(\"Only this tunnel" not in start_flows
+        and ".setMessage(\"Additional Internet exits" not in start_flows,
+        "Multi-exit choice dialogs must show the options instead of a message")
 require("showStandardTunnelPicker(hero," in dashboard,
         "Standard Home selection missing")
 

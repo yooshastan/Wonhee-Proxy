@@ -34,8 +34,10 @@ jobs:
         run: python3 scripts/test-wonhee-home-entrypoints.py
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
+      - name: Verify debug-only 0.15.62 RootLab APK and read-only readiness screen
+        run: python3 scripts/test-wonhee-rootlab-preview.py
       - name: Verify permanent release-signing setup script syntax
-        run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh
+        run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh scripts/wonhee-01562-device-preflight.sh
       - name: Prove safe installer refuses unsafe live/root states
         run: |
           bash -n scripts/test-wonhee-safe-update.sh
@@ -80,6 +82,36 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootMultiTunnelPlan.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTunnelSelectionAdvisor.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootPerAppUidPolicyPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMultiExitKernelPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardBootstrapPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedTwoPeerLinkPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTwoExitHomeRoutingPreview.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomePolicySafetyCase.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaIpv6CounterParser.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeTerminalRouteEvidence.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeUidRuleEvidence.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootBraveHomePilotPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootBraveHomeTargetCounterEvidence.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaConnectionPathEvidence.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootHomeTcpSocketEvidence.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeRouteSafetyPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeFirewallPilotPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeFirewallPilotTransaction.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedThreePeerLinkPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardSetconfCodec.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTwoPeerProfileReadiness.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedTwoPeerHandshakeAudit.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardTransaction.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardJournalCodec.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedWireGuardKernelListing.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedUidOnlyPolicyPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedUidPolicyTransaction.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedUidPolicyListing.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIsolatedUidPolicyJournalCodec.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootIpRuleHelpCapabilities.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootNetfilterHelpCapabilities.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootNetfilterKernelInventory.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootAndroidMarkCollisionAudit.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootCategoryProtocolRule.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootCommonProtocolPresets.java \
             app/src/main/java/com/yooshastan/wonheeproxy/RootTunnelStartSelection.java \
@@ -150,6 +182,35 @@ jobs:
             core-tests/RootMultiTunnelPlanTest.java \
             core-tests/RootTunnelSelectionAdvisorTest.java \
             core-tests/RootAppProtocolPolicyPlanTest.java \
+            core-tests/RootMultiExitKernelPlanTest.java \
+            core-tests/RootIsolatedWireGuardBootstrapPlanTest.java \
+            core-tests/RootIsolatedTwoPeerLinkPlanTest.java \
+            core-tests/RootTwoExitHomeRoutingPreviewTest.java \
+            core-tests/RootMokaHomePolicySafetyCaseTest.java \
+            core-tests/RootMokaHomeTerminalRouteEvidenceTest.java \
+            core-tests/RootMokaHomeUidRuleEvidenceTest.java \
+            core-tests/RootBraveHomePilotPlanTest.java \
+            core-tests/RootBraveHomeTargetCounterEvidenceTest.java \
+            core-tests/RootMokaConnectionPathEvidenceTest.java \
+            core-tests/RootHomeTcpSocketEvidenceTest.java \
+            core-tests/RootMokaHomeRouteSafetyPlanTest.java \
+            core-tests/RootMokaIpv6CounterParserTest.java \
+            core-tests/RootMokaHomeFirewallPilotTransactionTest.java \
+            core-tests/RootIsolatedThreePeerLinkPlanTest.java \
+            core-tests/RootIsolatedWireGuardSetconfCodecTest.java \
+            core-tests/RootTwoPeerProfileReadinessTest.java \
+            core-tests/RootIsolatedTwoPeerHandshakeAuditTest.java \
+            core-tests/RootIsolatedWireGuardTransactionTest.java \
+            core-tests/RootIsolatedWireGuardJournalCodecTest.java \
+            core-tests/RootIsolatedWireGuardKernelListingTest.java \
+            core-tests/RootIsolatedUidOnlyPolicyPlanTest.java \
+            core-tests/RootIsolatedUidPolicyTransactionTest.java \
+            core-tests/RootIsolatedUidPolicyListingTest.java \
+            core-tests/RootIsolatedUidPolicyJournalCodecTest.java \
+            core-tests/RootIpRuleHelpCapabilitiesTest.java \
+            core-tests/RootNetfilterHelpCapabilitiesTest.java \
+            core-tests/RootNetfilterKernelInventoryTest.java \
+            core-tests/RootAndroidMarkCollisionAuditTest.java \
             core-tests/RootCategoryProtocolRuleTest.java \
             core-tests/RootCommonProtocolPresetsTest.java \
             core-tests/RootTunnelStartSelectionTest.java \
@@ -222,6 +283,35 @@ jobs:
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiTunnelPlanTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTunnelSelectionAdvisorTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootAppProtocolPolicyPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMultiExitKernelPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardBootstrapPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedTwoPeerLinkPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTwoExitHomeRoutingPreviewTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomePolicySafetyCaseTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomeFirewallPilotTransactionTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaIpv6CounterParserTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomeRouteSafetyPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomeTerminalRouteEvidenceTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaHomeUidRuleEvidenceTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootBraveHomePilotPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootBraveHomeTargetCounterEvidenceTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootMokaConnectionPathEvidenceTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootHomeTcpSocketEvidenceTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedThreePeerLinkPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardSetconfCodecTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTwoPeerProfileReadinessTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedTwoPeerHandshakeAuditTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardTransactionTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardJournalCodecTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedWireGuardKernelListingTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedUidOnlyPolicyPlanTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedUidPolicyTransactionTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedUidPolicyListingTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIsolatedUidPolicyJournalCodecTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootIpRuleHelpCapabilitiesTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootNetfilterHelpCapabilitiesTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootNetfilterKernelInventoryTest
+          java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootAndroidMarkCollisionAuditTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootCategoryProtocolRuleTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootCommonProtocolPresetsTest
           java -cp /tmp/wonhee-classes com.yooshastan.wonheeproxy.RootTunnelStartSelectionTest
