@@ -343,8 +343,8 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(132)" in gradle
-assert "output.versionName.set('0.15.78-rootlab-socket-uid-mark')" in gradle
+assert "output.versionCode.set(133)" in gradle
+assert "output.versionName.set('0.15.79-native-socket-protection')" in gradle
 assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
@@ -363,7 +363,7 @@ for forbidden in (
     "RootIsolatedWireGuardTransaction.start(",
 ):
     assert forbidden not in source, f"RootLab inspection mutates networking: {forbidden}"
-print("RootLab 0.15.62 preview separation and read-only checks PASS")
+print("RootLab debug-only preview separation and read-only checks PASS")
 
 # Separate transport ownership must be recovered before the older UID/chain stages.
 transport = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabHomeTransportTrial.java').read_text()
