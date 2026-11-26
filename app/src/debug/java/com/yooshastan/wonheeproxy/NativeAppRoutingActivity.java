@@ -11,7 +11,7 @@ import java.io.InputStream;
 import java.util.*;
 
 public final class NativeAppRoutingActivity extends Activity {
-    private static final int VPN=8300,IMPORT=8310;
+    private static final int VPN=8300,IMPORT=8310,HOSTS=8320;
     private static final String[] CHOICES={"Inherit","Exit A","Exit B","Block"};
     private static final int[] VALUES={NativeAppRoutingPolicy.INHERIT,0,1,-1};
     private final List<AppRow> apps=new ArrayList<>();
@@ -21,7 +21,9 @@ public final class NativeAppRoutingActivity extends Activity {
     private TextView status,profiles;
     private EditText homeCidr;
     private CheckBox home;
-    private Spinner fallback;
+    private Spinner fallback,dnsProvider,dnsRole;
+    private CheckBox hostsEnabled,blockExternal853;
+    private TextView hostsStatus;
     private android.content.SharedPreferences draft;
     private static final class AppRow {
         final String pkg;final CheckBox selected;final Spinner category,role;
@@ -32,14 +34,15 @@ public final class NativeAppRoutingActivity extends Activity {
         draft=getSharedPreferences("native_app_route_draft_v1",MODE_PRIVATE);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
         int pad=(int)(16*getResources().getDisplayMetrics().density);root.setPadding(pad,pad,pad,pad);
-        label(root,"Wonhee 0.16.0 · Selected-app routing",22);
-        label(root,"Experimental rootless VPN. Only checked apps are captured; other apps use normal networking. IPv4 TCP/UDP only; IPv6 and unsupported traffic blocked inside the VPN. Private DNS must remain OFF. DNS 1.1.1.1 travels inside a selected tunnel, not encrypted to the resolver by this build. No protection before startup or after Stop.",14);
+        label(root,"Wonhee 0.17.0 · Protected app routing",22);
+        label(root,"Experimental rootless VPN. Only checked apps are captured; other apps use normal networking. IPv4 TCP/UDP only; IPv6 and unsupported traffic blocked inside the VPN. Private DNS must remain OFF. System UDP DNS is relayed over authenticated TLS inside a selected tunnel; direct port 53 is blocked. TCP DNS fallback is not supported yet. Application DoH over port 443 is not identifiable. No protection before startup or after Stop.",14);
         button(root,"Start selected-app routing",()->{
             try{makeIntent();save();Intent consent=VpnService.prepare(this);if(consent!=null)startActivityForResult(consent,VPN);else launch();}
             catch(Exception e){status.setText("Check configuration: select 1–32 apps, valid Home CIDR and profiles.");}
         });
         button(root,"Stop (normal networking resumes)",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.STOP)));
         status=label(root,"",15);button(root,"Refresh status",this::refresh);
+        button(root,"Simulate tunnel failure (test guard)",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.GUARD_TEST)));
         label(root,"1 · Tunnels",18);profiles=label(root,"",14);
         for(int i=0;i<3;i++){
             final int slot=i;
@@ -47,19 +50,32 @@ public final class NativeAppRoutingActivity extends Activity {
             EditText ip=new EditText(this);ip.setSingleLine(true);ip.setSaveEnabled(false);ip.setHint("Optional numeric override; blank = secure DNS");overrides[i]=ip;root.addView(ip);
         }
         home=new CheckBox(this);home.setText("Include Home private route");home.setChecked(draft.getBoolean("home",true));root.addView(home);
-        homeCidr=new EditText(this);homeCidr.setSingleLine(true);homeCidr.setHint("Private Home IPv4 CIDR");homeCidr.setText(draft.getString("homeCidr","10.0.0.0/24"));root.addView(homeCidr);
+        homeCidr=new EditText(this);homeCidr.setSingleLine(true);homeCidr.setHint("Private Home IPv4 CIDR");homeCidr.setText(draft.getString("homeCidr","10.0.0.169/32"));root.addView(homeCidr);
         label(root,"Default Internet exit",15);fallback=spinner(root,new String[]{"Exit A","Exit B"},draft.getInt("default",0));
-        label(root,"2 · Category routing",18);
+        label(root,"2 · Network protection",18);
+        label(root,"Authenticated DNS-over-TLS provider",14);
+        dnsProvider=spinner(root,NativeProtectedDnsRelay.NAMES,draft.getInt("dnsProvider",0));
+        label(root,"DNS tunnel (all captured system DNS)",14);
+        dnsRole=spinner(root,new String[]{"Exit A","Exit B"},draft.getInt("dnsRole",0));
+        blockExternal853=new CheckBox(this);blockExternal853.setText("Block app-owned TCP/UDP port 853");blockExternal853.setChecked(draft.getBoolean("blockExternal853",true));root.addView(blockExternal853);
+        hostsEnabled=new CheckBox(this);hostsEnabled.setText("Enable imported hosts filtering");hostsEnabled.setChecked(draft.getBoolean("hostsEnabled",false));root.addView(hostsEnabled);
+        hostsStatus=label(root,"",14);
+        button(root,"Import HOSTS / domain list",()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),HOSTS));
+        button(root,"Restore previous hosts list",()->new Thread(()->{
+            try{RootBlocklistStore.restorePrevious(getFilesDir());runOnUiThread(this::refresh);}
+            catch(Exception e){runOnUiThread(()->hostsStatus.setText("Restore refused: no valid previous list"));}
+        },"WonheeHostsRestore").start());
+        label(root,"3 · Category routing",18);
         label(root,"Home destinations take precedence. Assign categories to Exit A or B, inherit default, or block public traffic.",14);
         for(int i=0;i<categories.length;i++){
             label(root,AppUseCategories.LABELS[i],14);categories[i]=spinner(root,CHOICES,draft.getInt("cat"+i,0));
         }
-        label(root,"3 · Protocol overrides",18);
+        label(root,"4 · Protocol overrides",18);
         label(root,"These TCP/UDP destination-port rules override app and category exit assignments for public traffic; explicit app/category blocks still win. Port names are hints, not application-protocol detection.",14);
         for(int i=0;i<protocols.length;i++){
             label(root,NativeAppRoutingPolicy.SELECTOR_NAMES[i],14);protocols[i]=spinner(root,CHOICES,draft.getInt("proto"+i,0));
         }
-        label(root,"4 · Select installed apps",18);
+        label(root,"5 · Select installed apps",18);
         label(root,"Select only apps you want to test. Choose a category and optional individual override. Changes apply at the next Start. Start with two browsers and Moka; do not select critical apps.",14);
         List<ResolveInfo> visible=getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0);
         visible.sort(Comparator.comparing(r->r.loadLabel(getPackageManager()).toString(),String.CASE_INSENSITIVE_ORDER));
@@ -89,6 +105,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private int value(Spinner spinner){return VALUES[spinner.getSelectedItemPosition()];}
     private void save(){
         android.content.SharedPreferences.Editor e=draft.edit().putBoolean("home",home.isChecked()).putString("homeCidr",homeCidr.getText().toString().trim()).putInt("default",fallback.getSelectedItemPosition());
+        e.putInt("dnsProvider",dnsProvider.getSelectedItemPosition()).putInt("dnsRole",dnsRole.getSelectedItemPosition()).putBoolean("hostsEnabled",hostsEnabled.isChecked()).putBoolean("blockExternal853",blockExternal853.isChecked());
         for(int i=0;i<categories.length;i++)e.putInt("cat"+i,categories[i].getSelectedItemPosition());
         for(int i=0;i<protocols.length;i++)e.putInt("proto"+i,protocols[i].getSelectedItemPosition());
         for(AppRow r:apps)e.putBoolean("selected:"+r.pkg,r.selected.isChecked()).putInt("category:"+r.pkg,r.category.getSelectedItemPosition()).putInt("role:"+r.pkg,r.role.getSelectedItemPosition());
@@ -109,6 +126,7 @@ public final class NativeAppRoutingActivity extends Activity {
         String[] checked=NativePeerProfiles.prepare(this,useHome,ips,new String[3]);Arrays.fill(checked,null);
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
+            .putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
             .putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
     private void launch(){try{startForegroundService(makeIntent());status.setText("Starting — refresh status shortly");}catch(Exception e){status.setText("Start refused: "+e.getClass().getSimpleName());}}
@@ -118,11 +136,20 @@ public final class NativeAppRoutingActivity extends Activity {
             for(int i=0;i<3;i++)s.append(NativePeerProfiles.SLOTS[i]).append(": ").append(p[i]==null?"missing":"encrypted profile saved").append('\n');
             profiles.setText(s.toString());
         }catch(Exception e){profiles.setText("Encrypted profile store unavailable");}
+        try{RootBlocklistStore.Snapshot snapshot=RootBlocklistStore.current(getFilesDir());hostsStatus.setText(snapshot==null?"No imported hosts list":snapshot.summary());}
+        catch(Exception e){hostsStatus.setText("Hosts snapshot unavailable");}
         status.setText(getSharedPreferences(NativeAppRoutingService.PREFS,MODE_PRIVATE).getString("status","Not started"));
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);if(result!=RESULT_OK)return;
         if(request==VPN){launch();return;}
+        if(request==HOSTS&&data!=null&&data.getData()!=null){
+            android.net.Uri uri=data.getData();hostsStatus.setText("Importing local list…");
+            new Thread(()->{
+                try(InputStream in=getContentResolver().openInputStream(uri)){RootBlocklistStore.importFrom(getFilesDir(),in);runOnUiThread(()->{hostsEnabled.setChecked(true);refresh();});}
+                catch(Exception e){runOnUiThread(()->hostsStatus.setText("Import refused; prior valid list retained"));}
+            },"WonheeHostsImport").start();return;
+        }
         if(request>=IMPORT&&request<IMPORT+3&&data!=null&&data.getData()!=null){
             try(InputStream in=getContentResolver().openInputStream(data.getData())){
                 NativePeerProfiles.save(this,request-IMPORT,in);refresh();

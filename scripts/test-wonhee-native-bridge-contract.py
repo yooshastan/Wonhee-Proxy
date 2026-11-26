@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(147)' in gradle
+assert 'versionCode.set(148)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.16.0-native-app-routing')" in gradle
+assert "versionName.set('0.17.0-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -139,3 +139,11 @@ assert 'routeMaxFlows=4096' in native_route and 'MAX_FLOWS=4096' in app_policy
 assert 'routePublic(remote)' in native_route and 'if(!publicIp(key.remote))return DROP' in app_policy
 assert 'captured apps held in TUN until Stop' in app_routing
 assert 'allowBypass' not in app_routing and 'Settings.Global.put' not in app_routing
+
+protected_dns = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeProtectedDnsRelay.java").read_text()
+assert 'network.bindSocket(raw)' in protected_dns and 'raw.bind(' in protected_dns
+assert 'setEndpointIdentificationAlgorithm("HTTPS")' in protected_dns and 'tls.startHandshake()' in protected_dns
+assert 'ports.putIfAbsent(port,raw)' in protected_dns and 'dnsRelay.owns(key)' in app_routing
+assert 'key.remotePort==53' in app_routing and 'dnsRelay.submit(p)' in app_routing
+assert 'RootBlocklistStore.current(getFilesDir())' in app_routing
+assert 'controlled-guard-test' in app_routing and 'dnsRelay.close()' in app_routing

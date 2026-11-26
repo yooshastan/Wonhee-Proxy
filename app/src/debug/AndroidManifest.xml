@@ -63,7 +63,7 @@
             </intent-filter>
         </service>
         <activity android:name=".NativeAppRoutingActivity"
-            android:exported="true" android:label="Wonhee App Routing Lab">
+            android:exported="true" android:label="Wonhee Protected Routing Lab">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
