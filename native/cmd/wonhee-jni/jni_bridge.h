@@ -23,7 +23,7 @@ int wn_protect_socket(int fd);
 void wn_protection_stats(uint64_t *success, uint64_t *failed);
 int64_t WNCreateQuicDns(int provider,int mode,int alternate,char *roots,int size);
 void WNCloseQuicDns(uint64_t id);
-int WNExchangeQuicDns(uint64_t id,int fd,char *query,int size,char *out,int capacity);
+int WNExchangeQuicDns(uint64_t id,int fd,char *query,int size,char *out,int capacity,int64_t *metrics);
 int64_t WNCreateDnsTcp(void);
 void WNCloseDnsTcp(uint64_t id);
 int WNFeedDnsTcp(uint64_t id,char *packet,int size);

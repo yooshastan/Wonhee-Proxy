@@ -23,6 +23,10 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     final String endpoint;
     final AtomicLong quicFreshRetries=new AtomicLong(),quicFreshFailures=new AtomicLong(),quicRetrySuccess=new AtomicLong(),quicHandshakeTimeout=new AtomicLong(),quicStreamReset=new AtomicLong(),quicRemoteClose=new AtomicLong(),quicTransportError=new AtomicLong(),quicTlsError=new AtomicLong(),probeAttempts=new AtomicLong(),probePassed=new AtomicLong(),probeFailed=new AtomicLong();
     final AtomicLong quicHandshakeTimeoutLastMs=new AtomicLong(),quicHandshakeRetries=new AtomicLong(),quicFreshExchangeLastMs=new AtomicLong();
+    final AtomicLong quicSocketTx=new AtomicLong(),quicSocketRx=new AtomicLong(),quicTxMin=new AtomicLong(),quicTxMax=new AtomicLong(),quicRxMin=new AtomicLong(),quicRxMax=new AtomicLong(),quicWriteErrors=new AtomicLong(),quicReadErrors=new AtomicLong();
+    final AtomicLong quicTunTx=new AtomicLong(),quicTunRx=new AtomicLong(),quicTunRejected=new AtomicLong();
+    final AtomicLong lastTimeoutTx=new AtomicLong(),lastTimeoutRx=new AtomicLong();
+    private static void minimum(AtomicLong a,long v){if(v>0)a.accumulateAndGet(v,(x,y)->x==0?y:Math.min(x,y));}
     private static final class HandshakeTimeout extends IOException {
         HandshakeTimeout(){super("QUIC handshake timeout");}
     }
@@ -95,6 +99,7 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         if(k.remote!=ip||k.remotePort!=NativeDnsTransportPolicy.port(mode)||k.proto!=NativeDnsTransportPolicy.protocol(mode))return false;
         return mode==NativeDnsTransportPolicy.DOT?ports.containsKey(k.localPort):quicPorts.containsKey(k.localPort);
     }
+    boolean quicOwns(NativeAppRoutingPolicy.Key k){return k!=null&&mode!=NativeDnsTransportPolicy.DOT&&owns(k);}
     boolean feedTcp(byte[] packet){
         if(closed)return false;
         boolean ok=NativeAdvancedDnsBridge.feedTcp(tcpHandle,packet)==1;
@@ -174,9 +179,13 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     }
     String health(){
         if(closed)return "Stopped";
-        if(freshBackoff.waiting(SystemClock.elapsedRealtime()))return "Degraded · fresh connection backoff";
-        if(lastFailureMs>lastSuccessMs)return "Degraded · recent upstream failure";
+        if(freshBackoff.waiting(SystemClock.elapsedRealtime()))return "Degraded · fresh connection backoff"+timeoutEvidence();
+        if(lastFailureMs>lastSuccessMs)return "Degraded · recent upstream failure"+timeoutEvidence();
         return lastSuccessMs>0?"Verified · authenticated upstream response":"Waiting for upstream verification";
+    }
+    private String timeoutEvidence(){
+        if(mode==NativeDnsTransportPolicy.DOT||quicHandshakeTimeout.get()==0)return "";
+        return " · last QUIC handshake timeout: socket tx/rx "+lastTimeoutTx.get()+"/"+lastTimeoutRx.get();
     }
     String probeStatus(){return probeStatus;}
     // User-requested, fixed public test name, directly through the active relay.
@@ -199,13 +208,22 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         final DatagramSocket raw;final int port;final long handle;
         long lastUsed=SystemClock.elapsedRealtime();int exchanges;
         private boolean disposed;
+        private final long[] previousMetrics=new long[8];
         QuicConnection(DatagramSocket raw,int port,long handle){this.raw=raw;this.port=port;this.handle=handle;}
         boolean expired(long now){return raw.isClosed()||exchanges>=MAX_EXCHANGES||now-lastUsed>=QUIC_IDLE_LIMIT;}
         byte[] query(byte[] query)throws Exception{
             try(ParcelFileDescriptor descriptor=ParcelFileDescriptor.fromDatagramSocket(raw)){
                 byte[] output=new byte[NativeProtectedDnsMessage.MAX_REPLY];
                 long started=SystemClock.elapsedRealtime();
-                int n=NativeAdvancedDnsBridge.exchangeQuic(handle,descriptor.getFd(),query,output);
+                long[] metrics=new long[8];
+                int n=NativeAdvancedDnsBridge.exchangeQuic(handle,descriptor.getFd(),query,output,metrics);
+                quicSocketTx.addAndGet(Math.max(0,metrics[0]-previousMetrics[0]));
+                quicSocketRx.addAndGet(Math.max(0,metrics[1]-previousMetrics[1]));
+                minimum(quicTxMin,metrics[2]);quicTxMax.accumulateAndGet(metrics[3],Math::max);
+                minimum(quicRxMin,metrics[4]);quicRxMax.accumulateAndGet(metrics[5],Math::max);
+                quicWriteErrors.addAndGet(Math.max(0,metrics[6]-previousMetrics[6]));quicReadErrors.addAndGet(Math.max(0,metrics[7]-previousMetrics[7]));
+                if(n==-7){lastTimeoutTx.set(Math.max(0,metrics[0]-previousMetrics[0]));lastTimeoutRx.set(Math.max(0,metrics[1]-previousMetrics[1]));}
+                for(int i=0;i<8;i++)previousMetrics[i]=Math.max(previousMetrics[i],metrics[i]);
                 long elapsed=SystemClock.elapsedRealtime()-started;
                 if(exchanges==0)quicFreshExchangeLastMs.set(elapsed);
                 if(n<12||n>output.length){

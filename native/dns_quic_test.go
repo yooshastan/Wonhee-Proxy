@@ -8,7 +8,7 @@ import (
 )
 func TestDNSProviderMatrix(t *testing.T){
  for p:=0;p<4;p++{for m:=1;m<=2;m++{
-  _,err:=DNSProvider(p,m);want:=m==1&&(p==1||p==2)||m==2&&(p==0||p==1)
+  _,err:=DNSProvider(p,m);want:=m==1&&(p==1||p==2)||m==2&&(p==0||p==1||p==2)
   if (err==nil)!=want{t.Fatalf("provider %d mode %d",p,m)}
  }}
 }
@@ -22,7 +22,7 @@ func TestQuicBounds(t *testing.T){
 }
 
 func TestDNSAlternateAddressMatrix(t *testing.T){
- for _,v:=range []struct{p,m int;ip string}{{1,1,"149.112.112.112"},{2,1,"94.140.15.15"},{0,2,"1.0.0.1"},{1,2,"149.112.112.112"}}{
+ for _,v:=range []struct{p,m int;ip string}{{1,1,"149.112.112.112"},{2,1,"94.140.15.15"},{0,2,"1.0.0.1"},{1,2,"149.112.112.112"},{2,2,"94.140.15.15"}}{
   a,e:=DNSProviderAddress(v.p,v.m,1);b,f:=DNSProvider(v.p,v.m)
   if e!=nil||f!=nil||a.IP!=v.ip||a.IP==b.IP||a.Host!=b.Host||a.Port!=b.Port||a.Mode!=b.Mode{t.Fatalf("alternate mismatch %v %v",a,e)}
  }

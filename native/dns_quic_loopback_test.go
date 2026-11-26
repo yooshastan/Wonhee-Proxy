@@ -56,6 +56,7 @@ func TestDoQAuthenticatedLoopback(t *testing.T){
   if err!=nil||len(a)!=len(q)||a[0]!=q[0]||a[1]!=q[1]||a[2]!=0x81{t.Fatalf("DoQ reused response %d: %v",i,err)}
  }
  if e:=<-server;e!=nil{t.Fatal(e)}
+ stats:=client.SocketStats();if stats[0]==0||stats[1]==0||stats[2]==0||stats[3]<stats[2]||stats[4]==0||stats[5]<stats[4]{t.Fatalf("invalid socket observations %v",stats)}
 }
 func TestHTTP3AuthenticatedLoopback(t *testing.T){
  cert,roots:=testDnsCertificate(t)

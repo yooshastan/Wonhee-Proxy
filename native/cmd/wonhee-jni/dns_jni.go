@@ -53,8 +53,8 @@ func WNCloseQuicDns(id C.uint64_t){
  if s!=nil{s.cancel();s.mu.Lock();if s.client!=nil{s.client.Close();s.client=nil};s.mu.Unlock()}
 }
 //export WNExchangeQuicDns
-func WNExchangeQuicDns(id C.uint64_t,fd C.int,query *C.char,size C.int,out *C.char,capacity C.int) C.int{
- if fd<0||query==nil||out==nil||size<17||size>dualwg.MaxDnsQuery||capacity<dualwg.MaxDnsReply{return -1}
+func WNExchangeQuicDns(id C.uint64_t,fd C.int,query *C.char,size C.int,out *C.char,capacity C.int,metrics *C.int64_t) C.int{
+ if metrics==nil||fd<0||query==nil||out==nil||size<17||size>dualwg.MaxDnsQuery||capacity<dualwg.MaxDnsReply{return -1}
  dnsMu.Lock();s:=quicSessions[uint64(id)];dnsMu.Unlock()
  if s==nil||s.ctx.Err()!=nil{return -1}
  s.mu.Lock();defer s.mu.Unlock()
@@ -74,6 +74,7 @@ func WNExchangeQuicDns(id C.uint64_t,fd C.int,query *C.char,size C.int,out *C.ch
  client,err:=dualwg.NewQuicDNSClient(s.ctx,dualwg.ConnectedDNSPacketConn{UDPConn:udp,Peer:remote},s.endpoint,s.roots);if err!=nil{return -2}
  s.client=client;keep=true
  }
+ defer func(){stats:=s.client.SocketStats();dst:=unsafe.Slice(metrics,8);for i,v:=range stats{dst[i]=C.int64_t(v)}}()
  response,err:=s.client.Exchange(C.GoBytes(unsafe.Pointer(query),size))
  if err!=nil{if errors.Is(err,dualwg.ErrQuicHandshakeTimeout){return -7};var streamErr *quic.StreamError;var appErr *quic.ApplicationError;var transErr *quic.TransportError;if errors.As(err,&streamErr){return -8};if errors.As(err,&appErr){return -9};if errors.As(err,&transErr){if transErr.ErrorCode>=0x100&&transErr.ErrorCode<=0x1ff{return -11};return -10};if errors.Is(err,dualwg.ErrQuicDNSResponse){return -6};if errors.Is(err,context.DeadlineExceeded){return -3};var ne net.Error;if errors.As(err,&ne)&&ne.Timeout(){return -3};var ce x509.UnknownAuthorityError;var he x509.HostnameError;var ie x509.CertificateInvalidError;if errors.As(err,&ce)||errors.As(err,&he)||errors.As(err,&ie){return -4};return -5}
  if len(response)>int(capacity){return -6}

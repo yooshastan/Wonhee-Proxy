@@ -35,7 +35,8 @@ func DNSProviderAddress(provider,mode,alternate int)(DnsEndpoint,error){
  }
  if mode==2 {
   switch provider {case 0:return DnsEndpoint{pick("1.1.1.1","1.0.0.1"),"cloudflare-dns.com",443,2},nil
-  case 1:return DnsEndpoint{pick("9.9.9.9","149.112.112.112"),"dns.quad9.net",443,2},nil}
+  case 1:return DnsEndpoint{pick("9.9.9.9","149.112.112.112"),"dns.quad9.net",443,2},nil
+  case 2:return DnsEndpoint{pick("94.140.14.14","94.140.15.15"),"dns.adguard-dns.com",443,2},nil}
  }
  return DnsEndpoint{},errors.New("unsupported encrypted DNS provider")
 }
@@ -57,11 +58,29 @@ func (p boundedPacketConn) WriteTo(b []byte,a net.Addr)(int,error){
  return p.PacketConn.WriteTo(b,a)
 }
 
+// Socket boundary observations only: no payload or peer identity retained.
+type dnsObservedConn struct {
+ net.PacketConn
+ mu sync.Mutex
+ stats [8]int64 // tx count, rx count, tx min/max, rx min/max, write/read errors
+}
+func(p *dnsObservedConn) record(n int, err error, tx bool) {
+ p.mu.Lock();defer p.mu.Unlock()
+ i,lo,hi,e:=1,4,5,7
+ if tx{i,lo,hi,e=0,2,3,6}
+ if err!=nil{p.stats[e]++}
+ if n>0{v:=int64(n);p.stats[i]++;if p.stats[lo]==0||v<p.stats[lo]{p.stats[lo]=v};if v>p.stats[hi]{p.stats[hi]=v}}
+}
+func(p *dnsObservedConn) ReadFrom(b []byte)(int,net.Addr,error){n,a,e:=p.PacketConn.ReadFrom(b);p.record(n,e,false);return n,a,e}
+func(p *dnsObservedConn) WriteTo(b []byte,a net.Addr)(int,error){n,e:=p.PacketConn.WriteTo(b,a);p.record(n,e,true);return n,e}
+func(p *dnsObservedConn) snapshot()[8]int64{p.mu.Lock();defer p.mu.Unlock();return p.stats}
+
 // QuicDNSClient owns exactly one caller-supplied socket. Exchanges are serialized
 // per client; the relay can run four clients concurrently. Never redial a failed
 // connection on the same socket, or switch endpoint/transport.
 type QuicDNSClient struct {
  pc net.PacketConn
+ observed *dnsObservedConn
  ep DnsEndpoint
  addr *net.UDPAddr
  cfg *quic.Config
@@ -77,7 +96,8 @@ type QuicDNSClient struct {
 func NewQuicDNSClient(parent context.Context,pc net.PacketConn,ep DnsEndpoint,roots *x509.CertPool)(*QuicDNSClient,error){
  if pc==nil||roots==nil||ep.Mode!=1&&ep.Mode!=2{return nil,ErrBadArgument}
  ip:=net.ParseIP(ep.IP);if ip==nil||ip.To4()==nil{return nil,ErrBadArgument}
- c:=&QuicDNSClient{pc:pc,ep:ep,addr:&net.UDPAddr{IP:ip.To4(),Port:ep.Port},parent:parent,
+ observed:=&dnsObservedConn{PacketConn:pc};pc=observed
+ c:=&QuicDNSClient{pc:pc,observed:observed,ep:ep,addr:&net.UDPAddr{IP:ip.To4(),Port:ep.Port},parent:parent,
  cfg:&quic.Config{HandshakeIdleTimeout:4*time.Second,MaxIdleTimeout:15*time.Second,DisablePathMTUDiscovery:true,InitialPacketSize:1200},
  tls:&tls.Config{ServerName:ep.Host,RootCAs:roots,MinVersion:tls.VersionTLS13}}
  c.stop=context.AfterFunc(parent,func(){_ = pc.Close()})
@@ -96,6 +116,7 @@ func NewQuicDNSClient(parent context.Context,pc net.PacketConn,ep DnsEndpoint,ro
  }
  return c,nil
 }
+func(c *QuicDNSClient) SocketStats()[8]int64{return c.observed.snapshot()}
 // Close is called after the owning exchange returns. Parent cancellation wakes IO.
 func(c *QuicDNSClient) Close(){
  c.closeOnce.Do(func(){
