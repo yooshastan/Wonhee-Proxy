@@ -6,6 +6,8 @@ bridge = (root / "native/cmd/wonhee-jni/jni_bridge.c").read_text()
 go = (root / "native/cmd/wonhee-jni/main.go").read_text()
 java = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativeBridge.java").read_text()
 service = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativeTransportService.java").read_text()
+tun_service = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativeTunPumpService.java").read_text()
+router = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessTunTestPacketRouter.java").read_text()
 manifest = (root / "app/src/debug/AndroidManifest.xml").read_text()
 gradle = (root / "app/build.gradle").read_text()
 
@@ -31,8 +33,35 @@ assert '.addRoute(' not in service
 assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' in manifest
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(135)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native081'" in gradle
-assert "versionName.set('0.15.81-native-smoke-ipc')" in gradle
+assert 'versionCode.set(136)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native082'" in gradle
+assert "versionName.set('0.15.82-native-tun-ingress')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
-print("Wonhee native Android bridge contract passed")
+
+assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
+assert 'session.Tun.Inject(packet)' in go and 'session.Tun.Stats()' in go
+assert 'nativeCreatePacketTestSession' in bridge and 'nativeInjectPacket' in bridge
+assert 'nativePacketStats' in bridge and 'nativeInjectPacket' in java
+assert 'NewEphemeralSmokeConfigForAllowedIP' in go
+assert '198.18.1.0/24' in config and '0.0.0.0/0' in config
+assert 'atomic.Uint64' in (root / "native/packet_tun.go").read_text()
+assert 'Injected:' in (root / "native/packet_tun.go").read_text()
+assert 'VpnService.prepare(this)' in tun_service
+assert 'Builder builder' in tun_service and 'builder.establish()' in tun_service
+assert 'builder.addAllowedApplication(getPackageName())' in tun_service
+assert 'addRoute("198.18.0.0", 15)' in tun_service
+assert 'addAddress("10.253.0.1", 32)' in tun_service
+assert 'setBlocking(true)' in tun_service
+assert 'RootlessTunTestPacketRouter.select(buffer, length)' in tun_service
+assert 'RootlessNativeBridge.injectPacket(handle' in tun_service
+assert 'No DNS, default route or root mutation' in tun_service
+assert 'addRoute("0.0.0.0"' not in tun_service and 'addRoute("::"' not in tun_service
+assert 'addDnsServer' not in tun_service
+assert 'RootlessNativeTunPumpActivity' in manifest
+assert 'RootlessNativeTunPumpService' in manifest
+assert 'RootlessTunTestPacketRouter.Target.HOME' in router
+assert 'RootlessTunTestPacketRouter.Target.INTERNET' in router
+assert 'Target.DROP' in router
+assert 'No peer endpoints, handshakes, DNS or reply path' in tun_service
+
+print("Wonhee native Android socket + scoped TUN ingress contract passed")
