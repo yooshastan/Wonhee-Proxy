@@ -54,8 +54,8 @@ android {
 androidComponents {
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.forEach { output ->
-            output.versionCode.set(131)
-            output.versionName.set('0.15.77-rootlab-brave-target-evidence')
+            output.versionCode.set(132)
+            output.versionName.set('0.15.78-rootlab-socket-uid-mark')
         }
     }
 }
