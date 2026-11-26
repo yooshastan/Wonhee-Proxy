@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(154)' in gradle
+assert 'versionCode.set(155)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.21.0-native-protected-routing')" in gradle
+assert "versionName.set('0.22.0-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -199,9 +199,18 @@ tcp_dns = (root / "native/dns_tcp.go").read_text()
 dns_jni = (root / "native/cmd/wonhee-jni/dns_jni.go").read_text()
 assert 'network.bindSocket(raw)' in protected_dns and 'ParcelFileDescriptor.fromDatagramSocket(raw)' in protected_dns
 assert 'quicPorts.putIfAbsent(port,raw)' in protected_dns and 'NativeDnsTransportPolicy.protocol(mode)' in protected_dns
-assert 'NativeAdvancedDnsBridge.closeQuic(quicHandle)' in protected_dns and 'NativeAdvancedDnsBridge.closeTcp(tcpHandle)' in protected_dns
+assert 'NativeAdvancedDnsBridge.closeQuic(handle)' in protected_dns and 'NativeAdvancedDnsBridge.closeTcp(tcpHandle)' in protected_dns
+assert 'for(QuicConnection q:quicConnections)q.close()' in protected_dns
+assert 'quicIdle.pollFirst()' in protected_dns and 'quicIdle.size()<4' in protected_dns
+assert 'quicPorts.remove(port,raw)' in protected_dns and 'raw.close()' in protected_dns
+assert 'quicConnections.add(c)' in protected_dns and 'if(closed){c.close()' in protected_dns
+assert 's.cancel();s.mu.Lock()' in dns_jni and 's.client.Close()' in dns_jni
 assert 'net.FilePacketConn(file)' in dns_jni and 'unix.F_DUPFD_CLOEXEC' in dns_jni
-assert 'quic.Dial(ctx,pc,addr' in advanced and 'http3.Transport' in advanced
+assert 'quic.Dial(ctx,boundedPacketConn{c.pc},c.addr' in advanced and 'http3.Transport' in advanced
+assert 'quic.DialEarly(ctx,boundedPacketConn{pc},c.addr' in advanced
+assert 'unexpected HTTP/3 redial' in advanced and 'unexpected DoQ redial' in advanced
+assert 'exchangeDoQStream(ctx,c.doq,q)' in advanced and 'c.httpClient' in advanced
+assert 'NewQuicDNSClient(s.ctx' in dns_jni and 's.client.Exchange(' in dns_jni
 assert 'RootCAs:roots' in advanced and 'InsecureSkipVerify' not in advanced
 assert 'DisablePathMTUDiscovery:true' in advanced and 'q[0],q[1]=0,0' in advanced
 assert 'netstack.CreateNetTUN' in tcp_dns and 'network.ListenTCP' in tcp_dns
