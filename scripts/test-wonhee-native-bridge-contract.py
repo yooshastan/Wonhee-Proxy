@@ -59,8 +59,8 @@ assert 'addRoute("0.0.0.0"' not in tun_service and 'addRoute("::"' not in tun_se
 assert 'addDnsServer' not in tun_service
 assert 'RootlessNativeTunPumpActivity' in manifest
 assert 'RootlessNativeTunPumpService' in manifest
-assert 'RootlessTunTestPacketRouter.Target.HOME' in router
-assert 'RootlessTunTestPacketRouter.Target.INTERNET' in router
+assert 'Target.HOME' in router
+assert 'Target.INTERNET' in router
 assert 'Target.DROP' in router
 assert 'No peer endpoints, handshakes, DNS or reply path' in tun_service
 
