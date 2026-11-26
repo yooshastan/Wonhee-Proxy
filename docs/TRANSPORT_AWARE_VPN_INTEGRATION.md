@@ -26,3 +26,6 @@ The debug-only kernel adapter now implements a narrow Home IPv6 transport trial,
 
 ## Native protected socket foundation
 Added a protected wireguard-go bind wrapper with both-family protection before packet I/O, close-on-failure, re-protection on reopen and refusal of profile fwmarks. Added a guarded native session activation method. The Android-facing callback, actual TUN data plane, application/protocol classification and device-level tests remain blocked on integration. This is not an Android VPN frontend or installable upgrade.
+
+## Android native bridge smoke test
+A debug-only ARM64 JNI bridge now invokes the owning Android `VpnService.protect(fd)` callback from the native WireGuard bind. Its screen establishes a TUN address without adding any routes, then starts two separate WireGuard crypto devices with temporary random keys and no peer endpoints. The only acceptance criterion is four successful socket-protection calls (IPv4 + IPv6 per device), zero failures, and clean stop. No app traffic is captured, no real profile credentials are loaded, and no handshake, DNS, packet forwarding or fail-closed multi-exit behavior is claimed. This test must pass on-device before building the packet pump.

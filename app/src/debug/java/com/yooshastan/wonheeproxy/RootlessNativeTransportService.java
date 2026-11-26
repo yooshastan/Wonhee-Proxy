@@ -102,8 +102,8 @@ public final class RootlessNativeTransportService extends VpnService {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(NOTIFICATION_ID, notification("2 isolated sessions · 4 sockets protected"));
         } catch (Exception | LinkageError failure) {
-            String safe = failure.getMessage();
-            fail(safe == null ? "Native protection test failed; no app traffic was routed." : safe);
+            // Never surface JNI, native runtime or profile details in the test UI.
+            fail("Native protection test failed; no app traffic was routed.");
         }
     }
 

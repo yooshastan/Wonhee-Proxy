@@ -33,7 +33,6 @@ android {
     }
     namespace 'com.yooshastan.wonheeproxy'
     compileSdk 36
-    ndkVersion '27.2.12479018'
     sourceSets {
         debug { jniLibs.srcDir "$buildDir/generated/wonheeNativeJniLibs" }
     }
