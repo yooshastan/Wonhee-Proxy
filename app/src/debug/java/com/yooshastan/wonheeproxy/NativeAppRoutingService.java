@@ -20,6 +20,11 @@ public final class NativeAppRoutingService extends VpnService {
     static final int UNKNOWN_DNS=-2, RELAY_UID=-3;
     static final String GUARD_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_GUARD_TEST";
     private volatile boolean guardTest;
+    private static volatile boolean serviceRunning;
+    static boolean running(){return serviceRunning;}
+    private long lastSample,lastOut,lastIn,upRate,downRate;
+    private long deniedRoute,deniedLedger,deniedNative,relayEnded;
+    private String notificationLine="Connecting…";
     private NativeProtectedDnsRelay dnsRelay;
     private long dnsFirewallDrops,ipv6Drops,otherUnsupported;
     private boolean blockExternal853;
@@ -47,6 +52,7 @@ public final class NativeAppRoutingService extends VpnService {
         if(STOP.equals(action)){requestStop();if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(!START.equals(action)){if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(!started.compareAndSet(false,true))return START_NOT_STICKY;
+        serviceRunning=true;
         Notification n=notification();
         if(Build.VERSION.SDK_INT>=34)startForeground(8402,n,ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);else startForeground(8402,n);
         report("STARTING — selected apps are not captured until VPN establishment");
@@ -172,7 +178,9 @@ public final class NativeAppRoutingService extends VpnService {
                     report(stats("BLOCKED — "+stage+"/"+why+"; captured apps held in TUN until Stop"));
                     // Keep the default routes in the established VPN; discard rather
                     // than silently release selected applications to direct Internet.
+                    long nextBlockedReport=0;
                     while(!stopping){
+                        long now=SystemClock.elapsedRealtime();if(now>=nextBlockedReport){publishMetrics("BLOCKED");nextBlockedReport=now+2000;}
                         try{Os.read(tun.getFileDescriptor(),buffer,0,buffer.length);}catch(Exception ignored){}
                         try{Thread.sleep(10);}catch(InterruptedException ignored){}
                     }
@@ -182,6 +190,7 @@ public final class NativeAppRoutingService extends VpnService {
             if(dnsRelay!=null)dnsRelay.close();
             boolean ok=closePeers()&&!cleanupFailed;if(tun!=null){try{tun.close();}catch(Exception e){ok=false;}tun=null;}
             if(stopping||captured)report(stats(ok?"STOPPED — peer sessions released; TUN closed; normal networking resumes":"STOPPED — cleanup unconfirmed"));
+            serviceRunning=false;
             stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();
         }
     }
@@ -225,13 +234,13 @@ public final class NativeAppRoutingService extends VpnService {
             }
             if(owner!=RELAY_UID&&key.remotePort==853&&blockExternal853){dnsFirewallDrops++;continue;}
             int role=owner==RELAY_UID&&dnsRelay!=null&&dnsRelay.owns(key)?dnsRelay.role:policy.choose(key,owners.get(owner),owner==UNKNOWN_DNS);
-            if(role<0||role>=count){policyDrop++;continue;}
+            if(role<0||role>=count){policyDrop++;if(owner==RELAY_UID)relayEnded++;else deniedRoute++;continue;}
             byte[] translated=rewrite[role].toSession(p);
             if(translated==null){unsupported++;continue;}
             NativeAppRoutingPolicy.Owner admitted=ledger.admit(key,syn,owner,role,now);
-            if(admitted==null){policyDrop++;continue;}
+            if(admitted==null){policyDrop++;deniedLedger++;continue;}
             int result=RootlessNativeBridge.injectPacket(handles[role],translated);
-            if(result==-4){queueDrop++;continue;}if(result!=1){policyDrop++;continue;}
+            if(result==-4){queueDrop++;continue;}if(result!=1){policyDrop++;deniedNative++;continue;}
             if(prior==null)opened[role]++;
             outgoing[role]++;outBytes[role]+=n;
         }
@@ -264,14 +273,32 @@ public final class NativeAppRoutingService extends VpnService {
         for(int i=0;i<count;i++)b.append("\n").append(NativePeerProfiles.SLOTS[i]).append(" new flows=").append(opened[i]).append(" packets out/in=").append(outgoing[i]).append('/').append(incoming[i]).append(" bytes out/in=").append(outBytes[i]).append('/').append(inBytes[i]);
         if(dnsRelay!=null)b.append("\nDNS provider=").append(NativeProtectedDnsRelay.NAMES[dnsProvider]).append(" role=").append(NativePeerProfiles.SLOTS[dnsRole]).append(" queries=").append(dnsRelay.queries.get()).append(" authenticated=").append(dnsRelay.verified.get()).append(" blocked=").append(dnsRelay.blocked.get()).append(" failed=").append(dnsRelay.failed.get()).append(" overflow=").append(dnsRelay.overflow.get()).append(" hosts=").append(blocklist.size());
         b.append("\nDNS firewall drops=").append(dnsFirewallDrops).append(" IPv6 drops=").append(ipv6Drops).append(" other unsupported=").append(otherUnsupported);
+        b.append("\npolicy classification route=").append(deniedRoute).append(" ledger=").append(deniedLedger).append(" native=").append(deniedNative).append(" relay port no longer registered=").append(relayEnded);
         return b.append("\nactive tuples=").append(ledger.entries.size()).append(" unknown UID drops=").append(unknown).append(" policy drops=").append(policyDrop).append(" unsupported drops=").append(unsupported).append(" foreign reply drops=").append(foreignReply).append(" queue drops=").append(queueDrop).toString();
     }
-    private void report(String s){Log.i(TAG,s);getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("status",s).apply();}
+    private void report(String s){
+        Log.i(TAG,s);getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("status",s).apply();
+        String state=s.startsWith("ACTIVE")?"ACTIVE":s.startsWith("BLOCKED")?"BLOCKED":s.startsWith("STOPPED")?"STOPPED":s.startsWith("NOT STARTED")?"FAILED":"STARTING";
+        publishMetrics(state);
+    }
+    private void publishMetrics(String state){
+        long now=SystemClock.elapsedRealtime(),out=0,in=0;
+        for(int i=0;i<count;i++){out+=outBytes[i];in+=inBytes[i];}
+        if(state.equals("ACTIVE")&&lastSample>0){upRate=NativeRoutingMetrics.perSecond(lastOut,out,now-lastSample);downRate=NativeRoutingMetrics.perSecond(lastIn,in,now-lastSample);}else{upRate=0;downRate=0;}
+        lastSample=now;lastOut=out;lastIn=in;
+        long blocked=dnsRelay==null?0:dnsRelay.blocked.get();
+        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("state",state).putLong("heartbeat",now).putLong("upRate",upRate).putLong("downRate",downRate).putLong("blocked",blocked).apply();
+        notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("STARTING")?"Connecting · selected apps not yet protected":state;
+        if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("STARTING")){
+            NotificationManager manager=getSystemService(NotificationManager.class);
+            if(manager!=null)try{manager.notify(8402,notification());}catch(SecurityException ignored){}
+        }
+    }
     private Notification notification(){
         NotificationManager m=getSystemService(NotificationManager.class);
         if(m!=null)m.createNotificationChannel(new NotificationChannel(TAG,"Selected app routing",NotificationManager.IMPORTANCE_LOW));
         PendingIntent open=PendingIntent.getActivity(this,8402,new Intent(this,NativeAppRoutingActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent stop=PendingIntent.getService(this,8403,new Intent(this,NativeAppRoutingService.class).setAction(STOP),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        return new Notification.Builder(this,TAG).setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Wonhee selected-app routing lab").setContentText("Experimental · selected apps only").setContentIntent(open).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).setOngoing(true).build();
+        return new Notification.Builder(this,TAG).setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Wonhee Proxy · selected apps").setContentText(notificationLine).setStyle(new Notification.BigTextStyle().bigText(notificationLine)).setOnlyAlertOnce(true).setContentIntent(open).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).setOngoing(true).build();
     }
 }

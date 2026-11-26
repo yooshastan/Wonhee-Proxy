@@ -18,7 +18,18 @@ public final class NativeAppRoutingActivity extends Activity {
     private final Spinner[] categories=new Spinner[AppUseCategories.LABELS.length];
     private final Spinner[] protocols=new Spinner[NativeAppRoutingPolicy.SELECTORS.length];
     private final EditText[] overrides=new EditText[3];
-    private TextView status,profiles;
+    private TextView status,profiles,headline,speed,blocked,summary,sectionTitle,notice;
+    private Button startButton,stopButton;
+    private final LinearLayout[] pages=new LinearLayout[5];
+    private final Button[] tabs=new Button[5];
+    private ScrollView scroll;
+    private int page=0;
+    private final android.os.Handler ui=new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable tick=new Runnable(){public void run(){updateLive();ui.postDelayed(this,1000);}};
+    private boolean readingHosts;
+    private long hostsGeneration;
+    private static final int BG=0xfff8f3ff, INK=0xff312446, ACCENT=0xff7051aa, SURFACE=0xffeee4fa, PINK=0xfff4ddec;
+    private static final String[] SECTIONS={"Home","Tunnels","Routing","Protection","Activity"};
     private EditText homeCidr;
     private CheckBox home;
     private Spinner fallback,dnsProvider,dnsRole;
@@ -32,18 +43,40 @@ public final class NativeAppRoutingActivity extends Activity {
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         draft=getSharedPreferences("native_app_route_draft_v1",MODE_PRIVATE);
-        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
-        int pad=(int)(16*getResources().getDisplayMetrics().density);root.setPadding(pad,pad,pad,pad);
-        label(root,"Wonhee 0.17.1 · Protected app routing",22);
-        label(root,"Experimental rootless VPN. Only checked apps are captured; other apps use normal networking. IPv4 TCP/UDP only; IPv6 and unsupported traffic blocked inside the VPN. Private DNS must remain OFF. System UDP DNS is relayed over authenticated TLS inside a selected tunnel; direct port 53 is blocked. TCP DNS fallback is not supported yet. Application DoH over port 443 is not identifiable. No protection before startup or after Stop.",14);
-        button(root,"Start selected-app routing",()->{
+        LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(BG);
+        shell.setFitsSystemWindows(true);
+        LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
+        TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
+        label(header,"PROXY  /  0.18.0 PREVIEW",12);
+        LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
+        for(int i=0;i<tabs.length;i++){
+            final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(SECTIONS[i]);t.setTextSize(11);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
+            t.setOnClickListener(v->showPage(at));nav.addView(t,new LinearLayout.LayoutParams(0,dp(48),1));tabs[i]=t;
+        }
+        scroll=new ScrollView(this);scroll.setFillViewport(true);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        android.widget.FrameLayout holder=new android.widget.FrameLayout(this);scroll.addView(holder);
+        for(int i=0;i<pages.length;i++){
+            LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);v.setPadding(dp(16),dp(12),dp(16),dp(24));pages[i]=v;holder.addView(v,new android.widget.FrameLayout.LayoutParams(-1,-2));
+        }
+        LinearLayout root=pages[0];
+        headline=label(root,"Disconnected",25);headline.setTypeface(null,android.graphics.Typeface.BOLD);headline.setPadding(dp(14),dp(16),dp(14),dp(8));headline.setBackground(round(SURFACE,18));
+        speed=label(root,"↓ 0 B/s   ↑ 0 B/s",20);speed.setPadding(dp(12),dp(12),dp(12),dp(8));
+        blocked=label(root,"Blocked DNS · 0",17);blocked.setPadding(dp(12),dp(8),dp(12),dp(12));blocked.setBackground(round(PINK,14));
+        startButton=button(root,"Start connection",()->{
             try{makeIntent();save();Intent consent=VpnService.prepare(this);if(consent!=null)startActivityForResult(consent,VPN);else launch();}
-            catch(Exception e){status.setText("Check configuration: select 1–32 apps, valid Home CIDR and profiles.");}
-        });
-        button(root,"Stop (normal networking resumes)",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.STOP)));
-        status=label(root,"",15);button(root,"Refresh status",this::refresh);
-        button(root,"Simulate tunnel failure (test guard)",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.GUARD_TEST)));
-        label(root,"1 · Tunnels",18);profiles=label(root,"",14);
+            catch(Exception e){notice.setText("Start refused: choose 1–32 apps, valid profiles and Home CIDR.");}
+        });startButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(ACCENT));startButton.setTextColor(0xffffffff);
+        stopButton=button(root,"Stop connection",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.STOP)));
+        notice=label(root,"",14);
+        summary=label(root,"",15);
+        button(root,"Tunnels · import or change",()->showPage(1));
+        button(root,"Routing · choose apps and exits",()->showPage(2));
+        button(root,"Protection · DNS and hosts",()->showPage(3));
+        button(root,"Activity · connection details",()->showPage(4));
+        label(root,"Selected apps only. Other apps use normal networking. Private DNS must remain OFF.",13);
+        button(root,"Enable traffic notification",()->{if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},8330);else notice.setText("Notification permission already available.");});
+        root=pages[1];
+        label(root,"Tunnels",23);profiles=label(root,"",14);
         for(int i=0;i<3;i++){
             final int slot=i;
             button(root,"Import "+NativePeerProfiles.SLOTS[i],()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),IMPORT+slot));
@@ -51,8 +84,12 @@ public final class NativeAppRoutingActivity extends Activity {
         }
         home=new CheckBox(this);home.setText("Include Home private route");home.setChecked(draft.getBoolean("home",true));root.addView(home);
         homeCidr=new EditText(this);homeCidr.setSingleLine(true);homeCidr.setHint("Private Home IPv4 CIDR");homeCidr.setText(draft.getString("homeCidr","10.0.0.169/32"));root.addView(homeCidr);
+        button(root,"Choose authorized Home route",this::pickHomeRoute);
         label(root,"Default Internet exit",15);fallback=spinner(root,new String[]{"Exit A","Exit B"},draft.getInt("default",0));
-        label(root,"2 · Network protection",18);
+        button(root,"Save & return home",()->{save();showPage(0);});
+        root=pages[3];
+        label(root,"Protection",23);
+        label(root,"DNS uses authenticated TLS inside the chosen tunnel. UDP DNS only; TCP DNS fallback and application DoH interception are not supported. Captured IPv6 is blocked. Guard is in-process only.",14);
         label(root,"Authenticated DNS-over-TLS provider",14);
         dnsProvider=spinner(root,NativeProtectedDnsRelay.NAMES,draft.getInt("dnsProvider",0));
         label(root,"DNS tunnel (all captured system DNS)",14);
@@ -65,18 +102,24 @@ public final class NativeAppRoutingActivity extends Activity {
             try{RootBlocklistStore.restorePrevious(getFilesDir());runOnUiThread(this::refresh);}
             catch(Exception e){runOnUiThread(()->hostsStatus.setText("Restore refused: no valid previous list"));}
         },"WonheeHostsRestore").start());
-        label(root,"3 · Category routing",18);
+        button(root,"Save & return home",()->{save();showPage(0);});
+        root=pages[2];
+        label(root,"Routing",23);
+        label(root,"Categories",18);
         label(root,"Home destinations take precedence. Assign categories to Exit A or B, inherit default, or block public traffic.",14);
         for(int i=0;i<categories.length;i++){
             label(root,AppUseCategories.LABELS[i],14);categories[i]=spinner(root,CHOICES,draft.getInt("cat"+i,0));
         }
-        label(root,"4 · Protocol overrides",18);
+        label(root,"Protocol overrides",18);
         label(root,"These TCP/UDP destination-port rules override app and category exit assignments for public traffic; explicit app/category blocks still win. Port names are hints, not application-protocol detection.",14);
         for(int i=0;i<protocols.length;i++){
             label(root,NativeAppRoutingPolicy.SELECTOR_NAMES[i],14);protocols[i]=spinner(root,CHOICES,draft.getInt("proto"+i,0));
         }
-        label(root,"5 · Select installed apps",18);
+        label(root,"Installed applications",18);
         label(root,"Select only apps you want to test. Choose a category and optional individual override. Changes apply at the next Start. Start with two browsers and Moka; do not select critical apps.",14);
+        EditText filter=new EditText(this);filter.setSingleLine(true);filter.setHint("Search installed apps");root.addView(filter);
+        LinearLayout appList=new LinearLayout(this);appList.setOrientation(LinearLayout.VERTICAL);root.addView(appList);
+        final Map<View,String> searchRows=new LinkedHashMap<>();
         List<ResolveInfo> visible=getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0);
         visible.sort(Comparator.comparing(r->r.loadLabel(getPackageManager()).toString(),String.CASE_INSENSITIVE_ORDER));
         Set<String> seen=new HashSet<>();
@@ -84,15 +127,30 @@ public final class NativeAppRoutingActivity extends Activity {
             if(r.activityInfo==null)continue;String pkg=r.activityInfo.packageName;
             if(pkg.equals(getPackageName())||!AppUseCategories.validPackageName(pkg)||!seen.add(pkg))continue;
             CheckBox selected=new CheckBox(this);selected.setText(r.loadLabel(getPackageManager())+" ("+pkg+")");
-            selected.setChecked(draft.getBoolean("selected:"+pkg,false));root.addView(selected);
+            selected.setChecked(draft.getBoolean("selected:"+pkg,false));
+            LinearLayout appCard=new LinearLayout(this);appCard.setOrientation(LinearLayout.VERTICAL);appCard.addView(selected);appList.addView(appCard);searchRows.put(appCard,selected.getText().toString().toLowerCase(Locale.ROOT));
             LinearLayout detail=new LinearLayout(this);detail.setOrientation(LinearLayout.VERTICAL);
             label(detail,"Category",13);Spinner category=spinner(detail,AppUseCategories.LABELS,draft.getInt("category:"+pkg,0));
             label(detail,"Individual exit override",13);Spinner role=spinner(detail,CHOICES,draft.getInt("role:"+pkg,0));
-            root.addView(detail);detail.setVisibility(selected.isChecked()?View.VISIBLE:View.GONE);
+            appCard.addView(detail);detail.setVisibility(selected.isChecked()?View.VISIBLE:View.GONE);
             selected.setOnCheckedChangeListener((v,checked)->detail.setVisibility(checked?View.VISIBLE:View.GONE));
             apps.add(new AppRow(pkg,selected,category,role));
         }
-        button(root,"Save routing choices",()->{save();status.setText("Saved locally. Stop and Start to apply changes.");});
+        filter.addTextChangedListener(new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence x,int st,int c,int after){}
+            public void onTextChanged(CharSequence x,int st,int before,int c){String q=x.toString().trim().toLowerCase(Locale.ROOT);for(Map.Entry<View,String> e:searchRows.entrySet())e.getKey().setVisibility(e.getValue().contains(q)?View.VISIBLE:View.GONE);}
+            public void afterTextChanged(android.text.Editable x){}
+        });
+        button(root,"Save & return home",()->{save();notice.setText("Saved. Stop and Start to apply changes.");showPage(0);});
+        root=pages[4];
+        label(root,"Activity",23);
+        status=label(root,"",14);
+        button(root,"Copy redacted diagnostics",()->{
+            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+            if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Wonhee diagnostics",status.getText()));
+        });
+        button(root,"Simulate tunnel failure (test guard)",()->new android.app.AlertDialog.Builder(this).setTitle("Test failure guard?").setMessage("This deliberately interrupts captured traffic until you press Stop.").setPositiveButton("Test",(d,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.GUARD_TEST))).setNegativeButton("Cancel",null).show());
+        button(root,"Return home",()->showPage(0));
         button(root,"Advanced diagnostics",()->new android.app.AlertDialog.Builder(this)
             .setTitle("Advanced diagnostics — stop VPN first")
             .setItems(new String[]{"Native transfer regression","Read-only readiness","Legacy kernel lab / Safe Stop"},(dialog,index)->{
@@ -100,10 +158,40 @@ public final class NativeAppRoutingActivity extends Activity {
                 if(index==2)new android.app.AlertDialog.Builder(this).setTitle("Legacy kernel laboratory").setMessage("This is not the current connection screen. Use only for deliberate diagnostics or exact-owned Safe Stop of old root links. Do not start it while protected routing is active.").setPositiveButton("Open legacy lab",(d,b)->startActivity(new Intent(this,target))).setNegativeButton("Cancel",null).show();
                 else startActivity(new Intent(this,target));
             }).setNegativeButton("Cancel",null).show());
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(root);scroll.setFitsSystemWindows(true);setContentView(scroll);refresh();
+        setContentView(shell);showPage(0);refresh();
     }
-    private TextView label(LinearLayout root,String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);root.addView(v);return v;}
-    private void button(LinearLayout root,String value,Runnable action){Button b=new Button(this);b.setText(value);b.setOnClickListener(v->action.run());root.addView(b);}
+    private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
+    private android.graphics.drawable.GradientDrawable round(int color,int radius){android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
+    private TextView label(LinearLayout root,String value,int size){TextView v=new TextView(this);v.setText(value);v.setTextColor(INK);v.setTextSize(size);v.setPadding(0,dp(5),0,dp(5));root.addView(v);return v;}
+    private Button button(LinearLayout root,String value,Runnable action){Button b=new Button(this);b.setAllCaps(false);b.setText(value);b.setTextColor(INK);b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(SURFACE));b.setOnClickListener(v->action.run());root.addView(b);return b;}
+    private void showPage(int next){page=next;for(int i=0;i<pages.length;i++){pages[i].setVisibility(i==next?View.VISIBLE:View.GONE);tabs[i].setBackgroundTintList(android.content.res.ColorStateList.valueOf(i==next?ACCENT:SURFACE));tabs[i].setTextColor(i==next?0xffffffff:INK);}scroll.scrollTo(0,0);updateLive();}
+    @Override protected void onResume(){super.onResume();ui.removeCallbacks(tick);ui.post(tick);}
+    @Override protected void onPause(){ui.removeCallbacks(tick);super.onPause();}
+    @Override public void onBackPressed(){if(page!=0)showPage(0);else super.onBackPressed();}
+    private void updateLive(){
+        if(headline==null||status==null)return;
+        android.content.SharedPreferences prefs=getSharedPreferences(NativeAppRoutingService.PREFS,MODE_PRIVATE);
+        String state=prefs.getString("state","IDLE"),report=prefs.getString("status","Not started");
+        long age=android.os.SystemClock.elapsedRealtime()-prefs.getLong("heartbeat",0);
+        if(!NativeAppRoutingService.running()&&(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("STARTING")))state="INACTIVE";
+        if(state.equals("ACTIVE")&&(age<0||age>8000))state="STALE";
+        boolean busy=NativeAppRoutingService.running();
+        headline.setText(state.equals("ACTIVE")?"Connected":state.equals("BLOCKED")?"Traffic blocked":state.equals("STARTING")?"Connecting…":state.equals("STALE")?"Status stale":state.equals("FAILED")?"Connection refused":"Disconnected");
+        speed.setText("↓ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("downRate",0):0)+"    ↑ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("upRate",0):0));
+        blocked.setText("Blocked DNS · "+prefs.getLong("blocked",0));
+        int selected=0;for(AppRow r:apps)if(r.selected.isChecked())selected++;
+        if(summary!=null)summary.setText("Configuration · "+selected+" apps selected · "+(home.isChecked()?"2 exits + Home":"2 exits")+"\nChanges apply on next Start.");
+        startButton.setEnabled(!busy);stopButton.setEnabled(busy);status.setText(report);
+    }
+    private void pickHomeRoute(){
+        try{
+            SecureTunnelProfileStore.Profile profile=NativePeerProfiles.load(this)[2];
+            if(profile==null){notice.setText("Import Home first.");showPage(0);return;}
+            List<String> routes=NativeHomeRoutes.fromConfig(profile.configuration);
+            if(routes.isEmpty()){new android.app.AlertDialog.Builder(this).setTitle("No private IPv4 route detected").setMessage("Enter a specific private CIDR covered by AllowedIPs. Broad Internet defaults are not suggested.").setPositiveButton("OK",null).show();return;}
+            new android.app.AlertDialog.Builder(this).setTitle("Authorized Home routes").setItems(routes.toArray(new String[0]),(d,i)->{homeCidr.setText(routes.get(i));home.setChecked(true);}).setNegativeButton("Cancel",null).show();
+        }catch(Exception e){new android.app.AlertDialog.Builder(this).setMessage("Home profile could not be read.").setPositiveButton("OK",null).show();}
+    }
     private Spinner spinner(LinearLayout root,String[] options,int index){
         Spinner s=new Spinner(this);ArrayAdapter<String> a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,options);
         a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);s.setAdapter(a);s.setSelection(index>=0&&index<options.length?index:0);root.addView(s);return s;
@@ -135,16 +223,20 @@ public final class NativeAppRoutingActivity extends Activity {
             .putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
             .putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
-    private void launch(){try{startForegroundService(makeIntent());status.setText("Starting — refresh status shortly");}catch(Exception e){status.setText("Start refused: "+e.getClass().getSimpleName());}}
+    private void launch(){try{startForegroundService(makeIntent());notice.setText("Starting…");;}catch(Exception e){notice.setText("Start refused: "+e.getClass().getSimpleName());}}
     private void refresh(){
         try{
             SecureTunnelProfileStore.Profile[] p=NativePeerProfiles.load(this);StringBuilder s=new StringBuilder();
             for(int i=0;i<3;i++)s.append(NativePeerProfiles.SLOTS[i]).append(": ").append(p[i]==null?"missing":"encrypted profile saved").append('\n');
             profiles.setText(s.toString());
         }catch(Exception e){profiles.setText("Encrypted profile store unavailable");}
-        try{RootBlocklistStore.Snapshot snapshot=RootBlocklistStore.current(getFilesDir());hostsStatus.setText(snapshot==null?"No imported hosts list":snapshot.summary());}
-        catch(Exception e){hostsStatus.setText("Hosts snapshot unavailable");}
-        status.setText(getSharedPreferences(NativeAppRoutingService.PREFS,MODE_PRIVATE).getString("status","Not started"));
+        final long generation=++hostsGeneration;
+        new Thread(()->{
+            String result;try{RootBlocklistStore.Snapshot snapshot=RootBlocklistStore.current(getFilesDir());result=snapshot==null?"No imported hosts list":snapshot.summary();}
+            catch(Exception e){result="Hosts snapshot unavailable";}
+            final String text=result;runOnUiThread(()->{if(generation==hostsGeneration&&!isDestroyed())hostsStatus.setText(text);});
+        },"WonheeHostsSummary").start();
+        updateLive();
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);if(result!=RESULT_OK)return;
@@ -158,9 +250,9 @@ public final class NativeAppRoutingActivity extends Activity {
         }
         if(request>=IMPORT&&request<IMPORT+3&&data!=null&&data.getData()!=null){
             try(InputStream in=getContentResolver().openInputStream(data.getData())){
-                NativePeerProfiles.save(this,request-IMPORT,in);refresh();
-            }catch(NativePeerProfiles.Rejected e){status.setText("Import refused: "+e.code);}
-            catch(Exception|LinkageError e){status.setText("Import refused");}
+                NativePeerProfiles.save(this,request-IMPORT,in);refresh();if(request==IMPORT+2){try{List<String> routes=NativeHomeRoutes.fromConfig(NativePeerProfiles.load(this)[2].configuration);if(routes.size()==1)homeCidr.setText(routes.get(0));else if(!routes.isEmpty())pickHomeRoute();}catch(Exception ignored){}}
+            }catch(NativePeerProfiles.Rejected e){notice.setText("Import refused: "+e.code);showPage(0);}
+            catch(Exception|LinkageError e){notice.setText("Import refused");showPage(0);}
         }
     }
 }

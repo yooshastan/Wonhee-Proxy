@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(149)' in gradle
+assert 'versionCode.set(150)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.17.1-native-protected-routing')" in gradle
+assert "versionName.set('0.18.0-native-protected-routing')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -162,3 +162,9 @@ for name in (".RootlabTwoPeerActivity",".RootlessNativePeerActivity",".RootlabRe
     node=next(x for x in xml.findall("./application/activity") if x.get(ns+"name")==name)
     assert node.get(ns+"exported")=="false"
     assert not node.findall("intent-filter")
+
+ui_activity = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeAppRoutingActivity.java").read_text()
+assert 'SECTIONS={"Home","Tunnels","Routing","Protection","Activity"}' in ui_activity
+assert 'NativeHomeRoutes.fromConfig' in ui_activity and 'NativeAppRoutingService.running()' in ui_activity
+assert 'NativeRoutingMetrics.perSecond' in app_routing and 'manager.notify(8402,notification())' in app_routing
+assert 'policy classification route=' in app_routing
