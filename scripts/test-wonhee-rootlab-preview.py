@@ -343,9 +343,9 @@ assert 'RootlabReadinessActivity' not in production_manifest, (
 )
 assert "versionCode 108" in gradle and "versionName '0.15.61-connection-setup'" in gradle
 assert "selector().withBuildType('debug')" in gradle
-assert "output.versionCode.set(132)" in gradle
-assert "output.versionName.set('0.15.78-rootlab-socket-uid-mark')" in gradle
-assert "applicationIdSuffix '.rootlab01562triple1'" in gradle
+assert "output.versionCode.set(135)" in gradle
+assert "output.versionName.set('0.15.81-native-smoke-ipc')" in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native081'" in gradle
 assert "new ToolsInstaller(getApplicationContext(), shell)" in source
 assert ".ensureToolsAvailable()" in source
 assert "Private DNS" in source and "READ-ONLY" in source
@@ -363,4 +363,12 @@ for forbidden in (
     "RootIsolatedWireGuardTransaction.start(",
 ):
     assert forbidden not in source, f"RootLab inspection mutates networking: {forbidden}"
-print("RootLab 0.15.62 preview separation and read-only checks PASS")
+print("RootLab debug-only preview separation and read-only checks PASS")
+
+# Separate transport ownership must be recovered before the older UID/chain stages.
+transport = (repo / 'app/src/debug/java/com/yooshastan/wonheeproxy/RootlabHomeTransportTrial.java').read_text()
+assert 'RootlabHomeTransportTrial(app).recover()' in session
+assert session.index('RootlabHomeTransportTrial(app).recover()') < session.index('RootlabMokaHomeUidSelector(app).recover()')
+assert 'RootlabHomeTransportTrial.pendingOrUnknown(app)' in gate
+assert 'session::activateHomeTransportTrial' in two_peer
+assert 'exactActiveForTransport' in transport and 'plan.remove()' in transport

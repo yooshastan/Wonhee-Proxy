@@ -21,6 +21,7 @@ jobs:
         working-directory: native
         run: |
           go mod tidy
+          git diff --exit-code -- go.mod go.sum
           go list -m golang.zx2c4.com/wireguard
       - name: Test independent packet bridges and crypto-device lifecycle
         working-directory: native

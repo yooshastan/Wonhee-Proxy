@@ -34,8 +34,10 @@ jobs:
         run: python3 scripts/test-wonhee-home-entrypoints.py
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
-      - name: Verify debug-only 0.15.62 RootLab APK and read-only readiness screen
+      - name: Verify debug-only 0.15.81 RootLab APK and read-only readiness screen
         run: python3 scripts/test-wonhee-rootlab-preview.py
+      - name: Verify native Android JNI and no-route smoke-test contract
+        run: python3 scripts/test-wonhee-native-bridge-contract.py
       - name: Verify permanent release-signing setup script syntax
         run: bash -n scripts/setup-wonhee-release-signing.sh scripts/build-wonhee-official-local.sh scripts/install-wonhee-safe-update.sh scripts/wonhee-01562-device-preflight.sh
       - name: Prove safe installer refuses unsafe live/root states
@@ -46,6 +48,23 @@ jobs:
         run: |
           python3 -m py_compile scripts/wonhee-01528-ledger-rescue.py
           python3 scripts/test-wonhee-01528-ledger-rescue.py
+      - name: Verify offline transport exception contract
+        run: |
+          mkdir -p /tmp/wonhee-transport
+          javac -d /tmp/wonhee-transport \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootFirewallMark.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTcpProbeTarget.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootMokaHomeFirewallPilotPlan.java \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTransportGuardPlan.java \
+            core-tests/RootTransportGuardPlanTest.java
+          java -cp /tmp/wonhee-transport com.yooshastan.wonheeproxy.RootTransportGuardPlanTest
+      - name: Verify transport ownership and rollback lifecycle
+        run: |
+          mkdir -p /tmp/wonhee-transport-lifecycle
+          javac -d /tmp/wonhee-transport-lifecycle \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTransportGuardLifecycle.java \
+            core-tests/RootTransportGuardLifecycleTest.java
+          java -cp /tmp/wonhee-transport-lifecycle com.yooshastan.wonheeproxy.RootTransportGuardLifecycleTest
       - name: Run standalone proxy core tests
         run: |
           mkdir -p /tmp/wonhee-classes
@@ -354,12 +373,14 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android 16 SDK
-        run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
+        run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018"
       - name: Build installable debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --console=plain
+        run: |
+          ./gradlew :app:assembleDebug --no-daemon --console=plain
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'lib/arm64-v8a/libwonhee_native.so'
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-rootlab-debug-apk
+          name: wonhee-0.15.81-native-smoke-ipc-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

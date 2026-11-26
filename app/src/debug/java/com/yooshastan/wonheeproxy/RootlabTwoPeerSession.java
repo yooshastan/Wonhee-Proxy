@@ -340,6 +340,9 @@ final class RootlabTwoPeerSession {
         if (RootIsolatedUidPolicyPreferencesJournal.pendingOrUnknown(app)) {
             return "START REFUSED: pending UID policy ownership.";
         }
+        if (RootlabHomeTransportTrial.pendingOrUnknown(app)) {
+            return "START REFUSED: Home transport journal needs Safe Stop.";
+        }
         if (RootlabDetachedMokaFirewall.pendingOrUnknown(app)) {
             return "START REFUSED: detached firewall journal pending. "
                     + "Use Exact-owned Safe Stop first.";
@@ -402,6 +405,14 @@ final class RootlabTwoPeerSession {
     }
 
     private String stopImpl() throws Exception {
+        // Revoke the added transport exception before legacy chain/UID teardown.
+        String transportStatus = new RootlabHomeTransportTrial(app).recover();
+        if (RootlabHomeTransportTrial.pendingOrUnknown(app)) {
+            record("Safe Stop paused: Home transport ownership uncertain");
+            return "SAFE STOP PAUSED: " + transportStatus
+                    + "\nPreserve RootLab data and all existing guards.";
+        }
+        record(transportStatus);
         // Browser selector and browser firewall hooks are owned by a
         // separate journal. Remove ALL of them before Moka's UID selector,
         // Moka OUTPUT hooks, the Home fallback or WireGuard links.
@@ -911,6 +922,23 @@ final class RootlabTwoPeerSession {
         record("Moka Home UID selector: "
                 + (result.startsWith("MOKA HOME UID ROUTE ATTACHED")
                     ? "ACTIVATED_DEVICE_TEST_ONLY" : "REFUSED_OR_RECOVERY_REQUIRED"));
+        return result;
+    }
+
+    String activateHomeTransportTrial() throws Exception {
+        String preflight = previewMokaHomeRouting();
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "Installed Moka candidate: unique; UID ([0-9]{4,7})").matcher(preflight);
+        if (!preflight.startsWith("MOKA -> HOME READ-ONLY PREFLIGHT\n") || !found.find())
+            return "HOME TRANSPORT REFUSED: exact Home and Moka identity required.";
+        Pair pair = loadPair();
+        if (pair.entries.size() != 3 || !HOME.equals(pair.entries.get(2).name))
+            return "HOME TRANSPORT REFUSED: three selected links required.";
+        java.util.Set<String> selected = new java.util.HashSet<>();
+        for (RootMultiTunnelPlan.Entry e : pair.entries) selected.add(e.device);
+        String result = new RootlabHomeTransportTrial(app).activate(
+                Integer.parseInt(found.group(1)), pair.entries.get(2).device, selected);
+        record("Home transport trial outcome recorded; endpoint omitted.");
         return result;
     }
 
