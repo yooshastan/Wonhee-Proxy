@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(142)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native088'" in gradle
-assert "versionName.set('0.15.88-native-scoped-http')" in gradle
+assert 'versionCode.set(143)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native089'" in gradle
+assert "versionName.set('0.15.89-native-scoped-tcp-udp')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -103,3 +103,8 @@ assert 'WNRegisterProbePorts' in go and 'registerProbePorts' in live
 assert 'FLOWS=2' in live and 'bindAttempts>=4' in live and 'now-vpnSeenAt>=500L' in live
 assert 'responseBytes.get(f)>0' in live and 'sentPayload[f]>0' in live and 'receivedPayload[f]>0' in live
 assert 'createSocket(socket,host,ports[slot],false)' in live and 'tls.startHandshake()' in live
+
+assert 'MatchUDP(packet,false,entry.udpPort)' in go and 'MatchUDP(packet,true,entry.udpPort)' in go
+assert 'vpn.bindSocket(udp)' in live and 'udpVerified.get(i)==UDP_COUNT' in live
+assert 'UDP_COUNT=5' in live and 'bodyBytes.set(flow,read)' in live
+assert 'udpSockets[i].close()' in live and 'rejectIpv6' in live

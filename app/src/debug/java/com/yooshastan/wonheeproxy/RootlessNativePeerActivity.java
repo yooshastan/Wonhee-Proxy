@@ -29,10 +29,10 @@ public final class RootlessNativePeerActivity extends Activity {
         int pad=(int)(16*getResources().getDisplayMetrics().density);
         root.setPadding(pad,pad,pad,pad);
         TextView title=new TextView(this);
-        title.setText("Wonhee 0.15.88 · Concurrent scoped HTTP lab");
+        title.setText("Wonhee 0.15.89 · Scoped TCP + UDP lab");
         title.setTextSize(22);root.addView(title);
         TextView info=new TextView(this);
-        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles can be saved without DNS. For a hostname endpoint, enter its provider-confirmed numeric IP in the corresponding optional override box. Original port and encrypted configuration stay unchanged. Two concurrent flows per peer through one package-scoped TUN. Exits use certificate-verified HTTPS; optional Home uses a credential-free HTTP GET /. Response headers are bounded. No redirects, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
+        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles can be saved without DNS. For a hostname endpoint, enter its provider-confirmed numeric IP in the corresponding optional override box. Original port and encrypted configuration stay unchanged. Two concurrent flows per peer through one package-scoped TUN. Exits use certificate-verified HTTPS; optional Home uses a credential-free HTTP GET /. Response headers and declared body samples are bounded. Five fixed UDP DNS requests per Internet exit test datagrams through the same tunnel; no system DNS changes. No redirects, DNS changes or default route. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
         root.addView(info);
         slots=new TextView(this);root.addView(slots);
         for(int i=0;i<3;i++) {
@@ -51,7 +51,7 @@ public final class RootlessNativePeerActivity extends Activity {
         status=new TextView(this);status.setPadding(0,pad,0,pad);root.addView(status);
         Button check=new Button(this);check.setText("Check selected profiles (no network)");
         check.setOnClickListener(v->checkProfiles());root.addView(check);
-        Button start=new Button(this);start.setText("Start scoped HTTP test (120 seconds)");
+        Button start=new Button(this);start.setText("Start scoped TCP + UDP test (120 seconds)");
         start.setOnClickListener(v->{
             if(!checkProfiles()) return;
             requestedHome=home.isChecked();

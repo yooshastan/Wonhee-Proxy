@@ -21,6 +21,7 @@ type sessionEntry struct {
 	handshakeOnly bool
 	probe *dualwg.ProbeScope
 	probePorts [2]uint16
+	udpPort uint16
 }
 
 type androidProtector struct{}
@@ -94,7 +95,7 @@ func WNInjectPacket(handle C.uint64_t, data *C.char, length C.int) C.int {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.session == nil || entry.handshakeOnly { return -3 }
-	if entry.probe != nil && (!entry.probe.Match(packet,false) || !dualwg.ProbePort(packet,false,entry.probePorts)) { return -5 }
+	if entry.probe != nil && !(entry.probe.Match(packet,false) && dualwg.ProbePort(packet,false,entry.probePorts)) && !entry.probe.MatchUDP(packet,false,entry.udpPort) { return -5 }
 	if err := entry.session.Tun.Inject(packet); err != nil { return -4 }
 	return 1
 }
@@ -186,16 +187,19 @@ func WNPollProbePacket(handle C.uint64_t,data *C.char,capacity C.int) C.int {
  entry.mu.Lock();defer entry.mu.Unlock()
  if entry.session==nil||entry.probe==nil{return -3}
  packet,ok:=entry.session.Tun.Poll();if !ok{return 0}
- if !entry.probe.Match(packet,true)||!dualwg.ProbePort(packet,true,entry.probePorts){return -4}
+ if !(entry.probe.Match(packet,true)&&dualwg.ProbePort(packet,true,entry.probePorts))&&!entry.probe.MatchUDP(packet,true,entry.udpPort){return -4}
  copy(unsafe.Slice((*byte)(unsafe.Pointer(data)),int(capacity)),packet)
  return C.int(len(packet))
 }
 //export WNRegisterProbePorts
-func WNRegisterProbePorts(handle C.uint64_t,a,b C.int) C.int {
- if a<1||a>65535||b<1||b>65535||a==b{return 0}
+func WNRegisterProbePorts(handle C.uint64_t,a,b,udp C.int) C.int {
+ if a<1||a>65535||b<1||b>65535||a==b||udp<0||udp>65535{return 0}
  entry:=lookupSession(uint64(handle));if entry==nil{return 0}
  entry.mu.Lock();defer entry.mu.Unlock()
  if entry.session==nil||entry.probe==nil||entry.probePorts!=[2]uint16{}{return 0}
+ isExit:=entry.probe.Target.String()=="1.1.1.1"||entry.probe.Target.String()=="1.0.0.1"
+ if (isExit&&udp==0)||(!isExit&&udp!=0){return 0}
+ entry.udpPort=uint16(udp)
  entry.probePorts=[2]uint16{uint16(a),uint16(b)}
  return 1
 }

@@ -2,6 +2,7 @@ package dualwg
 
 import (
  "encoding/binary"
+ "bytes"
  "net/netip"
  "strings"
 )
@@ -58,4 +59,18 @@ func ProbePort(p []byte,reply bool,ports [2]uint16) bool {
  offset:=20;if reply{offset=22}
  port:=binary.BigEndian.Uint16(p[offset:offset+2])
  return port!=0&&(port==ports[0]||port==ports[1])
+}
+
+// DNS test traffic is limited to the fixed example.com A question on the
+// existing public probe host. No general UDP or resolver access is enabled.
+var probeQuestion=[]byte{7,'e','x','a','m','p','l','e',3,'c','o','m',0,0,1,0,1}
+func (s *ProbeScope) MatchUDP(p []byte,reply bool,localPort uint16) bool {
+ if s==nil || localPort==0 || s.Port!=443 || (s.Target.String()!="1.1.1.1"&&s.Target.String()!="1.0.0.1") {return false}
+ if len(p)<28+12+len(probeQuestion)||len(p)>1280||p[0]!=0x45||p[9]!=17||int(binary.BigEndian.Uint16(p[2:4]))!=len(p)||binary.BigEndian.Uint16(p[6:8])&0xbfff!=0||int(binary.BigEndian.Uint16(p[24:26]))!=len(p)-20{return false}
+ src:=netip.AddrFrom4([4]byte(p[12:16]));dst:=netip.AddrFrom4([4]byte(p[16:20]))
+ sp:=binary.BigEndian.Uint16(p[20:22]);dp:=binary.BigEndian.Uint16(p[22:24])
+ dns:=p[28:]
+ if binary.BigEndian.Uint16(dns[4:6])!=1||!bytes.Equal(dns[12:12+len(probeQuestion)],probeQuestion){return false}
+ if reply {return src==s.Target&&dst==s.Local&&sp==53&&dp==localPort&&dns[2]&0xf8==0x80}
+ return src==s.Local&&dst==s.Target&&sp==localPort&&dp==53&&len(dns)==12+len(probeQuestion)&&dns[2]==1&&dns[3]==0&&bytes.Equal(dns[6:12],[]byte{0,0,0,0,0,0})
 }

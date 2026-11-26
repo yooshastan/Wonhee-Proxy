@@ -22,3 +22,18 @@ func TestProbeScope(t *testing.T){
  if e=session.Configure(ipc);e!=nil{t.Fatal("IPC parser rejected probe")}
  if _,e:=PeerProbeConfig(strings.Replace(config,"0.0.0.0/0","10.0.0.0/8",1),s);e==nil{t.Fatal("unauthorized target")}
 }
+
+func TestScopedUDP(t *testing.T){
+ s,e:=NewProbeScope("exit-a","10.1.2.3","1.1.1.1",443);if e!=nil{t.Fatal(e)}
+ p:=make([]byte,28+12+len(probeQuestion));p[0]=0x45;p[9]=17
+ binary.BigEndian.PutUint16(p[2:4],uint16(len(p)));binary.BigEndian.PutUint16(p[24:26],uint16(len(p)-20))
+ copy(p[12:16],[]byte{10,1,2,3});copy(p[16:20],[]byte{1,1,1,1})
+ binary.BigEndian.PutUint16(p[20:22],40002);binary.BigEndian.PutUint16(p[22:24],53)
+ p[30]=1;p[33]=1;copy(p[40:],probeQuestion)
+ if !s.MatchUDP(p,false,40002)||s.MatchUDP(p,false,40003)||s.MatchUDP(p,true,40002)||s.Match(p,false){t.Fatal("UDP query scope")}
+ q:=append([]byte(nil),p...);copy(q[12:16],p[16:20]);copy(q[16:20],p[12:16]);copy(q[20:22],p[22:24]);copy(q[22:24],p[20:22]);q[30]=0x81;q[31]=0x80
+ if !s.MatchUDP(q,true,40002)||s.MatchUDP(q,true,0){t.Fatal("UDP reply scope")}
+ q[41]='z';if s.MatchUDP(q,true,40002){t.Fatal("foreign question accepted")}
+ p[25]--;if s.MatchUDP(p,false,40002){t.Fatal("bad UDP length")}
+ home,e:=NewProbeScope("home","10.1.2.3","10.0.0.169",4533);if e!=nil||home.MatchUDP(q,true,40002){t.Fatal("home UDP not authorized")}
+}

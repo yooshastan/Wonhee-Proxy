@@ -248,7 +248,7 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativePollProbePacket(
 
 JNIEXPORT jboolean JNICALL
 Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeRegisterProbePorts(
- JNIEnv *env,jclass type,jlong handle,jint a,jint b){
+ JNIEnv *env,jclass type,jlong handle,jint a,jint b,jint udp){
  (void)env;(void)type;
- return WNRegisterProbePorts((uint64_t)handle,a,b)?JNI_TRUE:JNI_FALSE;
+ return WNRegisterProbePorts((uint64_t)handle,a,b,udp)?JNI_TRUE:JNI_FALSE;
 }

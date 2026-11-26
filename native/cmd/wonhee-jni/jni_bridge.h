@@ -11,7 +11,7 @@ int WNCloseSession(uint64_t handle);
 int WNValidatePeerProfile(char *config);
 int64_t WNCreateProbeSession(char *name,char *config,char *local,char *target,int port);
 int WNPollProbePacket(uint64_t handle,char *data,int capacity);
-int WNRegisterProbePorts(uint64_t handle,int a,int b);
+int WNRegisterProbePorts(uint64_t handle,int a,int b,int udp);
 int64_t WNCreatePeerSession(char *name, char *config);
 int WNPeerStats(uint64_t handle, int64_t *hs, int64_t *rx, int64_t *tx);
 int wn_set_service(JNIEnv *env, jobject service);

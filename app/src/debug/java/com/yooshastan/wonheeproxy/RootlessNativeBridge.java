@@ -51,8 +51,8 @@ final class RootlessNativeBridge {
     static long createProbeSession(String name,String config,String local,String target,int port) {
         return LOADED?nativeCreateProbeSession(name,config,local,target,port):-1L;
     }
-    static boolean registerProbePorts(long handle,int a,int b){return LOADED&&nativeRegisterProbePorts(handle,a,b);}
-    private static native boolean nativeRegisterProbePorts(long handle,int a,int b);
+    static boolean registerProbePorts(long handle,int a,int b,int udp){return LOADED&&nativeRegisterProbePorts(handle,a,b,udp);}
+    private static native boolean nativeRegisterProbePorts(long handle,int a,int b,int udp);
     static int pollProbePacket(long handle,byte[] output) {return LOADED?nativePollProbePacket(handle,output):-1;}
     private static native long nativeCreateProbeSession(String name,String config,String local,String target,int port);
     private static native int nativePollProbePacket(long handle,byte[] output);

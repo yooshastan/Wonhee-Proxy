@@ -26,6 +26,9 @@ import android.util.Log;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.DatagramSocket;
+import java.net.DatagramPacket;
+import java.security.SecureRandom;
 import java.net.SocketException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +52,13 @@ public final class RootlessNativePeerService extends VpnService {
     private final MultiTunnelIpv4Rewriter[] rewrite=new MultiTunnelIpv4Rewriter[3];
     private static final int FLOWS=2;
     private final Socket[] sockets=new Socket[6];
+    private final DatagramSocket[] udpSockets=new DatagramSocket[2];
+    private final int[] udpPorts=new int[2], udpOut=new int[2], udpIn=new int[2];
+    private final AtomicIntegerArray udpVerified=new AtomicIntegerArray(2), udpFailed=new AtomicIntegerArray(2);
+    private final AtomicIntegerArray bodyBytes=new AtomicIntegerArray(6);
+    private int rejectIpv6,rejectOther, rejectNative, rejectReply;
+    private static final int UDP_COUNT=5;
+    private static final byte[] QUESTION={7,'e','x','a','m','p','l','e',3,'c','o','m',0,0,1,0,1};
     private final AtomicIntegerArray localPorts=new AtomicIntegerArray(6), results=new AtomicIntegerArray(6);
     private final AtomicIntegerArray httpStatus=new AtomicIntegerArray(6), responseBytes=new AtomicIntegerArray(6);
     private final int[] sentPayload=new int[6], receivedPayload=new int[6];
@@ -159,12 +169,19 @@ public final class RootlessNativePeerService extends VpnService {
                 socket.bind(new InetSocketAddress(literal(TUN_IP),0));
                 localPorts.set(f,socket.getLocalPort());
             }
+            for(int i=0;i<2;i++){
+                stage="bind-udp-"+NativePeerProfiles.IDS[i];
+                DatagramSocket udp=new DatagramSocket(null);udpSockets[i]=udp;
+                vpn.bindSocket(udp);
+                udp.bind(new InetSocketAddress(literal(TUN_IP),0));udpPorts[i]=udp.getLocalPort();
+            }
         }catch(SocketException failure){
             String failedStage=stage;
             for(int f=0;f<sockets.length;f++){
                 if(sockets[f]!=null){try{sockets[f].close();}catch(Exception closeFailed){throw new IllegalStateException("pre-connect cleanup failed");}sockets[f]=null;}
                 localPorts.set(f,0);
             }
+            for(int i=0;i<2;i++){if(udpSockets[i]!=null){udpSockets[i].close();udpSockets[i]=null;}udpPorts[i]=0;}
             if(bindAttempts>=4)throw failure;
             nextBindAt=SystemClock.elapsedRealtime()+400L;
             report("RUNNING — "+failedStage+" retry "+bindAttempts+"/4; no connects started.");
@@ -172,7 +189,7 @@ public final class RootlessNativePeerService extends VpnService {
         }
         for(int i=0;i<count;i++){
             stage="register-flow-ports-"+NativePeerProfiles.IDS[i];
-            if(!RootlessNativeBridge.registerProbePorts(handles[i],localPorts.get(i*FLOWS),localPorts.get(i*FLOWS+1)))throw new IllegalStateException();
+            if(!RootlessNativeBridge.registerProbePorts(handles[i],localPorts.get(i*FLOWS),localPorts.get(i*FLOWS+1),i<2?udpPorts[i]:0))throw new IllegalStateException();
         }
         probesStarted=true;
         stage="http-probes";
@@ -181,7 +198,36 @@ public final class RootlessNativePeerService extends VpnService {
             Thread worker=new Thread(()->runHttpProbe(flow,slot,socket),"WonheeHttpProbe-"+f);
             worker.setDaemon(true);worker.start();
         }
+        for(int i=0;i<2;i++){
+            final int slot=i;final DatagramSocket udp=udpSockets[i];
+            Thread worker=new Thread(()->runUdpProbe(slot,udp),"WonheeUdpProbe-"+i);
+            worker.setDaemon(true);worker.start();
+        }
         return true;
+    }
+    private void runUdpProbe(int slot,DatagramSocket udp){
+        try{
+            udp.connect(new InetSocketAddress(literal(targets[slot]),53));
+            udp.setSoTimeout(4000);
+            int base=new SecureRandom().nextInt(65536);
+            for(int k=0;k<UDP_COUNT;k++){
+                int id=(base+k)&65535;
+                byte[] query=new byte[12+QUESTION.length];
+                query[0]=(byte)(id>>>8);query[1]=(byte)id;query[2]=1;query[5]=1;
+                System.arraycopy(QUESTION,0,query,12,QUESTION.length);
+                udp.send(new DatagramPacket(query,query.length));
+                byte[] response=new byte[1252];DatagramPacket packet=new DatagramPacket(response,response.length);
+                udp.receive(packet);
+                int n=packet.getLength();
+                if(n<query.length||u16(response,0)!=id||(response[2]&0xfa)!=0x80
+                        ||(response[3]&15)!=0||u16(response,4)!=1||u16(response,6)==0
+                        ||!literal(targets[slot]).equals(packet.getAddress())||packet.getPort()!=53)
+                    throw new java.io.IOException("DNS transaction mismatch");
+                for(int j=0;j<QUESTION.length;j++)if(response[12+j]!=QUESTION[j])throw new java.io.IOException("DNS question mismatch");
+                udpVerified.incrementAndGet(slot);
+                if(k+1<UDP_COUNT)Thread.sleep(1000L);
+            }
+        }catch(Exception failure){udpFailed.set(slot,1);Log.i(TAG,"UDP "+NativePeerProfiles.IDS[slot]+" failed ("+failure.getClass().getSimpleName()+")");}
     }
     private void runHttpProbe(int flow,int slot,Socket socket){
         SSLSocket tls=null;
@@ -204,7 +250,7 @@ public final class RootlessNativePeerService extends VpnService {
             // No auth, cookies, redirects, user input or DNS lookup. Only fixed GET.
             String crlf=String.valueOf((char)13)+(char)10;
             String request="GET / HTTP/1.1"+crlf+"Host: "+host+(slot==2?":"+ports[slot]:"")+crlf
-                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.88"+crlf+"Accept: */*"+crlf+crlf;
+                    +"Connection: close"+crlf+"User-Agent: Wonhee-Diagnostic/0.15.89"+crlf+"Accept: */*"+crlf+crlf;
             wire.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
             wire.getOutputStream().flush();
             InputStream in=wire.getInputStream();
@@ -223,6 +269,25 @@ public final class RootlessNativePeerService extends VpnService {
                 throw new java.io.IOException("invalid status");
             httpStatus.set(flow,Integer.parseInt(line.substring(9,12)));
             responseBytes.set(flow,n);
+            String headers=new String(head,0,n,StandardCharsets.US_ASCII);
+            int advertised=0;boolean lengthSeen=false;
+            for(String header:headers.split(String.valueOf((char)13)+(char)10)){
+                if(header.regionMatches(true,0,"Content-Length:",0,15)){
+                    if(lengthSeen)throw new java.io.IOException("duplicate content length");
+                    lengthSeen=true;
+                    String value=header.substring(15).trim();
+                    if(!value.matches("[0-9]{1,18}"))throw new java.io.IOException("invalid content length");
+                    advertised=(int)Math.min(65536L,Long.parseLong(value));
+                }
+            }
+            if(headers.toLowerCase(java.util.Locale.ROOT).contains("transfer-encoding:"))advertised=0;
+            byte[] body=new byte[4096];int read=0;
+            while(read<advertised){
+                if(SystemClock.elapsedRealtime()>=until)throw new java.io.IOException("body deadline");
+                int got=in.read(body,0,Math.min(body.length,advertised-read));if(got<=0)throw new java.io.IOException("short body");
+                read+=got;
+            }
+            bodyBytes.set(flow,read);
             workerStage.set(flow,"response-verified");
             results.set(flow,1);
         }catch(Exception failure){
@@ -247,6 +312,13 @@ public final class RootlessNativePeerService extends VpnService {
         return reply?ip(p,12)==target&&ip(p,16)==local&&u16(p,20)==ports[slot]&&u16(p,22)==localPorts.get(flow)
              :ip(p,12)==local&&ip(p,16)==target&&u16(p,20)==localPorts.get(flow)&&u16(p,22)==ports[slot];
     }
+    private boolean matchUdp(byte[] p,int slot,boolean reply){
+        if(slot<0||slot>=2||udpPorts[slot]==0||p.length<28||p.length>1280||p[0]!=0x45||p[9]!=17
+                ||u16(p,2)!=p.length||(u16(p,6)&0xbfff)!=0||u16(p,24)!=p.length-20)return false;
+        int target=MultiTunnelIpv4Rewriter.parseIpv4(targets[slot]),local=MultiTunnelIpv4Rewriter.parseIpv4(TUN_IP);
+        return reply?ip(p,12)==target&&ip(p,16)==local&&u16(p,20)==53&&u16(p,22)==udpPorts[slot]
+             :ip(p,12)==local&&ip(p,16)==target&&u16(p,20)==udpPorts[slot]&&u16(p,22)==53;
+    }
     private void pump() throws Exception {
         for(int k=0;k<16;k++){
             int n;
@@ -255,7 +327,15 @@ public final class RootlessNativePeerService extends VpnService {
             if(n<=0)throw new IllegalStateException();
             byte[] p=Arrays.copyOf(buffer,n);int flow=-1;
             for(int i=0;i<count*FLOWS;i++)if(match(p,i,false)){flow=i;break;}
-            if(flow<0){rejected++;continue;}
+            if(flow<0){
+                int udpSlot=-1;for(int i=0;i<2;i++)if(matchUdp(p,i,false)){udpSlot=i;break;}
+                if(udpSlot>=0){
+                    byte[] translated=rewrite[udpSlot].toSession(p);
+                    if(translated==null||RootlessNativeBridge.injectPacket(handles[udpSlot],translated)!=1)throw new IllegalStateException("UDP egress rejected");
+                    udpOut[udpSlot]++;continue;
+                }
+                rejected++;if((p[0]&0xf0)==0x60)rejectIpv6++;else rejectOther++;continue;
+            }
             int slot=flow/FLOWS;
             byte[] translated=rewrite[slot].toSession(p);
             if(translated==null||RootlessNativeBridge.injectPacket(handles[slot],translated)!=1)throw new IllegalStateException("egress rejected");
@@ -265,11 +345,17 @@ public final class RootlessNativePeerService extends VpnService {
         for(int i=0;i<count;i++)for(int k=0;k<16;k++){
             int n=RootlessNativeBridge.pollProbePacket(handles[i],buffer);
             if(n==0)break;
-            if(n<0){rejected++;if(n==-4)continue;throw new IllegalStateException();}
+            if(n<0){rejected++;rejectNative++;if(n==-4)continue;throw new IllegalStateException();}
             byte[] p=rewrite[i].toTun(Arrays.copyOf(buffer,n));
             int flow=-1;
             if(p!=null)for(int f=i*FLOWS;f<(i+1)*FLOWS;f++)if(match(p,f,true)){flow=f;break;}
-            if(flow<0){rejected++;continue;}
+            if(flow<0){
+                if(p!=null&&matchUdp(p,i,true)){
+                    if(Os.write(tun.getFileDescriptor(),p,0,p.length)!=p.length)throw new IllegalStateException("short UDP TUN write");
+                    udpIn[i]++;continue;
+                }
+                rejected++;rejectReply++;continue;
+            }
             if(Os.write(tun.getFileDescriptor(),p,0,p.length)!=p.length)throw new IllegalStateException("short TUN write");
             inbound[i]++;
             receivedPayload[flow]+=p.length-20-((p[32]&255)>>>4)*4;
@@ -290,9 +376,11 @@ public final class RootlessNativePeerService extends VpnService {
                 b.append(NativePeerProfiles.SLOTS[i]).append(": ").append(ok?"HANDSHAKE VERIFIED":"awaiting handshake").append(" · TUN out/in=").append(outbound[i]).append('/').append(inbound[i]).append('\n');
                 for(int f=i*FLOWS;f<(i+1)*FLOWS;f++){
                     b.append("  flow ").append(f%FLOWS+1).append(": ").append(workerStage.get(f)==null?"pending":workerStage.get(f))
-                     .append(" HTTP=").append(httpStatus.get(f)).append(" header bytes=").append(responseBytes.get(f))
+                     .append(" HTTP=").append(httpStatus.get(f)).append(" header bytes=").append(responseBytes.get(f)).append(" body sample=").append(bodyBytes.get(f))
                      .append(" TCP payload out/in=").append(sentPayload[f]).append('/').append(receivedPayload[f]).append('\n');
                 }
+                if(i<2)b.append("  UDP DNS transactions=").append(udpVerified.get(i)).append('/').append(UDP_COUNT)
+                     .append(" TUN UDP out/in=").append(udpOut[i]).append('/').append(udpIn[i]).append(" failed=").append(udpFailed.get(i)).append('\n');
             }
             if(now>=deadline){finish("NOT PASSED — test timeout");return;}
             if(tun==null){
@@ -317,6 +405,7 @@ public final class RootlessNativePeerService extends VpnService {
                 long[] stats=RootlessNativeBridge.packetStats(handles[i]);
                 if(stats==null||stats.length<3||stats[2]!=0){finish("NOT PASSED — native queue error");return;}
                 complete &= outbound[i]>0 && inbound[i]>0 && stats[0]>0 && stats[1]>0;
+                if(i<2){complete &= udpVerified.get(i)==UDP_COUNT&&udpOut[i]>=UDP_COUNT&&udpIn[i]>=UDP_COUNT;failed |= udpFailed.get(i)!=0;}
                 for(int f=i*FLOWS;f<(i+1)*FLOWS;f++){
                     complete &= results.get(f)==1 && httpStatus.get(f)>=100 && responseBytes.get(f)>0 && sentPayload[f]>0 && receivedPayload[f]>0;
                     failed |= results.get(f)==-1;
@@ -324,10 +413,10 @@ public final class RootlessNativePeerService extends VpnService {
             }
             if(complete&&completedAt==0)completedAt=now;
             boolean settled=complete&&now-completedAt>=3000L;
-            last=(settled?"PASS":"RUNNING")+" — protected sockets="+p[0]+"; failures="+p[1]+"; policy rejections="+rejected+"; bind attempts="+bindAttempts+"\n"+b+"Two registered flows per peer; bounded HTTP headers; no credentials, redirects or DNS changes.";
+            last=(settled?"PASS":"RUNNING")+" — protected sockets="+p[0]+"; failures="+p[1]+"; policy rejections="+rejected+" (IPv6="+rejectIpv6+", other="+rejectOther+", native="+rejectNative+", reply="+rejectReply+"); bind attempts="+bindAttempts+"\n"+b+"Two HTTP flows per peer plus five fixed UDP DNS probes per exit; no credentials, redirects or system DNS changes.";
             if(settled||failed||now>=reportAt){report(last);reportAt=now+1000L;}
-            if(settled){finish("PASS — concurrent scoped HTTP responses verified");return;}
-            if(failed){finish("NOT PASSED — TCP probe failed");return;}
+            if(settled){finish("PASS — concurrent scoped HTTP and UDP transactions verified");return;}
+            if(failed){finish("NOT PASSED — TCP or UDP probe failed");return;}
             handler.postDelayed(tick,tun==null?250L:10L);
         }catch(Exception|LinkageError failure){finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
     }
@@ -342,6 +431,7 @@ public final class RootlessNativePeerService extends VpnService {
         handler.removeCallbacks(tick);boolean ok=true;
         // Close bound probe sockets first. They cannot fall back after TUN removal.
         for(int i=0;i<sockets.length;i++)if(sockets[i]!=null){try{sockets[i].close();}catch(Exception failure){ok=false;}sockets[i]=null;}
+        for(int i=0;i<2;i++)if(udpSockets[i]!=null){udpSockets[i].close();udpSockets[i]=null;}
         if(tun!=null){try{tun.close();}catch(Exception failure){ok=false;}tun=null;}
         for(int i=handles.length-1;i>=0;i--)if(handles[i]>0){
             try{if(!RootlessNativeBridge.closeSession(handles[i]))ok=false;}catch(RuntimeException|LinkageError failure){ok=false;}
