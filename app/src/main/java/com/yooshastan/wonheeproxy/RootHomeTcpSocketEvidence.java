@@ -16,9 +16,9 @@ final class RootHomeTcpSocketEvidence {
     private static final Pattern TARGET = Pattern.compile(
             "(?<![0-9.])10\\.0\\.0\\.169(?:%[a-zA-Z0-9_]+)?:4533(?![0-9])");
     private static final Pattern UID = Pattern.compile(
-            "(?:^|\\s)uid[:=]([0-9]{1,7})(?:\\s|$)");
+            "(?:^|\\s)uid[:=]([0-9]{1,7})(?=\\s|$)");
     private static final Pattern MARK = Pattern.compile(
-            "(?:^|\\s)(?:fwmark|mark)[:=](0x[0-9a-fA-F]{1,8}|[0-9]{1,10})(?:\\s|$)");
+            "(?:^|\\s)(?:fwmark|mark)[:=](0x[0-9a-fA-F]{1,8}|[0-9]{1,10})(?=\\s|$)");
     private static final Pattern STATE = Pattern.compile(
             "^(?:ESTAB|SYN-SENT|SYN-RECV|FIN-WAIT-1|FIN-WAIT-2|TIME-WAIT|"
                     + "CLOSE-WAIT|LAST-ACK|LISTEN|CLOSING|CLOSE|UNKNOWN)$");
@@ -57,11 +57,14 @@ final class RootHomeTcpSocketEvidence {
         List<String> matches = new ArrayList<>();
         int matched = 0;
         for (String raw : inventory.split("\\r?\\n")) {
-            if (!TARGET.matcher(raw).find()) continue;
-            matched++;
-            if (matches.size() >= 12) continue;
             String line = raw.trim().replaceAll("\\s+", " ");
             String[] tokens = line.split(" ");
+            // ss -tnpe: state recv-q send-q local-address peer-address metadata.
+            // Do not mistake the LOCAL endpoint or unrelated metadata for
+            // an actual outgoing Navidrome connection.
+            if (tokens.length < 5 || !TARGET.matcher(tokens[4]).matches()) continue;
+            matched++;
+            if (matches.size() >= 12) continue;
             String state = tokens.length > 0 && STATE.matcher(tokens[0]).matches()
                     ? tokens[0] : "STATE_UNVERIFIED";
             matches.add(uidLabel(line, mokaUid, braveUid) + " " + state
