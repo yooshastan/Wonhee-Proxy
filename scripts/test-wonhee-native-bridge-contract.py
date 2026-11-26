@@ -59,7 +59,9 @@ assert 'RootlessNativeBridge.injectPacket(handle' in tun_service
 assert 'No DNS, default route or root mutation' in tun_service
 assert 'addRoute("0.0.0.0"' not in tun_service and 'addRoute("::"' not in tun_service
 assert 'addDnsServer' not in tun_service
-assert 'RootlessNativeTunPumpActivity' in manifest\nassert 'Native TUN packet pump test' in rootlab\nassert 'RootlessNativeTransportActivity' not in rootlab
+assert 'RootlessNativeTunPumpActivity' in manifest
+assert 'Native TUN packet pump test' in rootlab
+assert 'RootlessNativeTransportActivity' not in rootlab
 assert 'RootlessNativeTunPumpService' in manifest
 assert 'Target.HOME' in router
 assert 'Target.INTERNET' in router
