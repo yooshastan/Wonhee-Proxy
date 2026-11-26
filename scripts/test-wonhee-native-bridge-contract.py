@@ -16,7 +16,7 @@ assert 'CallBooleanMethod(env, g_service, method, (jint)fd)' in bridge
 assert 'wn_protect_socket(C.int(fd)) == 1' in go
 assert 'dualwg.NewProtectedSession' in go and 'session.Start()' in go
 config = (root / "native/smoke_config.go").read_text()
-assert 'dualwg.NewEphemeralSmokeConfig()' in go
+assert 'dualwg.NewEphemeralSmokeConfigForAllowedIP' in go
 assert 'crypto/ecdh' in config and 'private_key=%x' in config and 'public_key=%x' in config
 assert 'endpoint=' not in config and 'encoding/base64' not in go
 assert 'C.int64_t' in go and 'return -4' in go and 'return -5' in go
