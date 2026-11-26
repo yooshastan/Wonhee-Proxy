@@ -31,11 +31,14 @@ public final class RootlessNativeTransportService extends VpnService {
     private long homeHandle;
     private long internetHandle;
     private boolean registered;
+    private boolean terminalReportPreserved;
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(action)) {
             stopTest();
+            report("STOPPED — native sessions closed; protected UDP sockets released.");
+            terminalReportPreserved = true;
             stopSelf(startId);
             return START_NOT_STICKY;
         }
@@ -128,6 +131,7 @@ public final class RootlessNativeTransportService extends VpnService {
     private void fail(String message) {
         stopTest();
         report("NOT PASSED — " + message);
+        terminalReportPreserved = true;
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
@@ -154,17 +158,20 @@ public final class RootlessNativeTransportService extends VpnService {
             tun = null;
         }
         stopForeground(STOP_FOREGROUND_REMOVE);
-        report("STOPPED — native sessions closed; protected UDP sockets released.");
     }
 
     @Override public void onRevoke() {
         stopTest();
         report("STOPPED — Android revoked VPN permission.");
+        terminalReportPreserved = true;
         stopSelf();
     }
 
     @Override public void onDestroy() {
         stopTest();
+        if (!terminalReportPreserved) {
+            report("STOPPED — service ended; no application routes were installed.");
+        }
         super.onDestroy();
     }
 }
