@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -18,6 +19,7 @@ public final class RootlessNativePeerActivity extends Activity {
     private TextView slots,status;
     private CheckBox home;
     private boolean requestedHome;
+    private final EditText[] overrides=new EditText[3];
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         if(state!=null) requestedHome=state.getBoolean("requestedHome");
@@ -26,16 +28,21 @@ public final class RootlessNativePeerActivity extends Activity {
         int pad=(int)(16*getResources().getDisplayMetrics().density);
         root.setPadding(pad,pad,pad,pad);
         TextView title=new TextView(this);
-        title.setText("Wonhee 0.15.85 · Live peer handshake lab");
+        title.setText("Wonhee 0.15.86 · Live peer handshake lab");
         title.setTextSize(22);root.addView(title);
         TextView info=new TextView(this);
-        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Numeric IPv4/IPv6 endpoints only. Test uses temporary local listen ports and 5-second encrypted keepalives, not application data. No TUN, DNS, routes, or payload forwarding. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
+        info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Hostname profiles can be saved without DNS. For a hostname endpoint, enter its provider-confirmed numeric IP in the corresponding optional override box. Original port and encrypted configuration stay unchanged. Test uses temporary local listen ports and 5-second encrypted keepalives, not application data. No TUN, DNS, routes, or payload forwarding. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
         root.addView(info);
         slots=new TextView(this);root.addView(slots);
         for(int i=0;i<3;i++) {
             final int slot=i;
             Button b=new Button(this);b.setText("Import "+NativePeerProfiles.SLOTS[i]);
             b.setOnClickListener(v->pick(slot));root.addView(b);
+            EditText ip=new EditText(this);
+            ip.setSingleLine(true);
+            ip.setSaveEnabled(false);
+            ip.setHint("Numeric IP override for hostname only");
+            overrides[i]=ip;root.addView(ip);
         }
         home=new CheckBox(this);home.setText("Include Home (third peer)");home.setChecked(true);root.addView(home);
         status=new TextView(this);status.setPadding(0,pad,0,pad);root.addView(status);
@@ -62,8 +69,13 @@ public final class RootlessNativePeerActivity extends Activity {
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
         startActivityForResult(i,IMPORT+slot);
     }
+    private String[] endpointOverrides() {
+        String[] values=new String[3];
+        for(int i=0;i<3;i++) values[i]=overrides[i].getText().toString().trim();
+        return values;
+    }
     private void launch() {
-        Intent i=new Intent(this,RootlessNativePeerService.class).setAction(RootlessNativePeerService.START).putExtra("home",requestedHome);
+        Intent i=new Intent(this,RootlessNativePeerService.class).setAction(RootlessNativePeerService.START).putExtra("home",requestedHome).putExtra("overrides",endpointOverrides());
         startForegroundService(i);status.setText("Starting peer validation…");
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
@@ -81,7 +93,7 @@ public final class RootlessNativePeerActivity extends Activity {
     }
     private boolean checkProfiles() {
         try {
-            String[] validated=NativePeerProfiles.prepare(this,home.isChecked());
+            String[] validated=NativePeerProfiles.prepare(this,home.isChecked(),endpointOverrides());
             java.util.Arrays.fill(validated,null);
             status.setText("PROFILE CHECK PASSED — selected profiles present and distinct. No network started.");
             return true;

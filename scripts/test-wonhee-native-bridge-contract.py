@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(139)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native085'" in gradle
-assert "versionName.set('0.15.85-native-peer-profile-audit')" in gradle
+assert 'versionCode.set(140)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native086'" in gradle
+assert "versionName.set('0.15.86-native-provider-import')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -87,3 +87,8 @@ assert 'NATIVE_PROFILE_REJECTED' in profiles and 'ENCRYPTED_STORE_UNAVAILABLE' i
 assert 'failure.code' in live
 activity = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativePeerActivity.java").read_text()
 assert 'Check selected profiles (no network)' in activity and 'if(!checkProfiles()) return;' in activity
+
+assert 'PeerProfileStatus' in go and 'nativeValidatePeerProfile' in bridge
+assert 'HOSTNAME_REQUIRES_NUMERIC_IP' in profiles and 'applyOverride' in profiles
+assert 'getStringArrayExtra("overrides")' in live
+assert 'getAllByName' not in profiles and 'getByName' not in profiles

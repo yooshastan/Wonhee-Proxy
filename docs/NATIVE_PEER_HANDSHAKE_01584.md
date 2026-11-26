@@ -8,3 +8,6 @@ Do not use simultaneously with existing root or Android VPN connections. Reimpor
 
 ## 0.15.85 profile audit
 Device returned profile-validation/IllegalArgumentException before any native session. Exact cause unknown. Add fixed per-slot reason codes, encrypted-store error code, duplicate identity slot pair, and offline preflight button. No key, endpoint, or raw exception messages are printed. Duplicate identity remains refused. New debug package suffix native085; original release unchanged.
+
+## 0.15.86 provider import
+Home saves on device; both AirVPN profiles report generic native rejection. Exact rejected field is unknown. Return fixed reason codes for format, key, identity, allowed IP, port, PSK and endpoint failures. Recognize valid hostname profiles and save them locally, but never emit hostname IPC or perform DNS. Explicit temporary numeric IP override for hostname only preserves port and keys and is validated by Go before any session starts. Original config remains encrypted and unchanged. Provider-style synthetic IPv4/IPv6 and hostname regression cases added. No production routing.

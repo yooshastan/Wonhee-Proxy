@@ -26,3 +26,29 @@ func TestPeerHandshakeConfig(t *testing.T) {
  strings.Replace(input,enc(a.Bytes()),"bad",1),
  } {if _,e:=PeerHandshakeConfig(bad);e==nil {t.Fatal("unsafe config accepted")}}
 }
+
+func TestPeerProfileReasonCodes(t *testing.T) {
+ a,_:=ecdh.X25519().GenerateKey(rand.Reader)
+ b,_:=ecdh.X25519().GenerateKey(rand.Reader)
+ enc:=base64.StdEncoding.EncodeToString
+ psk:=enc(make([]byte,32))
+ input:="[Interface]\nPrivateKey = "+enc(a.Bytes())+"\n[Peer]\nPublicKey = "+enc(b.PublicKey().Bytes())+"\nPresharedKey = "+psk+"\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = 192.0.2.1:1637\nPersistentKeepalive = 15\n"
+ for _,v:=range []struct{from,to string;code PeerProfileError}{
+ {"192.0.2.1:1637","[2001:db8::1]:1637",PeerProfileOK},
+ {"192.0.2.1:1637","us.example.test:1637",PeerProfileHostname},
+ {"192.0.2.1:1637","[::ffff:127.0.0.1]:1637",PeerProfileEndpoint},
+ {"192.0.2.1:1637","192.0.2.1:0",PeerProfileEndpoint},
+ {"192.0.2.1:1637","bad host:1637",PeerProfileEndpoint},
+ {"192.0.2.1:1637","999.999.999.999:1637",PeerProfileEndpoint},
+ {"0.0.0.0/0, ::/0","invalid",PeerProfileAllowedIPs},
+ {"PersistentKeepalive = 15","PersistentKeepalive = 65536",PeerProfilePortOrKeepalive},
+ {"PresharedKey = "+psk,"PresharedKey = invalid",PeerProfilePresharedKey},
+ {"PrivateKey = "+enc(a.Bytes()),"PrivateKey = invalid",PeerProfilePrivateKey},
+ {"PublicKey = "+enc(b.PublicKey().Bytes()),"PublicKey = invalid",PeerProfilePublicKey},
+ } {
+  modified:=strings.Replace(input,v.from,v.to,1)
+  if got:=PeerProfileStatus(modified);got!=v.code {t.Fatalf("expected code %d got %d",v.code,got)}
+  if v.code!=PeerProfileOK {if ipc,err:=PeerHandshakeConfig(modified);err==nil || ipc!="" {t.Fatal("rejected input emitted IPC")}}
+ }
+ if PeerProfileStatus(input)!=PeerProfileOK {t.Fatal("numeric provider-style profile rejected")}
+}

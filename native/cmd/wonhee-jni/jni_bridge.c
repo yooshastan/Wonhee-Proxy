@@ -184,16 +184,16 @@ Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeProtectionStats(
     return result;
 }
 
-JNIEXPORT jboolean JNICALL
+JNIEXPORT jint JNICALL
 Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeValidatePeerProfile(
  JNIEnv *env, jclass type, jstring config) {
  (void)type;
- if (config==NULL) return JNI_FALSE;
+ if (config==NULL) return 2;
  const char *value=(*env)->GetStringUTFChars(env,config,NULL);
- if (value==NULL) return JNI_FALSE;
+ if (value==NULL) return 2;
  int result=WNValidatePeerProfile((char *)value);
  (*env)->ReleaseStringUTFChars(env,config,value);
- return result?JNI_TRUE:JNI_FALSE;
+ return (jint)result;
 }
 JNIEXPORT jlong JNICALL
 Java_com_yooshastan_wonheeproxy_RootlessNativeBridge_nativeCreatePeerSession(

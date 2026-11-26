@@ -48,7 +48,7 @@ public final class RootlessNativePeerService extends VpnService {
             underlay=physicalNetwork();
             if(underlay==null) throw new IllegalStateException();
             stage="profile-validation";
-            String[] configs=NativePeerProfiles.prepare(this,intent.getBooleanExtra("home",true));
+            String[] configs=NativePeerProfiles.prepare(this,intent.getBooleanExtra("home",true),intent.getStringArrayExtra("overrides"));
             count=configs.length;
             stage="callback-registration";
             if(!RootlessNativeBridge.setVpnService(this)) throw new IllegalStateException();

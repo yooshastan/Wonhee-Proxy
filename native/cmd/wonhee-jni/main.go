@@ -130,9 +130,8 @@ func WNCloseSession(handle C.uint64_t) C.int {
 
 //export WNValidatePeerProfile
 func WNValidatePeerProfile(config *C.char) C.int {
- if config==nil {return 0}
- if _,e:=dualwg.PeerHandshakeConfig(C.GoString(config));e!=nil {return 0}
- return 1
+ if config==nil {return C.int(dualwg.PeerProfileFormat)}
+ return C.int(dualwg.PeerProfileStatus(C.GoString(config)))
 }
 
 //export WNCreatePeerSession

@@ -38,16 +38,11 @@ final class NativePeerProfiles {
             return Config.parse(new ByteArrayInputStream(data));
         } finally { Arrays.fill(buffer,(byte)0); if(data!=null) Arrays.fill(data,(byte)0); }
     }
-    static String canonical(Config c) {
-        String stripped=RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(c.toWgQuickString());
-        if(!RootlessNativeBridge.validatePeerProfile(stripped)) throw new IllegalArgumentException();
-        return stripped;
-    }
     static void save(Context context,int slot,InputStream stream) throws Exception {
         Config c;
         try { c=parse(stream); }
         catch(Exception failure) { throw reject(slot,"PARSE_OR_SIZE_REJECTED"); }
-        checkedCanonical(c,slot);
+        checkedCanonical(c,slot,true);
         try { new SecureTunnelProfileStore(context).save(new SecureTunnelProfileStore.Profile(SLOTS[slot],c.toWgQuickString())); }
         catch(Exception failure) { throw reject(slot,"ENCRYPTED_SAVE_FAILED"); }
     }
@@ -57,16 +52,55 @@ final class NativePeerProfiles {
             for(int i=0;i<3;i++) if(SLOTS[i].equals(p.name)) slots[i]=p;
         return slots;
     }
-    private static String checkedCanonical(Config c,int slot) {
+    private static String checkedCanonical(Config c,int slot,boolean allowHostname) {
         if(c.getPeers().size()!=1) throw reject(slot,"REQUIRES_ONE_PEER");
         String stripped;
         try { stripped=RootIsolatedWireGuardSetconfCodec.stripCanonicalQuick(c.toWgQuickString()); }
         catch(IllegalArgumentException failure) { throw reject(slot,"CANONICAL_FIELDS_REJECTED"); }
         if(!RootlessNativeBridge.available()) throw reject(slot,"NATIVE_LIBRARY_UNAVAILABLE");
-        if(!RootlessNativeBridge.validatePeerProfile(stripped)) throw reject(slot,"NATIVE_PROFILE_REJECTED");
+        int code=RootlessNativeBridge.validatePeerProfile(stripped);
+        if(code!=1 && !(allowHostname && code==9)) throw reject(slot,nativeReason(code));
         return stripped;
     }
-    static String[] prepare(Context context,boolean home) throws Exception {
+    static String nativeReason(int code) {
+        switch(code) {
+            case 2: return "NATIVE_FORMAT_REJECTED";
+            case 3: return "PRIVATE_KEY_FORMAT_REJECTED";
+            case 4: return "PUBLIC_KEY_FORMAT_REJECTED";
+            case 5: return "SELF_PEER_IDENTITY_REJECTED";
+            case 6: return "ALLOWED_IPS_REJECTED";
+            case 7: return "PORT_OR_KEEPALIVE_REJECTED";
+            case 8: return "PRESHARED_KEY_FORMAT_REJECTED";
+            case 9: return "HOSTNAME_REQUIRES_NUMERIC_IP";
+            case 10: return "ENDPOINT_ADDRESS_OR_PORT_REJECTED";
+            default: return "NATIVE_PROFILE_REJECTED";
+        }
+    }
+    // Explicit, temporary numeric override applies only to hostname endpoints.
+    // Original port and all peer keys remain unchanged; never resolve via DNS.
+    private static String applyOverride(String canonical,String override,int slot) {
+        int code=RootlessNativeBridge.validatePeerProfile(canonical);
+        if(code==1) return canonical;
+        if(code!=9) throw reject(slot,nativeReason(code));
+        String ip=override==null?"":override.trim();
+        if(ip.isEmpty()) throw reject(slot,"HOSTNAME_REQUIRES_NUMERIC_IP");
+        if(ip.length()>64 || !ip.matches("[0-9a-fA-F:.]+") || (!ip.contains(".") && !ip.contains(":")))
+            throw reject(slot,"NUMERIC_OVERRIDE_REJECTED");
+        String[] lines=canonical.split("\\n",-1);
+        int found=0;
+        for(int i=0;i<lines.length;i++) if(lines[i].startsWith("Endpoint = ")) {
+            String original=lines[i].substring("Endpoint = ".length());
+            int colon=original.lastIndexOf(':');
+            if(colon<1) throw reject(slot,"ENDPOINT_ADDRESS_OR_PORT_REJECTED");
+            lines[i]="Endpoint = "+(ip.contains(":")?"["+ip+"]":ip)+original.substring(colon);
+            found++;
+        }
+        String result=String.join("\n",lines);
+        if(found!=1 || RootlessNativeBridge.validatePeerProfile(result)!=1)
+            throw reject(slot,"NUMERIC_OVERRIDE_REJECTED");
+        return result;
+    }
+    static String[] prepare(Context context,boolean home,String[] overrides) throws Exception {
         SecureTunnelProfileStore.Profile[] slots;
         try { slots=load(context); }
         catch(Exception failure) { throw new Rejected("ENCRYPTED_STORE_UNAVAILABLE"); }
@@ -80,7 +114,7 @@ final class NativePeerProfiles {
             try { c=parse(new ByteArrayInputStream(data)); }
             catch(Exception failure) { throw reject(i,"STORED_PROFILE_PARSE_REJECTED"); }
             finally {Arrays.fill(data,(byte)0);}
-            configs[i]=checkedCanonical(c,i);
+            configs[i]=applyOverride(checkedCanonical(c,i,true),overrides!=null&&i<overrides.length?overrides[i]:null,i);
             String pair=c.getInterface().getKeyPair().getPublicKey().toBase64()+":"
                     +c.getPeers().get(0).getPublicKey().toBase64();
             Integer prior=pairs.putIfAbsent(pair,i);
