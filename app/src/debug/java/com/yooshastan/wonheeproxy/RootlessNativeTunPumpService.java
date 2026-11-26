@@ -270,12 +270,15 @@ public final class RootlessNativeTunPumpService extends VpnService {
                         new byte[] {(byte) 198, 18, 1, 10});
                 InetAddress internet = InetAddress.getByAddress(
                         new byte[] {(byte) 198, 18, 2, 10});
-                for (int i = 0; i < EXPECTED_PER_ROUTE; i++) {
+                for (int i = 0; i < EXPECTED_PER_ROUTE && running.get(); i++) {
                     socket.send(new DatagramPacket(payload, payload.length, home, TEST_PORT));
+                    if (!running.get()) break;
                     socket.send(new DatagramPacket(payload, payload.length, internet, TEST_PORT));
                 }
             } catch (Exception failure) {
-                report("PROBE SEND FAILED — " + failure.getClass().getSimpleName());
+                if (running.get()) {
+                    report("PROBE SEND FAILED — " + failure.getClass().getSimpleName());
+                }
                 probeRunning.set(false);
                 return;
             }
@@ -362,6 +365,12 @@ public final class RootlessNativeTunPumpService extends VpnService {
 
     private void stopTest() {
         running.set(false);
+        if (probeThread != null && probeThread != Thread.currentThread()) {
+            probeThread.interrupt();
+            try { probeThread.join(500L); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            probeThread = null;
+        }
         if (tun != null) {
             try { tun.close(); } catch (IOException failure) {
                 Log.e(TAG, "TUN close failed", failure);
@@ -378,11 +387,6 @@ public final class RootlessNativeTunPumpService extends VpnService {
             try { pumpThread.join(500L); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             pumpThread = null;
-        }
-        if (probeThread != null && probeThread != Thread.currentThread()) {
-            try { probeThread.join(500L); }
-            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
-            probeThread = null;
         }
         if (internetHandle != 0L) {
             RootlessNativeBridge.closeSession(internetHandle);
