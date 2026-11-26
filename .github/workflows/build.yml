@@ -56,6 +56,13 @@ jobs:
             app/src/main/java/com/yooshastan/wonheeproxy/RootTransportGuardPlan.java \
             core-tests/RootTransportGuardPlanTest.java
           java -cp /tmp/wonhee-transport com.yooshastan.wonheeproxy.RootTransportGuardPlanTest
+      - name: Verify transport ownership and rollback lifecycle
+        run: |
+          mkdir -p /tmp/wonhee-transport-lifecycle
+          javac -d /tmp/wonhee-transport-lifecycle \
+            app/src/main/java/com/yooshastan/wonheeproxy/RootTransportGuardLifecycle.java \
+            core-tests/RootTransportGuardLifecycleTest.java
+          java -cp /tmp/wonhee-transport-lifecycle com.yooshastan.wonheeproxy.RootTransportGuardLifecycleTest
       - name: Run standalone proxy core tests
         run: |
           mkdir -p /tmp/wonhee-classes
