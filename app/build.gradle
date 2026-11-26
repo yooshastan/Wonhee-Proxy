@@ -77,6 +77,6 @@ tasks.register('buildWonheeNativeAndroidArm64', Exec) {
     outputs.file(layout.buildDirectory.file('generated/wonheeNativeJniLibs/arm64-v8a/libwonhee_native.so'))
     commandLine 'bash', "$rootDir/scripts/build-wonhee-native-android.sh", wonheeNativeOutput.get().asFile.absolutePath
 }
-tasks.named('preDebugBuild').configure {
+tasks.matching { it.name == 'mergeDebugJniLibFolders' }.configureEach {
     dependsOn tasks.named('buildWonheeNativeAndroidArm64')
 }

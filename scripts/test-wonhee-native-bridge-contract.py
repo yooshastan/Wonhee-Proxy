@@ -22,5 +22,5 @@ assert 'RootlessNativeTransportService' in manifest
 assert 'tools:node="remove"' in manifest
 assert 'versionCode.set(133)' in gradle
 assert "versionName.set('0.15.79-native-socket-protection')" in gradle
-assert "preDebugBuild" in gradle and "buildWonheeNativeAndroidArm64" in gradle
+assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 print("Wonhee native Android bridge contract passed")

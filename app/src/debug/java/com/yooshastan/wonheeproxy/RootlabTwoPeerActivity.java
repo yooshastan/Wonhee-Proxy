@@ -55,7 +55,7 @@ public final class RootlabTwoPeerActivity extends Activity {
         int pad = dp(16);
         layout.setPadding(pad, pad, pad, pad);
 
-        TextView heading = text("Wonhee 0.15.76 · Brave Nightly Home Pilot", 21, true);
+        TextView heading = text("Wonhee 0.15.79 · Multi-Exit Home Lab", 21, true);
         layout.addView(heading);
         TextView warning = text(
                 "FUNCTIONAL KERNEL-LINK TEST — NOT A VPN KILL SWITCH\n"
@@ -390,7 +390,7 @@ public final class RootlabTwoPeerActivity extends Activity {
                     getSystemService(Context.CLIPBOARD_SERVICE);
             if (clipboard != null) {
                 clipboard.setPrimaryClip(ClipData.newPlainText(
-                        "Wonhee 0.15.62 Multi-Link Lab",
+                        "Wonhee 0.15.79 Multi-Link Lab",
                         report + "\n\n" + session.diagnostics()));
             }
         });

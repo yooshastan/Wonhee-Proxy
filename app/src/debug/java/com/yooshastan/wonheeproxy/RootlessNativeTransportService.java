@@ -154,6 +154,7 @@ public final class RootlessNativeTransportService extends VpnService {
             tun = null;
         }
         stopForeground(STOP_FOREGROUND_REMOVE);
+        report("STOPPED — native sessions closed; protected UDP sockets released.");
     }
 
     @Override public void onRevoke() {

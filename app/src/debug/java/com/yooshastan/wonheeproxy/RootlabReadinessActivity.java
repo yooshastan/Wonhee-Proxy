@@ -42,7 +42,7 @@ public final class RootlabReadinessActivity extends Activity {
         column.setPadding(pad, pad, pad, pad);
 
         TextView header = new TextView(this);
-        header.setText("Wonhee 0.15.62 · Multi-Exit Readiness");
+        header.setText("Wonhee 0.15.79 · Multi-Exit Readiness");
         header.setTextSize(20f);
         header.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         column.addView(header);
@@ -104,7 +104,7 @@ public final class RootlabReadinessActivity extends Activity {
 
     private String inspectDevice() {
         StringBuilder result = new StringBuilder();
-        result.append("Wonhee 0.15.62 RootLab · read-only capability report\n");
+        result.append("Wonhee 0.15.79 RootLab · read-only capability report\n");
         result.append("Build package: ").append(getPackageName()).append('\n');
         result.append("Private DNS (Android): ");
         try {
