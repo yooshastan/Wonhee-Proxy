@@ -95,8 +95,8 @@ public final class RootlabTwoPeerActivity extends Activity {
                         .setPositiveButton("Remove Home", (dialog, which) ->
                                 execute("Remove optional Home", session::removeHomeProfile))
                         .show());
-        action(layout, "Native rootless protected-socket test", () ->
-                startActivity(new Intent(this, RootlessNativeTransportActivity.class)));
+        action(layout, "Native TUN packet pump test", () ->
+                startActivity(new Intent(this, RootlessNativeTunPumpActivity.class)));
         action(layout, "Check selected profiles (no root changes)", () ->
                 execute("Two-exit/Home profile compatibility", session::profileReadiness));
         startButton = action(layout, "Start 2 exits + optional Home", this::confirmStart);
