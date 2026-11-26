@@ -243,12 +243,13 @@ public final class RootlessNativeTunPumpService extends VpnService {
                     internetQueued.incrementAndGet();
                 }
             }
-        } catch (IOException failure) {
+        } catch (Exception | LinkageError failure) {
             if (running.get()) {
-                Log.e(TAG, "TUN read failed", failure);
+                Log.e(TAG, "TUN packet pump failed", failure);
                 running.set(false);
                 terminalReportPreserved = true;
-                report("NOT PASSED — TUN packet reader stopped unexpectedly; releasing the TUN.");
+                report("NOT PASSED — TUN packet pump failed ("
+                        + failure.getClass().getSimpleName() + "); releasing the TUN.");
                 stopSelf();
             }
         } finally {
