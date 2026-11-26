@@ -5,6 +5,8 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -90,11 +92,19 @@ public final class RootlessNativeTunPumpActivity extends Activity {
     }
 
     private void startTestService() {
-        Intent intent = new Intent(this, RootlessNativeTunPumpService.class)
-                .setAction(RootlessNativeTunPumpService.ACTION_START);
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
-        else startService(intent);
-        status.setText("Starting isolated TUN packet pump…");
+        // Release the preceding socket-only diagnostic first. It may still
+        // own two inactive sessions even though it never established a TUN.
+        Intent release = new Intent(this, RootlessNativeTransportService.class)
+                .setAction(RootlessNativeTransportService.ACTION_STOP);
+        startService(release);
+        status.setText("Releasing previous socket test before starting TUN…");
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Intent intent = new Intent(this, RootlessNativeTunPumpService.class)
+                    .setAction(RootlessNativeTunPumpService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
+            else startService(intent);
+            status.setText("Starting isolated TUN packet pump…");
+        }, 400L);
     }
 
     private void sendProbes() {
