@@ -67,6 +67,8 @@ public final class RootlessNativePeerService extends VpnService {
             stage="peer-handshakes";
             report("RUNNING — "+count+" independent peers; waiting for authenticated handshakes. No app routes.");
             handler.post(poll);
+        } catch(NativePeerProfiles.Rejected failure) {
+            finish("NOT PASSED — "+stage+"/"+failure.code);
         } catch(Exception|LinkageError failure) {finish("NOT PASSED — "+stage+" ("+failure.getClass().getSimpleName()+")");}
         return START_NOT_STICKY;
     }

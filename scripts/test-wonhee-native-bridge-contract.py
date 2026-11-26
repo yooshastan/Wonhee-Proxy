@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 1
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(138)' in gradle
-assert "applicationIdSuffix '.rootlab01562triple1native084'" in gradle
-assert "versionName.set('0.15.84-native-peer-handshake')" in gradle
+assert 'versionCode.set(139)' in gradle
+assert "applicationIdSuffix '.rootlab01562triple1native085'" in gradle
+assert "versionName.set('0.15.85-native-peer-profile-audit')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -81,3 +81,9 @@ assert 'RootlessNativeTunPumpService' not in manifest
 assert '.establish()' not in live and '.addRoute(' not in live and 'injectPacket(' not in live
 assert 'SecureTunnelProfileStore' in profiles and 'validatePeerProfile' in profiles
 assert 'p[0]!=2L*count' in live and 's[0]>0&&s[1]>0&&s[2]>0' in live
+
+assert 'PROFILE_MISSING' in profiles and 'DUPLICATE_PEER_IDENTITY_WITH_' in profiles
+assert 'NATIVE_PROFILE_REJECTED' in profiles and 'ENCRYPTED_STORE_UNAVAILABLE' in profiles
+assert 'failure.code' in live
+activity = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/RootlessNativePeerActivity.java").read_text()
+assert 'Check selected profiles (no network)' in activity and 'if(!checkProfiles()) return;' in activity

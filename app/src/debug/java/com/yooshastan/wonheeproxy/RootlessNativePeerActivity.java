@@ -26,7 +26,7 @@ public final class RootlessNativePeerActivity extends Activity {
         int pad=(int)(16*getResources().getDisplayMetrics().density);
         root.setPadding(pad,pad,pad,pad);
         TextView title=new TextView(this);
-        title.setText("Wonhee 0.15.84 · Live peer handshake lab");
+        title.setText("Wonhee 0.15.85 · Live peer handshake lab");
         title.setTextSize(22);root.addView(title);
         TextView info=new TextView(this);
         info.setText("Import two independent exit profiles and optionally Home. Profiles stay encrypted locally. Numeric IPv4/IPv6 endpoints only. Test uses temporary local listen ports and 5-second encrypted keepalives, not application data. No TUN, DNS, routes, or payload forwarding. Stop earlier tests and root tunnels using Exact-owned Safe Stop, disconnect other VPNs, and keep Private DNS OFF.");
@@ -39,8 +39,11 @@ public final class RootlessNativePeerActivity extends Activity {
         }
         home=new CheckBox(this);home.setText("Include Home (third peer)");home.setChecked(true);root.addView(home);
         status=new TextView(this);status.setPadding(0,pad,0,pad);root.addView(status);
+        Button check=new Button(this);check.setText("Check selected profiles (no network)");
+        check.setOnClickListener(v->checkProfiles());root.addView(check);
         Button start=new Button(this);start.setText("Start live peer test (90 seconds)");
         start.setOnClickListener(v->{
+            if(!checkProfiles()) return;
             requestedHome=home.isChecked();
             Intent permission=VpnService.prepare(this);
             if(permission!=null) startActivityForResult(permission,VPN);else launch();
@@ -71,8 +74,21 @@ public final class RootlessNativePeerActivity extends Activity {
             try(InputStream in=getContentResolver().openInputStream(data.getData())) {
                 NativePeerProfiles.save(this,request-IMPORT,in);refresh();
                 status.setText("Encrypted import accepted. Press Start to test all selected peers.");
-            } catch(Exception|LinkageError rejected) {status.setText("Import refused. Use a single-peer WireGuard config with numeric endpoint and valid keys. Previous stored profile retained.");}
+            } catch(NativePeerProfiles.Rejected rejected) {
+                status.setText("Import refused: "+rejected.code+". Previous stored profile retained.");
+            } catch(Exception|LinkageError rejected) {status.setText("Import refused: file unavailable or native bridge error. Previous stored profile retained.");}
         }
+    }
+    private boolean checkProfiles() {
+        try {
+            String[] validated=NativePeerProfiles.prepare(this,home.isChecked());
+            java.util.Arrays.fill(validated,null);
+            status.setText("PROFILE CHECK PASSED — selected profiles present and distinct. No network started.");
+            return true;
+        } catch(NativePeerProfiles.Rejected rejected) {
+            status.setText("PROFILE CHECK FAILED — "+rejected.code);
+        } catch(Exception|LinkageError rejected) {status.setText("PROFILE CHECK FAILED — internal validation unavailable.");}
+        return false;
     }
     private void refresh() {
         try {
