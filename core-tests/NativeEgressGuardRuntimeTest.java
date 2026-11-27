@@ -57,6 +57,11 @@ public final class NativeEgressGuardRuntimeTest {
   reject(()->runtime.installStrict(strictDiscovery));check(fake.mutations.size()==before);
   check(runtime.offlineState(strict).equals("Absent"));
   runtime.installStrict(strict);runtime.verify(strict);
+  String strictCounters=runtime.counters(strict);
+  String[] strictFamilies=strictCounters.split(" · ");
+  check(strictFamilies[0].contains("terminal DROP packets="+strict.rules(4).size()+"]"));
+  check(strictFamilies[1].contains("terminal DROP packets="+strict.rules(6).size()+"]"));
+  check(!counters.contains("terminal DROP packets="));
   for(int f:new int[]{4,6}){
    List<String> sr=strict.rules(f);check(sr.get(sr.size()-1).endsWith("-j DROP"));
    check(sr.stream().noneMatch(x->x.endsWith("-j ACCEPT")));
