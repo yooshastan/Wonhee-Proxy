@@ -41,7 +41,8 @@ final class NativeEndpointBootstrap {
         return "VALIDATION";
     }
     private Socket active;
-    private final long deadline=SystemClock.elapsedRealtime()+45000L;
+    private final long deadline=SystemClock.elapsedRealtime()+NativeRoutingSafety.BOOTSTRAP_BUDGET_MS;
+    private int retries;
     private static final class Cache {
         final String ip;final long expiry;
         Cache(String ip,long expiry){this.ip=ip;this.expiry=expiry;}
@@ -50,7 +51,7 @@ final class NativeEndpointBootstrap {
     NativeEndpointBootstrap(VpnService service,Network network,int option){if(!validOption(option))throw new IllegalArgumentException();this.service=service;this.network=network;tlsHost=HOSTS[option/2];resolverIp=IPS[option/2].clone();port=option%2==0?443:853;}
     private int timeout()throws IOException{
         long left=deadline-SystemClock.elapsedRealtime();if(left<=0)throw new IOException();
-        return (int)Math.min(5000L,left);
+        return (int)Math.min(NativeRoutingSafety.BOOTSTRAP_IO_MS,left);
     }
     private synchronized void track(Socket s)throws IOException{
         if(closed){s.close();throw new IOException();}active=s;
@@ -58,7 +59,7 @@ final class NativeEndpointBootstrap {
     synchronized void close(){
         closed=true;if(active!=null)try{active.close();}catch(IOException ignored){}active=null;
     }
-    String summary(){return "BOOTSTRAP — Exit A="+status[0]+"; Exit B="+status[1]+"; Home="+status[2]+"; plaintext fallback=0";}
+    String summary(){return "BOOTSTRAP — Exit A="+status[0]+"; Exit B="+status[1]+"; Home="+status[2]+"; retries="+retries+"; plaintext fallback=0";}
     String resolve(String name,int slot)throws Exception{
         final String host;
         try{host=NativeEndpointDnsMessage.host(name);}
@@ -77,7 +78,20 @@ final class NativeEndpointBootstrap {
         if(answer==null)throw new Failure("TRANSFER_IPV4_MISSING");
         return answer.ip;
     }
+    private synchronized boolean stopped(){return closed;}
     private NativeEndpointDnsMessage.Answer query(String host,int type)throws Exception{
+        for(int attempt=0;;attempt++){
+            try{return queryOnce(host,type);}
+            catch(Failure failure){
+                if(!NativeRoutingSafety.retryBootstrap(failure.code,attempt,deadline-SystemClock.elapsedRealtime(),stopped()||Thread.currentThread().isInterrupted()))throw failure;
+                retries++;
+                android.util.Log.i("WonheeAppRouting","BOOTSTRAP RETRY — same authenticated resolver; "+failure.code);
+                Thread.sleep(200);
+                if(stopped()||Thread.currentThread().isInterrupted())throw new Failure("STOPPED");
+            }
+        }
+    }
+    private NativeEndpointDnsMessage.Answer queryOnce(String host,int type)throws Exception{
         int id=port==443?0:new java.security.SecureRandom().nextInt(65536);
         byte[] q=NativeEndpointDnsMessage.query(host,id,type);
         String stage="socket-create";
