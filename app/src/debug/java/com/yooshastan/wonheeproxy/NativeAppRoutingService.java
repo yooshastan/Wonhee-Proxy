@@ -156,7 +156,8 @@ public final class NativeAppRoutingService extends VpnService {
     }
     private final Map<Long,Long> underlayCooldown=new HashMap<>();
     private String peerEvidence="Not verified";
-    private long validationLosses;
+    private long validationLosses,nextValidationProbe;
+    private boolean validationProbePending;
     private boolean lastAndroidValidated=true;
     private boolean guardedSession(){return egressGuard!=null&&!egressGuard.failed();}
     private boolean eligibleLink(Network n){
@@ -286,6 +287,7 @@ public final class NativeAppRoutingService extends VpnService {
         dnsGeneration++;
     }
     private void createPeers()throws Exception{
+        peerEvidence="Awaiting fresh protected peer handshakes";
         if(stopping||!dnsOff()||!physical(underlay)||sessionConfigs==null)throw new IllegalStateException();
         count=sessionConfigs.length;
         if(!RootlessNativeBridge.setVpnService(this))throw new IllegalStateException();registered=true;
@@ -329,6 +331,7 @@ public final class NativeAppRoutingService extends VpnService {
                 if(recoveryFrom!=null&&!recoveryFrom.equals(next))networkMigrations++;
                 lastRecoveryMs=SystemClock.elapsedRealtime()-recoveryStarted;
                 lastVerifiedUnderlay=physicalLabel(next);lastAndroidValidated=usable(next);migration.reset();
+                validationProbePending=guardedSession()&&!lastAndroidValidated;
                 underlayCooldown.remove(id(next));
                 if(isolationRole>=0&&SystemClock.elapsedRealtime()<isolationUntil)
                     Log.i(TAG,"ISOLATION TEST — retained "+NativePeerProfiles.SLOTS[isolationRole]+" through recovery; original deadline unchanged");
@@ -458,6 +461,7 @@ public final class NativeAppRoutingService extends VpnService {
             stage="dns-relay";
             newRelay();
             lastVerifiedUnderlay=physicalLabel(underlay);lastAndroidValidated=usable(underlay);
+            validationProbePending=guardedSession()&&!lastAndroidValidated;
             stage="forwarding";report("ACTIVE — "+count+" verified peers; "+(allApps?"all-app preview":apps.length+" selected apps")+"; configured "+NativeDnsTransportPolicy.LABELS[dnsMode]+" · "+dnsRouteLabel()+"; hosts="+blocklist.size()+"; IPv6 blocked");
             long nextReport=0,nextHealth=0;
             while(!stopping){
@@ -470,7 +474,7 @@ public final class NativeAppRoutingService extends VpnService {
                     boolean androidValidated=usable(underlay);
                     boolean peerReady=protectedSockets()&&ready();
                     if(androidValidated!=lastAndroidValidated){
-                        if(!androidValidated)validationLosses++;
+                        if(!androidValidated){validationLosses++;validationProbePending=guardedSession();}
                         Log.i(TAG,"UNDERLAY VALIDATION — "+(androidValidated?"Android validated":"Android validation lost")
                             +"; link eligible="+eligibleLink(underlay)+"; recent peer proof="+peerReady);
                         lastAndroidValidated=androidValidated;
@@ -504,6 +508,14 @@ public final class NativeAppRoutingService extends VpnService {
                     retireDns();if(!closePeers())cleanupFailed=true;ledger.entries.clear();
                     if(!recover())throw new IllegalStateException("recovery unavailable");
                     stage="forwarding";nextHealth=0;nextReport=0;continue;
+                }
+                // Diagnostic only: a resolver outage must not be mistaken for
+                // physical link loss. Probe fixed example.com inside active
+                // encrypted relays only, never a held exit or direct underlay.
+                if(guardedSession()&&!lastAndroidValidated&&(validationProbePending||now>=nextValidationProbe)){
+                    validationProbePending=false;nextValidationProbe=now+30000;
+                    Log.i(TAG,"UNDERLAY PROBE — encrypted DNS through non-held exits; diagnostic only");
+                    runDnsTests(false,now);
                 }
                 if(dnsTest.getAndSet(false))runDnsTests(false,now);
                 if(functionalTest.getAndSet(false))runDnsTests(true,now);
@@ -676,6 +688,7 @@ public final class NativeAppRoutingService extends VpnService {
         }
     }
     private boolean closePeers(){
+        peerEvidence="Peer sessions closed";
         boolean ok=true;
         for(int i=handles.length-1;i>=0;i--)if(handles[i]>0){
             try{if(!RootlessNativeBridge.closeSession(handles[i]))ok=false;}catch(Exception|LinkageError e){ok=false;}handles[i]=0;
