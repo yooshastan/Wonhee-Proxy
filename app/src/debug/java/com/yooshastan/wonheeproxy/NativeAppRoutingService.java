@@ -48,7 +48,9 @@ public final class NativeAppRoutingService extends VpnService {
     private String notificationLine="Connecting…";
     private NativeProtectedDnsRelay dnsRelay;
     private long dnsFirewallDrops,ipv6Drops,otherUnsupported,unsupportedIpv4TcpUdp,unsupportedIpv4Other,unsupportedVersion,unknownTcp,unknownUdp,unknownDns;
-    private boolean blockExternal853;
+    private boolean blockExternal853,allApps;
+    private final Map<String,NativeAppRoutingPolicy.App> packageRules=new HashMap<>();
+    private final long[][] portFlows=new long[NativeAppRoutingPolicy.SELECTORS.length][3];
     private int dnsProvider,dnsRole,dnsMode,dnsAlternate;
     private Set<String> blocklist=Collections.emptySet();
     private final AtomicBoolean started=new AtomicBoolean();
@@ -79,7 +81,7 @@ public final class NativeAppRoutingService extends VpnService {
         serviceRunning=true;
         Notification n=notification();
         if(Build.VERSION.SDK_INT>=34)startForeground(8402,n,ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);else startForeground(8402,n);
-        report("STARTING — selected apps are not captured until VPN establishment");
+        report("STARTING — apps are not captured until VPN establishment");
         worker=new Thread(()->run(intent),"WonheeAppRoutingWorker");worker.start();
         return START_NOT_STICKY;
     }
@@ -277,19 +279,23 @@ public final class NativeAppRoutingService extends VpnService {
                 if(snapshot==null)throw new IllegalStateException("missing hosts snapshot");
                 blocklist=Collections.unmodifiableSet(new HashSet<>(snapshot.domains));
             }
+            allApps=intent.getBooleanExtra("allApps",false);
             String[] apps=intent.getStringArrayExtra("apps");int[] categories=intent.getIntArrayExtra("appCategories"),roles=intent.getIntArrayExtra("appRoles");
-            if(apps==null||apps.length<1||apps.length>32||categories==null||roles==null||apps.length!=categories.length||apps.length!=roles.length)throw new IllegalArgumentException();
+            if(apps==null||(!allApps&&apps.length<1)||apps.length>512||categories==null||roles==null||apps.length!=categories.length||apps.length!=roles.length)throw new IllegalArgumentException();
             Set<String> selected=new HashSet<>(Arrays.asList(apps));
             if(selected.size()!=apps.length||selected.contains(getPackageName()))throw new IllegalArgumentException();
             PackageManager pm=getPackageManager();
             for(int i=0;i<apps.length;i++){
                 if(!AppUseCategories.validPackageName(apps[i]))throw new IllegalArgumentException();
+                NativeAppRoutingPolicy.App assignment=new NativeAppRoutingPolicy.App(categories[i],roles[i]);
+                packageRules.put(apps[i],assignment);
+                if(allApps)continue;
                 int uid=pm.getApplicationInfo(apps[i],0).uid;
                 String[] shared=pm.getPackagesForUid(uid);
                 // Reject shared or ambiguous UID mappings: all visible packages must
                 // be selected and agree; require one visible package for this pilot.
                 if(shared==null||shared.length!=1||!apps[i].equals(shared[0])||uid<10000||owners.containsKey(uid))throw new IllegalArgumentException();
-                owners.put(uid,new NativeAppRoutingPolicy.App(categories[i],roles[i]));
+                owners.put(uid,assignment);
             }
             stage="bootstrap";
             String[] addresses=new String[3],configs=null;
@@ -314,15 +320,15 @@ public final class NativeAppRoutingService extends VpnService {
             }
             if(stopping)return;
             stage="establish";
-            Builder builder=new Builder().setSession("Wonhee selected apps").setMtu(1280).setBlocking(false)
+            Builder builder=new Builder().setSession(allApps?"Wonhee all-app preview":"Wonhee selected apps").setMtu(1280).setBlocking(false)
                 .addAddress("10.253.0.1",32).addRoute("0.0.0.0",0)
                 .addAddress("fd00:776f:6e68:6565::1",128).addRoute("::",0)
                 .addDnsServer("1.1.1.1").setUnderlyingNetworks(new Network[]{underlay});
             // Capture the service UID as well for VPN Network visibility; no
             // ordinary service-owned flows are admitted by the UID ledger.
-            builder.addAllowedApplication(getPackageName());
+            if(!allApps)builder.addAllowedApplication(getPackageName());
             if(home){String[] parts=homeCidr.split("/",-1);builder.addRoute(parts[0],Integer.parseInt(parts[1]));}
-            for(String app:apps)builder.addAllowedApplication(app);
+            if(!allApps)for(String app:apps)builder.addAllowedApplication(app);
             tun=builder.establish();if(tun==null)throw new IllegalStateException();captured=true;
             stage="vpn-visible";
             long visibleUntil=SystemClock.elapsedRealtime()+8000;
@@ -331,7 +337,7 @@ public final class NativeAppRoutingService extends VpnService {
             stage="dns-relay";
             newRelay();
             lastVerifiedUnderlay=physicalLabel(underlay);
-            stage="forwarding";report("ACTIVE — "+count+" verified peers; "+apps.length+" selected apps; configured "+NativeDnsTransportPolicy.LABELS[dnsMode]+" via "+NativePeerProfiles.SLOTS[dnsRole]+"; hosts="+blocklist.size()+"; IPv6 blocked");
+            stage="forwarding";report("ACTIVE — "+count+" verified peers; "+(allApps?"all-app preview":apps.length+" selected apps")+"; configured "+NativeDnsTransportPolicy.LABELS[dnsMode]+" via "+NativePeerProfiles.SLOTS[dnsRole]+"; hosts="+blocklist.size()+"; IPv6 blocked");
             long nextReport=0,nextHealth=0;
             while(!stopping){
                 long now=SystemClock.elapsedRealtime();
@@ -381,7 +387,7 @@ public final class NativeAppRoutingService extends VpnService {
                         discardCaptured();
                         try{Thread.sleep(10);}catch(InterruptedException ignored){}
                     }
-                }else report("NOT STARTED — "+stage+"/"+why+"; selected apps were not captured");
+                }else report("NOT STARTED — "+stage+"/"+why+"; apps were not captured");
             }
         }finally{
             unwatchNetworks();
@@ -400,13 +406,34 @@ public final class NativeAppRoutingService extends VpnService {
             long[] s=RootlessNativeBridge.peerStats(handles[i]);if(s==null||s.length<3||s[0]<=0||s[1]<=0||s[2]<=0||System.currentTimeMillis()/1000L-s[0]>240)return false;
         }return true;
     }
+    // Resolve a reported UID, never infer an owner from a packet or default-route an unknown UID.
+    private boolean resolveOwner(int uid){
+        if(uid<0||uid==android.os.Process.myUid())return false;
+        if(!allApps)return owners.containsKey(uid);
+        PackageManager pm=getPackageManager();
+        String[] pkgs=pm.getPackagesForUid(uid);
+        if(pkgs==null||pkgs.length==0||pkgs.length>512){owners.remove(uid);return false;}
+        NativeAppRoutingPolicy.App common=null;
+        for(String pkg:pkgs){
+            NativeAppRoutingPolicy.App a=packageRules.get(pkg);
+            try{
+                android.content.pm.ApplicationInfo info=pm.getApplicationInfo(pkg,0);
+                if(info.uid!=uid){owners.remove(uid);return false;}
+                if(a==null)a=new NativeAppRoutingPolicy.App(NativeAppCategorySuggestions.suggest(pkg,info.category,(info.flags&android.content.pm.ApplicationInfo.FLAG_SYSTEM)!=0),NativeAppRoutingPolicy.INHERIT);
+            }catch(Exception e){owners.remove(uid);return false;}
+            if(common!=null&&!common.same(a)){owners.remove(uid);return false;}
+            common=a;
+        }
+        if(owners.size()>=8192&&!owners.containsKey(uid))return false;
+        owners.put(uid,common);return true;
+    }
     private int uid(NativeAppRoutingPolicy.Key key){
         try{
             InetAddress local=InetAddress.getByAddress(new byte[]{10,(byte)253,0,1});
             int r=key.remote;
             InetAddress remote=InetAddress.getByAddress(new byte[]{(byte)(r>>>24),(byte)(r>>>16),(byte)(r>>>8),(byte)r});
             int uid=cm().getConnectionOwnerUid(key.proto,new InetSocketAddress(local,key.localPort),new InetSocketAddress(remote,key.remotePort));
-            if(owners.containsKey(uid))return uid;
+            if(resolveOwner(uid))return uid;
             if(uid==android.os.Process.myUid()&&dnsRelay!=null&&dnsRelay.functionalOwns(key))return UNKNOWN_DNS;
             if(uid==android.os.Process.myUid()&&dnsRelay!=null&&dnsRelay.owns(key))return RELAY_UID;
             // Android resolver may own the DNS socket rather than selected app.
@@ -443,7 +470,10 @@ public final class NativeAppRoutingService extends VpnService {
             if(admitted==null){policyDrop++;deniedLedger++;continue;}
             int result=RootlessNativeBridge.injectPacket(handles[role],translated);
             if(result==-4){queueDrop++;continue;}if(result!=1){policyDrop++;deniedNative++;continue;}
-            if(prior==null)opened[role]++;
+            if(prior==null){
+                opened[role]++;
+                if(owner!=RELAY_UID){int selector=NativeAppRoutingPolicy.selector(key);if(selector>=0)portFlows[selector][role]++;}
+            }
             if(owner==RELAY_UID&&dnsRelay!=null&&dnsRelay.quicOwns(key))dnsRelay.quicTunTx.incrementAndGet();
             outgoing[role]++;outBytes[role]+=n;
         }
@@ -475,6 +505,8 @@ public final class NativeAppRoutingService extends VpnService {
     }
     private String stats(String prefix){
         StringBuilder b=new StringBuilder(prefix);
+        b.append("\nCapture mode=").append(allApps?"all-app preview":"selected apps").append(" resolved UIDs=").append(owners.size());
+        for(int j=0;j<portFlows.length;j++)if(portFlows[j][0]+portFlows[j][1]+portFlows[j][2]>0)b.append("\nPort flows ").append(NativeAppRoutingPolicy.SELECTOR_NAMES[j]).append(" A/B/Home=").append(portFlows[j][0]).append("/").append(portFlows[j][1]).append("/").append(portFlows[j][2]);
         for(int i=0;i<count;i++)b.append("\n").append(NativePeerProfiles.SLOTS[i]).append(" new flows=").append(opened[i]).append(" packets out/in=").append(outgoing[i]).append('/').append(incoming[i]).append(" bytes out/in=").append(outBytes[i]).append('/').append(inBytes[i]);
         if(dnsRelay!=null)b.append("\nDNS provider=").append(NativeProtectedDnsRelay.NAMES[dnsProvider]).append(" role=").append(NativePeerProfiles.SLOTS[dnsRole]).append(" queries=").append(dnsRelay.queries.get()).append(" authenticated=").append(dnsRelay.verified.get()).append(" blocked=").append(dnsRelay.blocked.get()).append(" failed=").append(dnsRelay.failed.get()).append(" overflow=").append(dnsRelay.overflow.get()).append(" hosts=").append(blocklist.size()).append(" cache hits=").append(dnsRelay.cacheHits.get()).append(" cached entries=").append(dnsRelay.cacheSize()).append(" TLS opened=").append(dnsRelay.tlsConnections.get()).append(" TLS reused=").append(dnsRelay.tlsReuse.get()).append(" TLS fresh retries=").append(dnsRelay.tlsRetries.get()).append(" TLS closed=").append(dnsRelay.tlsClosed.get()).append(" retry EOF=").append(dnsRelay.retryEof.get()).append(" retry timeout=").append(dnsRelay.retryTimeout.get()).append(" retry TLS=").append(dnsRelay.retryTls.get()).append(" retry other=").append(dnsRelay.retryOther.get()).append(" active relay sockets=").append(dnsRelay.socketCount()).append(" registered relay ports=").append(dnsRelay.portCount()).append(" DNS transport=").append(NativeDnsTransportPolicy.LABELS[dnsMode]).append(" UDP queries=").append(dnsRelay.udpQueries.get()).append(" TCP queries=").append(dnsRelay.tcpQueries.get()).append(" TCP rejected=").append(dnsRelay.tcpRejected.get()).append(" UDP truncated=").append(dnsRelay.udpTruncated.get()).append(" QUIC opened=").append(dnsRelay.quicOpened.get()).append(" QUIC verified=").append(dnsRelay.quicVerified.get()).append(" QUIC failed=").append(dnsRelay.quicFailed.get()).append(" QUIC attempts=").append(dnsRelay.quicAttempts.get()).append(" QUIC reused=").append(dnsRelay.quicReused.get()).append(" QUIC closed=").append(dnsRelay.quicClosed.get()).append(" QUIC backoff=").append(dnsRelay.quicBackoff.get()).append(" QUIC timeout=").append(dnsRelay.quicTimeout.get()).append(" QUIC certificate=").append(dnsRelay.quicCertificate.get()).append(" QUIC socket error=").append(dnsRelay.quicSocketError.get()).append(" QUIC invalid=").append(dnsRelay.quicInvalid.get()).append(" QUIC other=").append(dnsRelay.quicOther.get()).append(" DNS coalesced=").append(dnsRelay.coalesced.get()).append(" DNS latency samples=").append(dnsRelay.dnsLatencySamples.get()).append(" DNS upstream total ms=").append(dnsRelay.dnsLatencyTotalMs.get()).append(" DNS upstream max ms=").append(dnsRelay.dnsLatencyMaxMs.get()).append(" endpoint=").append(dnsRelay.endpoint).append(" QUIC fresh retries=").append(dnsRelay.quicFreshRetries.get()).append(" QUIC retry success=").append(dnsRelay.quicRetrySuccess.get()).append(" QUIC fresh failures=").append(dnsRelay.quicFreshFailures.get()).append(" QUIC handshake timeout=").append(dnsRelay.quicHandshakeTimeout.get()).append(" endpoint port=").append(NativeDnsTransportPolicy.port(dnsMode)).append(" SNI=").append(NativeProtectedDnsRelay.HOSTS[dnsProvider]).append(" ALPN=").append(dnsMode==NativeDnsTransportPolicy.DOQ?"doq":dnsMode==NativeDnsTransportPolicy.DOH3?"h3":"n/a").append(" QUIC handshake retries=").append(dnsRelay.quicHandshakeRetries.get()).append(" QUIC handshake timeout last ms=").append(dnsRelay.quicHandshakeTimeoutLastMs.get()).append(" QUIC fresh exchange last ms=").append(dnsRelay.quicFreshExchangeLastMs.get()).append(" QUIC stream reset=").append(dnsRelay.quicStreamReset.get()).append(" QUIC remote close=").append(dnsRelay.quicRemoteClose.get()).append(" QUIC transport error=").append(dnsRelay.quicTransportError.get()).append(" QUIC TLS error=").append(dnsRelay.quicTlsError.get()).append(" QUIC socket tx=").append(dnsRelay.quicSocketTx.get()).append(" rx=").append(dnsRelay.quicSocketRx.get()).append(" tx min/max=").append(dnsRelay.quicTxMin.get()).append('/').append(dnsRelay.quicTxMax.get()).append(" rx min/max=").append(dnsRelay.quicRxMin.get()).append('/').append(dnsRelay.quicRxMax.get()).append(" write/read errors=").append(dnsRelay.quicWriteErrors.get()).append('/').append(dnsRelay.quicReadErrors.get()).append(" timeout tx/rx=").append(dnsRelay.lastTimeoutTx.get()).append('/').append(dnsRelay.lastTimeoutRx.get()).append(" QUIC TUN tx=").append(dnsRelay.quicTunTx.get()).append(" rx=").append(dnsRelay.quicTunRx.get()).append(" rejected=").append(dnsRelay.quicTunRejected.get()).append(" DNS probe attempts=").append(dnsRelay.probeAttempts.get()).append(" DNS probe passed=").append(dnsRelay.probePassed.get()).append(" DNS probe failed=").append(dnsRelay.probeFailed.get()).append(" DNS health=").append(dnsRelay.health()).append(" DNS probe=").append(dnsRelay.probeStatus()).append(" DNS functional test=").append(dnsRelay.functionalStatus());
         if(dnsRelay==null&&!retiredDnsStats.isEmpty())b.append("\n").append(retiredDnsStats);
@@ -511,6 +543,6 @@ public final class NativeAppRoutingService extends VpnService {
         if(m!=null)m.createNotificationChannel(new NotificationChannel(TAG,"Selected app routing",NotificationManager.IMPORTANCE_LOW));
         PendingIntent open=PendingIntent.getActivity(this,8402,new Intent(this,NativeAppRoutingActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent stop=PendingIntent.getService(this,8403,new Intent(this,NativeAppRoutingService.class).setAction(STOP),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        return new Notification.Builder(this,TAG).setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Wonhee Proxy · selected apps").setContentText(notificationLine).setStyle(new Notification.BigTextStyle().bigText(notificationLine)).setOnlyAlertOnce(true).setContentIntent(open).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).setOngoing(true).build();
+        return new Notification.Builder(this,TAG).setSmallIcon(R.drawable.ic_vpn_status).setContentTitle("Wonhee Proxy · routing preview").setContentText(notificationLine).setStyle(new Notification.BigTextStyle().bigText(notificationLine)).setOnlyAlertOnce(true).setContentIntent(open).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).setOngoing(true).build();
     }
 }
