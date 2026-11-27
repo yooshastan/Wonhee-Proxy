@@ -2,13 +2,22 @@ package com.yooshastan.wonheeproxy;
 
 import java.util.Map;
 
-/** Pure policy over validated physical candidates only. No traffic operations. */
+/** Pure candidate policy; Android validation and authenticated peer evidence are distinct. */
 final class NativeUnderlayPolicy {
     static final int WIFI_FIRST=0,SYSTEM=1,CELL_FIRST=2,STICKY=3;
     static final int WIFI=1,CELL=2;
-    static final long SETTLE_MS=2000;
+    static final long SETTLE_MS=2000, FAILED_TRIAL_COOLDOWN_MS=120000;
     static final String[] LABELS={"Prefer Wi-Fi","Android best available","Prefer cellular","Maintain current connection"};
     static boolean valid(int mode){return mode>=0&&mode<LABELS.length;}
+    // Initial startup never relaxes Android validation. During a verified
+    // root guard, physical eligibility permits a handshake trial, not forwarding.
+    static boolean sessionCandidate(boolean physicalEligible,boolean validated,boolean guarded){
+        return physicalEligible&&(validated||guarded);
+    }
+    static boolean retainUnvalidated(int mode,boolean guarded,boolean physicalEligible,boolean validated,boolean peerReady){
+        return guarded&&physicalEligible&&!validated&&peerReady&&(mode==SYSTEM||mode==STICKY);
+    }
+    static boolean trialAllowed(long now,long cooldownUntil){return now>=cooldownUntil;}
     static long pick(int mode,long current,long best,Map<Long,Integer> usable){
         if(!valid(mode))throw new IllegalArgumentException();
         if(mode==STICKY&&usable.containsKey(current))return current;
