@@ -293,7 +293,8 @@ assert app_routing.index('tun=builder.establish()') < app_routing.index('egressG
 assert 'egressGuard.failed()' in app_routing and 'egressGuard.retain()' in app_routing and 'egressGuard.remove()' in app_routing
 assert 'EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE' in app_routing
 assert 'rootEgressGuard' in ui_activity and 'Recover owned root guard (offline)' in ui_activity
-assert 'putString(KEY,plan.encode()).commit()' in egress and 'runtime.remove(plan)' in egress
+assert 'putString(KEY,plan.encode()).putInt(BOOT,bootCount(context)).commit()' in egress and 'runtime.remove(plan)' in egress
+assert egress.index('putString(KEY,plan.encode()).putInt(BOOT,bootCount(context)).commit()') < egress.index('runtime.installStrict(plan)')
 assert 'scheduleWithFixedDelay(this::audit,5,5,TimeUnit.SECONDS)' in egress
 assert 'EGRESS_STRICT_IPV4_NOT_ENABLED' in egress_runtime
 assert ' -F ' not in egress_runtime and ' -P ' not in egress_runtime and '-j ACCEPT' not in egress_plan
