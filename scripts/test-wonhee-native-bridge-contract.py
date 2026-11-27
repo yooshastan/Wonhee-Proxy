@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(165)' in gradle
+assert 'versionCode.set(166)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.26.1-underlay-recovery')" in gradle
+assert "versionName.set('0.26.2-connection-polish')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -306,7 +306,7 @@ assert 'NativeUnderlayPolicy.sessionCandidate(eligibleLink(n),usable(n),guardedS
 assert 'NET_CAPABILITY_CAPTIVE_PORTAL' in app_routing
 assert 'if(!sessionUsable(underlay))reason="physical-underlay-lost"' in app_routing
 assert 'else if(!peerReady)reason="peer-health"' in app_routing
-assert 'NativeUnderlayPolicy.retainUnvalidated' in app_routing and 'Network next=recoveryCandidate()' in app_routing
+assert 'NativeUnderlayPolicy.retainUnvalidated' in app_routing and 'Network next=recoveryCandidate(attempt)' in app_routing
 assert 'FAILED_TRIAL_COOLDOWN_MS' in app_routing and 'UNDERLAY TRIAL — ' in app_routing
 assert 'if(!captureIntact()||!dnsOff()||!sessionUsable(next)||!protectedSockets()' in app_routing
 assert 'isolationRole=-1;isolationUntil=0;' not in app_routing[app_routing.index('if(recoveryTest||reason!=null)'):app_routing.index('if(dnsTest.getAndSet(false))')]
@@ -316,3 +316,15 @@ assert 'nextValidationProbe=now+30000' in app_routing
 assert 'egressGuard!=null&&egressGuard.failed()' in app_routing
 assert 'peerEvidence' in ui_activity and 'validationLosses' in ui_activity
 assert 'per-rule counters unavailable' in egress_runtime and 'DNS53=' in egress_runtime
+
+# 0.26.2: pinned guarded recovery and local-only diagnostics.
+assert 'recoveryRequested=stage.equals("preferred-network-migration")?requestedMigration:recoveryFrom' in app_routing
+assert 'NativeUnderlayPolicy.recoveryTarget(attempt,id(recoveryRequested),id(recoveryFrom),eligible)' in app_routing
+assert 'NativeUnderlayPolicy.handshakeBudget(speculative)' in app_routing and 'SystemClock.elapsedRealtime()+budget' in app_routing
+assert 'startupProbePending=true' in app_routing and 'if(startupProbePending){startupProbePending=false;runDnsTests(false,now);}' in app_routing
+assert 'if(!quicEstablished)synchronized(coldQuicGate)' in protected_dns
+assert 'quicEstablished=true' in protected_dns and 'exchangeQuicInternal(query)' in protected_dns
+assert 'peerDetails' in ui_activity and 'Inspect active routing' in ui_activity
+assert 'uidEvidence=Collections.unmodifiableMap(result)' in app_routing and 'uidEvidenceAt=0;uidEvidence=Collections.emptyMap()' in app_routing
+assert 'NativeAppRoutingService.inspectUid' in ui_activity
+assert 'publishUidEvidence(state,now)' in app_routing
