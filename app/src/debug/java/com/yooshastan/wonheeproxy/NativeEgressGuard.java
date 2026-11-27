@@ -38,17 +38,18 @@ final class NativeEgressGuard {
         out.clear();
         return shell.run(out,"ip6tables -w 3 -t nat -S")==0&&out.stream().anyMatch(x->x.startsWith("-P OUTPUT "));
     }
-    void install(String tun,String[] configs,boolean discovery,int validationPort,boolean validationDual)throws Exception{
+    void install(String tun,String[] configs,boolean discovery,int validationPort,boolean validationDual,boolean strictIp)throws Exception{
         synchronized(LOCK){
             if(pending(context))throw new IllegalStateException("EGRESS_JOURNAL_PENDING");
+            if(strictIp&&(discovery||validationPort!=0))throw new IllegalStateException("EGRESS_STRICT_CONFIG_REFUSED");
             byte[] bytes=new byte[6];new SecureRandom().nextBytes(bytes);
             StringBuilder token=new StringBuilder();for(byte b:bytes)token.append(String.format(Locale.ROOT,"%02x",b&255));
-            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort,true,validationDual,validationPort!=0);
+            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),strictIp?NativeEgressGuardPlan.STRICT_IP:NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort,true,validationDual,validationPort!=0);
             runtime.preflight(plan);
             if(plan.validationPlan()!=null)runtime.preflight(plan.validationPlan());
             if(!prefs(context).edit().putString(KEY,plan.encode()).commit())throw new IllegalStateException("EGRESS_JOURNAL_WRITE_FAILED");
             try{
-                runtime.install(plan);
+                if(strictIp)runtime.installStrict(plan);else runtime.install(plan);
                 if(plan.validationPlan()!=null)runtime.installValidation(plan.validationPlan());
                 status=verifiedStatus();
                 auditor.scheduleWithFixedDelay(this::audit,5,5,TimeUnit.SECONDS);
@@ -63,6 +64,7 @@ final class NativeEgressGuard {
         String result;
         try{result="Verified · "+runtime.counters(plan);}
         catch(Exception e){result="Verified · filter counters unavailable";}
+        if(plan.mode==NativeEgressGuardPlan.STRICT_IP)result+=" · strict IP preview";
         if(plan.validationPlan()!=null){
             try{result+=" · "+runtime.validationCounters(plan.validationPlan());}
             catch(Exception e){result+=" · NAT counters unavailable";}
@@ -86,7 +88,7 @@ final class NativeEgressGuard {
             // closing the listener. Keep the original journal for offline cleanup.
             if(plan!=null&&plan.validationPlan()!=null)try{runtime.remove(plan.validationPlan());}
             catch(Exception ignored){}
-            status=pending(context)?"Guard retained · offline recovery required":"Not installed";
+            status=pending(context)?"Guard journal retained · kernel protection unconfirmed · inspect or recover offline":"Not installed";
         }
     }
     boolean remove(){
@@ -102,6 +104,19 @@ final class NativeEgressGuard {
                 if(!prefs(context).edit().remove(KEY).commit())throw new IllegalStateException("EGRESS_JOURNAL_CLEAR_FAILED");
                 status="Removed · exact-owned cleanup verified";plan=null;return true;
             }catch(Exception e){status="Cleanup unconfirmed · use offline guard recovery";return false;}
+        }
+    }
+    static String inspectOffline(Context c)throws Exception{
+        synchronized(LOCK){
+            if(NativeAppRoutingService.running())throw new IllegalStateException("STOP_VPN_FIRST");
+            String data=prefs(c).getString(KEY,null);
+            if(data==null)return "No owned guard journal; protection unconfirmed";
+            NativeEgressGuardPlan p=NativeEgressGuardPlan.decode(data);
+            RootShell shell=new RootShell(c.getApplicationContext());
+            NativeEgressGuardRuntime runtime=new NativeEgressGuardRuntime(shell::run);
+            String filter=runtime.offlineState(p);
+            String nat=p.validationPlan()==null?"Not configured":runtime.offlineState(p.validationPlan());
+            return (p.mode==NativeEgressGuardPlan.STRICT_IP?"Strict IP preview":"DNS/IPv6 guard")+" · filter: "+filter+" · NAT: "+nat+" · journal retained; packet protection not proven";
         }
     }
     static String recover(Context c)throws Exception{
