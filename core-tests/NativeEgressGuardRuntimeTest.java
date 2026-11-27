@@ -5,10 +5,10 @@ public final class NativeEgressGuardRuntimeTest {
  static final class Fake implements NativeEgressGuardRuntime.Runner {
   final Map<Integer,Map<String,List<String>>> tables=new HashMap<>();
   final List<String> mutations=new ArrayList<>();
-  Fake(){for(int f:new int[]{4,6}){Map<String,List<String>> m=new LinkedHashMap<>();m.put("OUTPUT",new ArrayList<>(Arrays.asList("-j AFWALL")));m.put("AFWALL",new ArrayList<>(Arrays.asList("-j RETURN")));tables.put(f,m);}}
+  Fake(){for(int f:new int[]{4,6,14}){Map<String,List<String>> m=new LinkedHashMap<>();m.put("OUTPUT",new ArrayList<>(Arrays.asList("-j AFWALL")));m.put("AFWALL",new ArrayList<>(Arrays.asList("-j RETURN")));tables.put(f,m);}}
   public int run(List<String> out,String command){
    for(String cmd:command.split(" && ")){
-    String[] a=cmd.split(" ",8);int f=a[0].equals("iptables")?4:6;Map<String,List<String>> m=tables.get(f);String op=a[5];String chain=a.length>6?a[6]:"";String rule=a.length>7?a[7]:"";
+    String[] a=cmd.split(" ",8);int f=a[4].equals("nat")?14:a[0].equals("iptables")?4:6;Map<String,List<String>> m=tables.get(f);String op=a[5];String chain=a.length>6?a[6]:"";String rule=a.length>7?a[7]:"";
     if(op.equals("-S")){
      out.add("-P OUTPUT ACCEPT");for(String c:m.keySet())if(!c.equals("OUTPUT"))out.add("-N "+c);
      for(String c:m.keySet())for(String r:m.get(c))out.add("-A "+c+" "+r);
@@ -52,6 +52,19 @@ public final class NativeEgressGuardRuntimeTest {
   NativeEgressGuardPlan strict=new NativeEgressGuardPlan("123456abcdef","tun0",10123,2,false,endpoints);
   before=fake.mutations.size();reject(()->runtime.install(strict));check(fake.mutations.size()==before);
   check(fake.mutations.stream().noneMatch(x->x.contains(" -F ")||x.contains(" -P ")||x.contains(" -D OUTPUT -j AFWALL")));
-  System.out.println("Native egress guard exact ownership transaction PASS");
+  NativeEgressGuardPlan bridge=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,endpoints,34567);
+  check(NativeEgressGuardPlan.decode(bridge.encode()).validationPort==34567);
+  check(NativeEgressGuardPlan.decode(p.encode()).validationPort==0);
+  check(bridge.rules(6).equals(p.rules(6)));
+  check(bridge.rules(4).get(0).contains("--uid-owner 1073")&&bridge.rules(4).get(1).endsWith("-j DROP"));
+  NativeValidationDnsPlan nat=bridge.validationPlan();
+  check(nat.rules(4).size()==2&&nat.rules(4).stream().allMatch(x->x.contains("-o wlan0")&&x.contains("--uid-owner 1073")&&x.contains("--dport 53")&&x.endsWith("-j REDIRECT --to-ports 34567")));
+  runtime.install(bridge);runtime.installValidation(nat);runtime.verify(nat);runtime.verify(bridge);
+  List<String> nr=fake.tables.get(14).get(nat.chain(4));nr.add("-j RETURN");
+  before=fake.mutations.size();reject(()->runtime.remove(nat));check(fake.mutations.size()==before);nr.remove(nr.size()-1);
+  runtime.remove(nat);runtime.remove(bridge);
+  check(fake.tables.get(14).get("OUTPUT").equals(Arrays.asList("-j AFWALL")));
+  check(fake.tables.get(14).get("AFWALL").equals(Arrays.asList("-j RETURN")));
+  System.out.println("Native egress guard and validation NAT exact ownership transaction PASS");
  }
 }
