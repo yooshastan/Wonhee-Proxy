@@ -498,6 +498,15 @@ public final class NativeAppRoutingService extends VpnService {
                 Thread.sleep(250);
             }
             if(stopping)return;
+            boolean validationDual=false;
+            if(validationCompat){
+                stage="validation-nat-preflight";
+                validationDual=NativeEgressGuard.validationDualAvailable(this);
+                Log.i(TAG,"VALIDATION CAPABILITY — "+(validationDual?"IPv4 + IPv6 NAT available":"IPv4 NAT available; IPv6 NAT unavailable/unverified; IPv6 DNS remains blocked"));
+                stage="validation-listener-preflight";
+                validationBridge=new NativeValidationDnsBridge(validationDual);
+                if(stopping)return;
+            }
             stage="establish";
             Builder builder=new Builder().setSession(allApps?"Wonhee all-app preview":"Wonhee selected apps").setMtu(1280).setBlocking(false)
                 .addAddress("10.253.0.1",32).addRoute("0.0.0.0",0)
@@ -517,9 +526,8 @@ public final class NativeAppRoutingService extends VpnService {
                 stage="root-egress-guard";
                 Network vpn=vpnNetwork();LinkProperties link=vpn==null?null:cm().getLinkProperties(vpn);
                 if(link==null)throw new NativePeerProfiles.Rejected("EGRESS_TUN_NOT_IDENTIFIED");
-                if(validationCompat)validationBridge=new NativeValidationDnsBridge();
                 egressGuard=new NativeEgressGuard(this);
-                egressGuard.install(link.getInterfaceName(),sessionConfigs,intent.getBooleanExtra("rootLocalDiscovery",false),validationBridge==null?0:validationBridge.port());
+                egressGuard.install(link.getInterfaceName(),sessionConfigs,intent.getBooleanExtra("rootLocalDiscovery",false),validationBridge==null?0:validationBridge.port(),validationDual);
                 if(stopping)return;
             }
             stage="dns-relay";
@@ -598,15 +606,16 @@ public final class NativeAppRoutingService extends VpnService {
             if(!stopping){
                 String why=failure instanceof NativePeerProfiles.Rejected?((NativePeerProfiles.Rejected)failure).code:failure.getClass().getSimpleName();
                 if(captured){
+                    final String blockedReason="BLOCKED — "+stage+"/"+why+"; captured apps held in TUN until Stop";
                     retireDns();
                     if(!closePeers())cleanupFailed=true;
-                    report(stats(captureIntact()?"BLOCKED — "+stage+"/"+why+"; captured apps held in TUN until Stop":"CAPTURE LOST — VPN visibility lost; blocking cannot be guaranteed; press Stop"));
+                    report(stats(captureIntact()?blockedReason:"CAPTURE LOST — VPN visibility lost; blocking cannot be guaranteed; press Stop"));
                     // Keep the default routes in the established VPN; discard rather
                     // than silently release selected applications to direct Internet.
                     long nextBlockedReport=0;
                     while(!stopping){
                         long now=SystemClock.elapsedRealtime();if(now>=nextBlockedReport){
-                            if(captureIntact())report(stats("BLOCKED — captured apps held in TUN until Stop"));
+                            if(captureIntact())report(stats(blockedReason));
                             else report("CAPTURE LOST — VPN visibility lost; blocking cannot be guaranteed; press Stop");
                             nextBlockedReport=now+2000;
                         }
