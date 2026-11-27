@@ -34,7 +34,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private CheckBox home,allApps;
     private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference,bootstrapOption,dnsStrategy;
     private CheckBox hostsEnabled,blockExternal853,autoRecovery,rootEgressGuard,rootLocalDiscovery;
-    private TextView rootGuardStatus;
+    private TextView rootGuardStatus,peerDetailsStatus;
     private Button rootRecoverButton;
     private boolean rootRecoveryBusy;
     private TextView hostsStatus,dnsHealth,dnsPending;
@@ -52,7 +52,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.26.1 PREVIEW",12);
+        label(header,"PROXY  /  0.26.2 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -88,7 +88,10 @@ public final class NativeAppRoutingActivity extends Activity {
         label(root,"Default Cloudflare DoH is the tested control. Alternatives are explicit, no fallback. Numeric overrides skip endpoint DNS.",13);
         label(root,"Physical connection preference",15);
         networkPreference=spinner(root,NativeUnderlayPolicy.LABELS,draft.getInt("networkPreference",NativeUnderlayPolicy.WIFI_FIRST));
-        label(root,"Wi-Fi or cellular preferences use the other eligible network if needed. With the root guard active, an attached unvalidated network may be tried using fresh authenticated peer handshakes. Android best available retains a healthy current link when Android validation alone fails. Prefer Wi-Fi trials Wi-Fi again after a failed candidate cooldown. Migration requires automatic recovery. Changes apply on next Start.",13);
+        label(root,"Wi-Fi or cellular preferences use the other eligible network if needed. With the root guard active, a candidate can be tried even without Android validation, but fresh authenticated peer handshakes are required. Prefer Wi-Fi returns to eligible Wi-Fi after a stable selection and cooldown. Alternate trials have a 15-second handshake budget; failures prefer the prior eligible link. Android best available does not guarantee return to Wi-Fi. Migration requires automatic recovery. Changes apply on next Start.",13);
+        label(root,"Live peer evidence",18);
+        peerDetailsStatus=label(root,"Not active",14);
+        label(root,"Peer handshake age and encrypted byte counters are transport evidence, not proof that every app can reach its destination. Use Prefer Wi-Fi for automatic Wi-Fi return. Controlled recovery tries the current eligible network first.",13);
         profiles=label(root,"",14);
         for(int i=0;i<3;i++){
             final int slot=i;
@@ -192,6 +195,16 @@ public final class NativeAppRoutingActivity extends Activity {
             int suggested=NativeAppCategorySuggestions.suggest(pkg,r.activityInfo.applicationInfo.category,(r.activityInfo.applicationInfo.flags&android.content.pm.ApplicationInfo.FLAG_SYSTEM)!=0);
             label(detail,"Category (suggested: "+AppUseCategories.label(suggested)+")",13);Spinner category=spinner(detail,AppUseCategories.LABELS,draft.getInt("category:"+pkg,suggested));
             label(detail,"Individual exit override",13);Spinner role=spinner(detail,CHOICES,draft.getInt("role:"+pkg,0));
+            button(detail,"Inspect active routing",()->{
+                String evidence;
+                try{evidence=NativeAppRoutingService.inspectUid(getPackageManager().getApplicationInfo(pkg,0).uid);}
+                catch(Exception e){evidence="UID lookup unavailable";}
+                new android.app.AlertDialog.Builder(this).setTitle("Routing evidence")
+                    .setMessage(pkg+"\nSaved category: "+AppUseCategories.label(category.getSelectedItemPosition())
+                    +"\nSaved override: "+CHOICES[role.getSelectedItemPosition()]+"\n\n"+evidence
+                    +"\n\nSaved choices may differ from the running session. Observations count admitted, unexpired tuples, not successful requests. Shared UID evidence can include multiple packages; no tuples does not prove blocking. Private Home routes and protocol rules can override the public exit.")
+                    .setPositiveButton("Close",null).show();
+            });
             appCard.addView(detail);detail.setVisibility(selected.isChecked()?View.VISIBLE:View.GONE);
             selected.setOnCheckedChangeListener((v,checked)->{detail.setVisibility(checked?View.VISIBLE:View.GONE);autoSave();});
             apps.add(new AppRow(pkg,selected,category,role,suggested));
@@ -244,6 +257,7 @@ public final class NativeAppRoutingActivity extends Activity {
         int heldRole=prefs.getInt("isolationRole",-1);
         long holdSeconds=Math.max(0,(prefs.getLong("isolationUntil",0)-android.os.SystemClock.elapsedRealtime()+999)/1000);
         headline.setText(state.equals("ACTIVE")?(heldRole>=0&&heldRole<3&&holdSeconds>0?"Connected · "+NativePeerProfiles.SLOTS[heldRole]+" held · "+holdSeconds+" s":"Connected"):state.equals("BLOCKED")?"Traffic blocked":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"Capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting…":state.equals("STALE")?"Status stale":state.equals("FAILED")?"Connection refused":state.equals("INACTIVE")?"Service ended · protection unconfirmed":"Disconnected");
+        if(peerDetailsStatus!=null)peerDetailsStatus.setText(state.equals("ACTIVE")?prefs.getString("peerDetails","Awaiting peer evidence")+"\n"+prefs.getString("trialStatus","No recovery trial"):"Not active");
         if(underlayStatus!=null)underlayStatus.setText(busy?"Physical connection · "+prefs.getString("underlay","pending")+"\n"+prefs.getString("networkPreference","")+" · migrations "+prefs.getLong("networkMigrations",0)+"\nPeer evidence: "+prefs.getString("peerEvidence","Not verified")+" · validation losses "+prefs.getLong("validationLosses",0)+"\nLast recovery: "+prefs.getString("lastRecoveryReason","none")+" · "+prefs.getLong("lastRecoveryMs",0)+" ms":"Physical connection · disconnected");
         speed.setText("↓ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("downRate",0):0)+"    ↑ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("upRate",0):0));
         blocked.setText("Blocked DNS · "+prefs.getLong("blocked",0));
