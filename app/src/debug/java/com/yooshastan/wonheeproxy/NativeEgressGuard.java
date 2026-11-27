@@ -56,13 +56,14 @@ final class NativeEgressGuard {
             }
         }
     }
+    void retain(){closing=true;auditor.shutdown();status=pending(context)?"Guard retained · offline recovery required":"Not installed";}
     boolean remove(){
-        closing=true;auditor.shutdownNow();
+        closing=true;auditor.shutdown();
         synchronized(LOCK){
             try{
                 // Never clear a mismatching or unreadable persistent record.
                 String data=prefs(context).getString(KEY,null);
-                if(data==null){status="Not installed";return plan==null;}
+                if(data==null){status="Not installed";return true;}
                 if(plan==null||!plan.encode().equals(data))throw new IllegalStateException("EGRESS_JOURNAL_MISMATCH");
                 runtime.remove(plan);
                 if(!prefs(context).edit().remove(KEY).commit())throw new IllegalStateException("EGRESS_JOURNAL_CLEAR_FAILED");
