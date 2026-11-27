@@ -5,13 +5,17 @@ import java.util.*;
 final class NativeValidationDnsPlan implements NativeEgressGuardRuntime.OwnedPlan {
     final String token;
     final int port;
-    final boolean dual;
-    int owner(){return dual?0:NativeValidationDnsPolicy.NETWORK_STACK_UID;}
+    final boolean dual,rootOwner;
+    int owner(){return rootOwner?0:NativeValidationDnsPolicy.NETWORK_STACK_UID;}
     NativeValidationDnsPlan(String token,int port){
         this(token,port,false);
     }
     NativeValidationDnsPlan(String token,int port,boolean dual){
-        this.dual=dual;
+        this(token,port,dual,dual);
+    }
+    NativeValidationDnsPlan(String token,int port,boolean dual,boolean rootOwner){
+        if(dual&&!rootOwner)throw new IllegalArgumentException("INVALID_DUAL_OWNER");
+        this.dual=dual;this.rootOwner=rootOwner;
         if(token==null||!token.matches("[0-9a-f]{12}")||port<1024||port>65535)throw new IllegalArgumentException("INVALID_VALIDATION_PLAN");
         this.token=token;this.port=port;
     }
