@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(159)' in gradle
+assert 'versionCode.set(160)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.23.0-network-stabilization')" in gradle
+assert "versionName.set('0.23.1-network-stabilization')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -235,7 +235,18 @@ assert 'closeFunctional();functionalWorker.shutdownNow()' in protected_dns
 assert 'DNS_FUNCTIONAL_TEST' in ui_activity and 'dnsRelay.testFunctional()' in app_routing
 
 # 0.23: strict fixed-address HTTPS bootstrap; no resolver fallback.
-assert 'new byte[]{1,1,1,1}),443)' in bootstrap
+assert 'InetAddress.getByAddress(resolverIp),port)' in bootstrap and 'port=option%2==0?443:853' in bootstrap
 assert 'NativeBootstrapHttp.request' in bootstrap and 'NativeBootstrapHttp.response' in bootstrap
-assert 'authenticated-DoH' in bootstrap and '853' not in bootstrap
+assert 'authenticated-DoH' in bootstrap and 'authenticated-DoT' in bootstrap
 assert 'tls.setSoTimeout(timeout())' in bootstrap
+
+# 0.23.1: broad capture only when explicitly opted in; never route unknown owners.
+assert 'if(!allApps)builder.addAllowedApplication(getPackageName())' in app_routing
+assert 'if(!allApps)for(String app:apps)builder.addAllowedApplication(app)' in app_routing
+assert 'if(resolveOwner(uid))return uid' in app_routing and 'common.same(a)' in app_routing
+assert 'uid==android.os.Process.myUid()' in app_routing
+assert 'NativeAppCategorySuggestions.suggest' in app_routing and 'NativeAppCategorySuggestions.suggest' in ui_activity
+assert 'allApps.isChecked()' in ui_activity and 'draft.getBoolean("allApps",false)' in ui_activity
+assert 'Port flows ' in app_routing and 'portFlows[selector][role]++' in app_routing
+assert 'InvalidQuicResponse' in protected_dns and 'if(e instanceof InvalidQuicResponse)ok=true' in protected_dns
+assert 'android.permission.QUERY_ALL_PACKAGES' in manifest and 'android.permission.QUERY_ALL_PACKAGES' not in (root / "app/src/main/AndroidManifest.xml").read_text()
