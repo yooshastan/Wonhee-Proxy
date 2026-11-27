@@ -19,7 +19,8 @@ final class NativeEgressGuardPlan {
         List<String> checked=new ArrayList<>();
         for(String value:endpoints){
             RootTcpProbeTarget t=RootTcpProbeTarget.parse(value);
-            if(!checked.contains(t.label()))checked.add(t.label());
+            if(checked.contains(t.label()))throw new IllegalArgumentException("DUPLICATE_ENDPOINT");
+            checked.add(t.label());
         }
         this.endpoints=Collections.unmodifiableList(checked);
     }
