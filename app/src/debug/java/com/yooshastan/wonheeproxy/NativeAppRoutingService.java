@@ -430,6 +430,8 @@ public final class NativeAppRoutingService extends VpnService {
             if(NativeEgressGuard.pending(this))throw new NativePeerProfiles.Rejected("EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE");
             boolean rootGuard=intent.getBooleanExtra("rootEgressGuard",false);
             boolean validationCompat=intent.getBooleanExtra("validationCompat",false);
+            boolean strictIp=intent.getBooleanExtra("strictIpGuard",false);
+            if(strictIp&&(!rootGuard||validationCompat||intent.getBooleanExtra("rootLocalDiscovery",false)))throw new NativePeerProfiles.Rejected("STRICT_IP_REQUIRES_GUARD_NO_BRIDGE_NO_DISCOVERY");
             if(validationCompat&&(!rootGuard||intent.getIntExtra("dnsStrategy",0)!=NativeAppRoutingPolicy.DNS_STRICT))throw new NativePeerProfiles.Rejected("VALIDATION_REQUIRES_ROOT_GUARD_AND_STRICT_DNS");
             if(rootGuard&&!intent.getBooleanExtra("allApps",false))throw new NativePeerProfiles.Rejected("EGRESS_REQUIRES_ALL_APP_CAPTURE");
             if(Build.VERSION.SDK_INT<29){stage="preflight/API_UNSUPPORTED";throw new IllegalStateException();}
@@ -533,7 +535,7 @@ public final class NativeAppRoutingService extends VpnService {
                 Network vpn=vpnNetwork();LinkProperties link=vpn==null?null:cm().getLinkProperties(vpn);
                 if(link==null)throw new NativePeerProfiles.Rejected("EGRESS_TUN_NOT_IDENTIFIED");
                 egressGuard=new NativeEgressGuard(this);
-                egressGuard.install(link.getInterfaceName(),sessionConfigs,intent.getBooleanExtra("rootLocalDiscovery",false),validationBridge==null?0:validationBridge.port(),validationDual);
+                egressGuard.install(link.getInterfaceName(),sessionConfigs,intent.getBooleanExtra("rootLocalDiscovery",false),validationBridge==null?0:validationBridge.port(),validationDual,strictIp);
                 if(stopping)return;
             }
             stage="dns-relay";
@@ -638,7 +640,7 @@ public final class NativeAppRoutingService extends VpnService {
             if(sessionConfigs!=null)Arrays.fill(sessionConfigs,null);
             if(sessionAddresses!=null)Arrays.fill(sessionAddresses,null);
             boolean ok=closePeers()&&!cleanupFailed;
-            // Stop is explicit. Unexpected revocation/destruction retains the narrow
+            // Stop is explicit. Unexpected revocation/destruction retains the
             // owned firewall record for deliberate offline recovery.
             if(egressGuard!=null){
                 Thread.interrupted();
@@ -647,7 +649,7 @@ public final class NativeAppRoutingService extends VpnService {
             }
             if(validationBridge!=null)validationBridge.close();
             if(tun!=null){try{tun.close();}catch(Exception e){ok=false;}tun=null;}
-            if(stopping||captured)report(stats(ok?"STOPPED — peer sessions released; TUN closed; normal networking resumes":"STOPPED — cleanup unconfirmed"));
+            if(stopping||captured)report(stats(ok?"STOPPED — peer sessions released; TUN closed; normal networking resumes":NativeEgressGuard.pending(this)?"STOPPED — owned guard journal retained; inspect/recover offline; protection unconfirmed":"STOPPED — cleanup unconfirmed"));
             serviceRunning=false;
             stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();
         }
