@@ -103,15 +103,17 @@ final class NativeEgressGuardRuntime {
         preflight(p);
     }
     String validationCounters(NativeValidationDnsPlan p)throws Exception{
+        StringBuilder result=new StringBuilder();
+        for(int f:p.families()){
         List<String> out=new ArrayList<>();
-        if(runner.run(out,p.prefix(4)+" -L "+p.chain(4)+" -v -n -x")!=0)
+        if(runner.run(out,p.prefix(f)+" -L "+p.chain(f)+" -v -n -x")!=0)
             throw new IllegalStateException("VALIDATION_COUNTERS_UNAVAILABLE");
         long[] counts=new long[2];boolean[] seen=new boolean[2];int rows=0;
         for(String line:out){
             String[] x=line.trim().split("\\s+");
             if(x.length<3||!x[0].matches("[0-9]+"))continue;
             int idx=-1;
-            for(int i=0;i<2;i++)if(line.contains("/* "+p.tag(4)+"_"+i+" */")){
+            for(int i=0;i<2;i++)if(line.contains("/* "+p.tag(f)+"_"+i+" */")){
                 if(idx!=-1)throw new IllegalStateException("VALIDATION_COUNTER_TAG_AMBIGUOUS");
                 idx=i;
             }
@@ -120,7 +122,11 @@ final class NativeEgressGuardRuntime {
             seen[idx]=true;counts[idx]=Long.parseLong(x[0]);
         }
         if(rows!=2)throw new IllegalStateException("VALIDATION_COUNTER_ROWS_MISMATCH");
-        return "NAT IPv4 redirect UDP="+counts[0]+" TCP="+counts[1]+" · IPv6 redirect not installed";
+        if(result.length()>0)result.append(" · ");
+        result.append("NAT IPv").append(f).append(" redirect UDP=").append(counts[0]).append(" TCP=").append(counts[1]);
+        }
+        if(!p.dual)result.append(" · IPv6 redirect not installed");
+        return result.toString();
     }
     String counters(NativeEgressGuardPlan p)throws Exception{
         StringBuilder report=new StringBuilder();
