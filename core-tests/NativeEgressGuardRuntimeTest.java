@@ -12,6 +12,12 @@ public final class NativeEgressGuardRuntimeTest {
     if(op.equals("-S")){
      out.add("-P OUTPUT ACCEPT");for(String c:m.keySet())if(!c.equals("OUTPUT"))out.add("-N "+c);
      for(String c:m.keySet())for(String r:m.get(c))out.add("-A "+c+" "+r);
+    }else if(op.equals("-L")){
+      int idx=0;for(String r:m.get(chain)){
+        String tag=r.substring(r.indexOf("--comment ")+10).split(" ")[0];
+        String target=r.substring(r.lastIndexOf("-j ")+3);
+        out.add((++idx)+" 100 "+target+" all -- * * 0.0.0.0/0 0.0.0.0/0 /* "+tag+" */");
+      }
     }else if(op.equals("-C")){if(!m.containsKey(chain)||!m.get(chain).contains(rule))return 1;}
     else{
      mutations.add(cmd);
@@ -32,6 +38,7 @@ public final class NativeEgressGuardRuntimeTest {
   NativeEgressGuardPlan p=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,endpoints);
   Fake fake=new Fake();NativeEgressGuardRuntime runtime=new NativeEgressGuardRuntime(fake);
   runtime.install(p);runtime.verify(p);
+  String counters=runtime.counters(p);check(counters.contains("DNS53=")&&counters.contains("DNS853=")&&counters.contains("mDNS=")&&counters.contains("SSDP=")&&counters.contains("other="));
   check(fake.tables.get(4).get("OUTPUT").get(1).equals("-j AFWALL"));
   List<String> rules=fake.tables.get(6).get(p.chain(6));
   Collections.swap(rules,0,1);reject(()->runtime.verify(p));Collections.swap(rules,0,1);
