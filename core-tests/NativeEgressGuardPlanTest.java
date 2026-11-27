@@ -65,6 +65,16 @@ public final class NativeEgressGuardPlanTest {
   }
   reject(()->new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,0,true,true));
   check(!NativeEgressGuardPlan.decode(p.encode()).validationDual);
-  System.out.println("Native egress guard plan and backward compatible dual-stack journal PASS");
+  NativeEgressGuardPlan v4root=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,34567,true,false,true);
+  NativeEgressGuardPlan roundTrip=NativeEgressGuardPlan.decode(v4root.encode());
+  check(roundTrip.validationRoot&&!roundTrip.validationDual&&roundTrip.encode().equals(v4root.encode()));
+  check(Arrays.equals(v4root.validationPlan().families(),new int[]{4}));
+  check(v4root.validationPlan().rules(4).stream().allMatch(x->x.contains("--uid-owner 0 ")));
+  check(v4root.rules(4).get(0).contains("--uid-owner 0 "));
+  check(v4root.rules(6).equals(new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,0,true).rules(6)));
+  check(!NativeEgressGuardPlan.decode(p.encode()).validationRoot);
+  check(NativeEgressGuardPlan.decode(dual.encode()).validationRoot);
+  reject(()->new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,0,true,false,true));
+  System.out.println("Native egress guard plan and versioned IPv4/dual-stack journal PASS");
  }
 }
