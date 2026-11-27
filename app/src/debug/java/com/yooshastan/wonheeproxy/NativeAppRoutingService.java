@@ -21,6 +21,12 @@ public final class NativeAppRoutingService extends VpnService {
     static final String GUARD_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_GUARD_TEST";
     static final String RECOVERY_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_RECOVERY_TEST";
     private volatile boolean guardTest,recoveryTest;
+    static final String ISOLATION_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_ISOLATION_TEST";
+    private final java.util.concurrent.atomic.AtomicInteger isolationRequest=new java.util.concurrent.atomic.AtomicInteger(-2);
+    private int isolationRole=-1;
+    private long isolationUntil;
+    private final long[] isolationOut=new long[3],isolationIn=new long[3];
+    private final long[][] categoryFlows=new long[AppUseCategories.LABELS.length][3];
     static final String DNS_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_DNS_TEST";
     private final AtomicBoolean dnsTest=new AtomicBoolean(),functionalTest=new AtomicBoolean();
     static final String DNS_FUNCTIONAL_TEST="com.yooshastan.wonheeproxy.APP_ROUTE_DNS_FUNCTIONAL_TEST";
@@ -74,6 +80,7 @@ public final class NativeAppRoutingService extends VpnService {
         if(DNS_FUNCTIONAL_TEST.equals(action)){if(started.get())functionalTest.set(true);else stopSelf();return START_NOT_STICKY;}
         if(DNS_TEST.equals(action)){if(started.get())dnsTest.set(true);else stopSelf();return START_NOT_STICKY;}
         if(RECOVERY_TEST.equals(action)){if(started.get()&&autoRecovery)recoveryTest=true;else if(!started.get())stopSelf();return START_NOT_STICKY;}
+        if(ISOLATION_TEST.equals(action)){if(started.get())isolationRequest.set(intent.getIntExtra("role",-1));else stopSelf();return START_NOT_STICKY;}
         if(GUARD_TEST.equals(action)){if(started.get())guardTest=true;else stopSelf();return START_NOT_STICKY;}
         if(STOP.equals(action)){requestStop();if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(!START.equals(action)){if(!started.get())stopSelf();return START_NOT_STICKY;}
@@ -270,33 +277,40 @@ public final class NativeAppRoutingService extends VpnService {
             boolean home=intent.getBooleanExtra("home",false);
             String homeCidr=home?intent.getStringExtra("homeCidr"):"";sessionHomeCidr=homeCidr;
             policy=new NativeAppRoutingPolicy(home?new NativeAppRoutingPolicy.Prefix(homeCidr):null,intent.getIntExtra("default",0),intent.getIntArrayExtra("categories"),intent.getIntArrayExtra("protocols"));
-            stage="protection-config";
+            stage="protection-config/DNS_SELECTION";
             dnsProvider=intent.getIntExtra("dnsProvider",0);dnsRole=intent.getIntExtra("dnsRole",0);dnsMode=intent.getIntExtra("dnsMode",0);dnsAlternate=intent.getIntExtra("dnsAlternate",0);
             if(!NativeDnsTransportPolicy.supports(dnsProvider,dnsMode)||dnsRole<0||dnsRole>1||dnsAlternate<0||dnsAlternate>1)throw new IllegalArgumentException();
             blockExternal853=intent.getBooleanExtra("blockExternal853",true);
+            stage="protection-config/HOSTS";
             if(intent.getBooleanExtra("hostsEnabled",false)){
                 RootBlocklistStore.Snapshot snapshot=RootBlocklistStore.current(getFilesDir());
                 if(snapshot==null)throw new IllegalStateException("missing hosts snapshot");
                 blocklist=Collections.unmodifiableSet(new HashSet<>(snapshot.domains));
             }
+            stage="app-config";
             allApps=intent.getBooleanExtra("allApps",false);
             String[] apps=intent.getStringArrayExtra("apps");int[] categories=intent.getIntArrayExtra("appCategories"),roles=intent.getIntArrayExtra("appRoles");
-            if(apps==null||(!allApps&&apps.length<1)||apps.length>512||categories==null||roles==null||apps.length!=categories.length||apps.length!=roles.length)throw new IllegalArgumentException();
+            if(apps==null||(!allApps&&apps.length<1)||apps.length>512||categories==null||roles==null||apps.length!=categories.length||apps.length!=roles.length)throw new NativePeerProfiles.Rejected("INVALID_APP_RULE_ARRAYS_OR_LIMIT");
             Set<String> selected=new HashSet<>(Arrays.asList(apps));
-            if(selected.size()!=apps.length||selected.contains(getPackageName()))throw new IllegalArgumentException();
+            if(selected.size()!=apps.length||selected.contains(getPackageName()))throw new NativePeerProfiles.Rejected("DUPLICATE_OR_SELF_APP_RULE");
             PackageManager pm=getPackageManager();
             for(int i=0;i<apps.length;i++){
-                if(!AppUseCategories.validPackageName(apps[i]))throw new IllegalArgumentException();
+                if(!AppUseCategories.validPackageName(apps[i]))throw new NativePeerProfiles.Rejected("INVALID_PACKAGE_RULE");
                 NativeAppRoutingPolicy.App assignment=new NativeAppRoutingPolicy.App(categories[i],roles[i]);
                 packageRules.put(apps[i],assignment);
-                if(allApps)continue;
-                int uid=pm.getApplicationInfo(apps[i],0).uid;
+            }
+            if(!allApps)for(String app:apps){
+                int uid=pm.getApplicationInfo(app,0).uid;
                 String[] shared=pm.getPackagesForUid(uid);
-                // Reject shared or ambiguous UID mappings: all visible packages must
-                // be selected and agree; require one visible package for this pilot.
-                if(shared==null||shared.length!=1||!apps[i].equals(shared[0])||uid<10000||owners.containsKey(uid))throw new IllegalArgumentException();
+                if(uid<10000||uid==android.os.Process.myUid()||shared==null||shared.length==0||shared.length>512)throw new NativePeerProfiles.Rejected("SELECTED_UID_UNSUPPORTED_USE_ALL_APP_MODE");
+                NativeAppRoutingPolicy.App assignment=packageRules.get(app);
+                for(String member:shared){
+                    if(!selected.contains(member)||pm.getApplicationInfo(member,0).uid!=uid||!assignment.same(packageRules.get(member)))
+                        throw new NativePeerProfiles.Rejected("SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE");
+                }
                 owners.put(uid,assignment);
             }
+            Log.i(TAG,"PREFLIGHT — "+(allApps?"all-app capture; explicit rules=":"selected-app capture; packages=")+apps.length+"; validated UID groups="+owners.size()+"; bootstrap="+intent.getIntExtra("bootstrapOption",0));
             stage="bootstrap";
             String[] addresses=new String[3],configs=null;
             NativeEndpointBootstrap resolver=new NativeEndpointBootstrap(this,underlay,intent.getIntExtra("bootstrapOption",0));bootstrap=resolver;
@@ -343,7 +357,8 @@ public final class NativeAppRoutingService extends VpnService {
                 long now=SystemClock.elapsedRealtime();
                 String reason=null;
                 if(now>=nextHealth||networkDirty.getAndSet(false)){
-                    if(!dnsOff()||!captureIntact())throw new IllegalStateException();
+                    if(!dnsOff()){stage="private-dns-changed";throw new IllegalStateException();}
+                    if(!captureIntact()){stage="vpn-capture-lost";throw new IllegalStateException();}
                     if(!usable(underlay))reason="physical-underlay-lost";
                     else if(!protectedSockets()||!ready())reason="peer-health";
                     else if(autoRecovery){
@@ -353,8 +368,19 @@ public final class NativeAppRoutingService extends VpnService {
                     nextHealth=now+1000;
                 }
                 if(guardTest){stage="controlled-guard-test";throw new IllegalStateException();}
+                int request=isolationRequest.getAndSet(-2);
+                if(request==-1||(isolationRole>=0&&now>=isolationUntil)){
+                    isolationRole=-1;isolationUntil=0;Log.i(TAG,"ISOLATION TEST — ended; normal assigned routes restored");
+                }
+                if(request>=0){
+                    if(NativeRoutingSafety.isolationAllowed(request,count,dnsRole)){
+                        isolationRole=request;isolationUntil=now+NativeRoutingSafety.ISOLATION_MS;
+                        Log.i(TAG,"ISOLATION TEST — holding "+NativePeerProfiles.SLOTS[request]+" for 30 seconds; no reroute");
+                    }else Log.i(TAG,"ISOLATION TEST — refused: inactive slot or configured DNS exit");
+                }
                 if(recoveryTest||reason!=null){
                     stage=recoveryTest?"controlled-recovery-test":reason;recoveryTest=false;
+                    isolationRole=-1;isolationUntil=0;
                     lastRecoveryReason=stage;recoveryStarted=SystemClock.elapsedRealtime();recoveryFrom=underlay;
                     migration.reset();
                     report(stats("RECOVERING — "+stage+"; stopping forwarding"));
@@ -464,6 +490,7 @@ public final class NativeAppRoutingService extends VpnService {
             if(owner!=RELAY_UID&&key.remotePort==853&&blockExternal853){dnsFirewallDrops++;continue;}
             int role=owner==RELAY_UID&&dnsRelay!=null&&dnsRelay.owns(key)?dnsRelay.role:policy.choose(key,owners.get(owner),owner==UNKNOWN_DNS);
             if(role<0||role>=count){policyDrop++;if(owner==RELAY_UID)relayEnded++;else deniedRoute++;continue;}
+            if(NativeRoutingSafety.held(role,isolationRole,now,isolationUntil)){isolationOut[role]++;continue;}
             byte[] translated=rewrite[role].toSession(p);
             if(translated==null){unsupported++;continue;}
             NativeAppRoutingPolicy.Owner admitted=ledger.admit(key,syn,owner,role,now);
@@ -472,7 +499,7 @@ public final class NativeAppRoutingService extends VpnService {
             if(result==-4){queueDrop++;continue;}if(result!=1){policyDrop++;deniedNative++;continue;}
             if(prior==null){
                 opened[role]++;
-                if(owner!=RELAY_UID){int selector=NativeAppRoutingPolicy.selector(key);if(selector>=0)portFlows[selector][role]++;}
+                if(owner!=RELAY_UID){int selector=NativeAppRoutingPolicy.selector(key);if(selector>=0)portFlows[selector][role]++;NativeAppRoutingPolicy.App app=owners.get(owner);if(app!=null)categoryFlows[app.category][role]++;}
             }
             if(owner==RELAY_UID&&dnsRelay!=null&&dnsRelay.quicOwns(key))dnsRelay.quicTunTx.incrementAndGet();
             outgoing[role]++;outBytes[role]+=n;
@@ -486,6 +513,7 @@ public final class NativeAppRoutingService extends VpnService {
         for(int i=0;i<count;i++)for(int k=0;k<64;k++){
             int n=RootlessNativeBridge.pollRoutePacket(handles[i],buffer);
             if(n==0)break;if(n==-4){foreignReply++;continue;}if(n<0)throw new IllegalStateException();
+            if(NativeRoutingSafety.held(i,isolationRole,now,isolationUntil)){isolationIn[i]++;continue;}
             byte[] p=rewrite[i].toTun(Arrays.copyOf(buffer,n));
             NativeAppRoutingPolicy.Key key=NativeAppRoutingPolicy.key(p,true);
             if(key==null||!ledger.reply(key,i,now)){if(dnsRelay!=null&&dnsRelay.quicOwns(key))dnsRelay.quicTunRejected.incrementAndGet();foreignReply++;continue;}
@@ -505,6 +533,8 @@ public final class NativeAppRoutingService extends VpnService {
     }
     private String stats(String prefix){
         StringBuilder b=new StringBuilder(prefix);
+        b.append("\nIsolation test=").append(isolationRole>=0?NativePeerProfiles.SLOTS[isolationRole]:"off").append(" held out A/B/Home=").append(isolationOut[0]).append("/").append(isolationOut[1]).append("/").append(isolationOut[2]).append(" held in A/B/Home=").append(isolationIn[0]).append("/").append(isolationIn[1]).append("/").append(isolationIn[2]);
+        for(int j=0;j<categoryFlows.length;j++)if(categoryFlows[j][0]+categoryFlows[j][1]+categoryFlows[j][2]>0)b.append("\nCategory flows ").append(AppUseCategories.LABELS[j]).append(" A/B/Home=").append(categoryFlows[j][0]).append("/").append(categoryFlows[j][1]).append("/").append(categoryFlows[j][2]);
         b.append("\nCapture mode=").append(allApps?"all-app preview":"selected apps").append(" resolved UIDs=").append(owners.size());
         for(int j=0;j<portFlows.length;j++)if(portFlows[j][0]+portFlows[j][1]+portFlows[j][2]>0)b.append("\nPort flows ").append(NativeAppRoutingPolicy.SELECTOR_NAMES[j]).append(" A/B/Home=").append(portFlows[j][0]).append("/").append(portFlows[j][1]).append("/").append(portFlows[j][2]);
         for(int i=0;i<count;i++)b.append("\n").append(NativePeerProfiles.SLOTS[i]).append(" new flows=").append(opened[i]).append(" packets out/in=").append(outgoing[i]).append('/').append(incoming[i]).append(" bytes out/in=").append(outBytes[i]).append('/').append(inBytes[i]);
@@ -531,7 +561,7 @@ public final class NativeAppRoutingService extends VpnService {
             .putString("dnsHealth",dnsRelay!=null&&state.equals("ACTIVE")?dnsRelay.health():"Not active").putString("dnsProbe",dnsRelay!=null&&state.equals("ACTIVE")?dnsRelay.probeStatus():"Not active").putString("dnsFunctional",dnsRelay!=null&&state.equals("ACTIVE")?dnsRelay.functionalStatus():"Not active").putString("dnsActiveConfig",dnsRelay!=null&&state.equals("ACTIVE")?NativeProtectedDnsRelay.NAMES[dnsProvider]+" · "+NativeDnsTransportPolicy.LABELS[dnsMode]+" · "+NativePeerProfiles.SLOTS[dnsRole]+" · "+dnsRelay.endpoint:"None")
             .putInt("dnsActiveProvider",dnsProvider).putInt("dnsActiveMode",dnsMode).putInt("dnsActiveRole",dnsRole).putInt("dnsActiveAlternate",dnsAlternate)
             .putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
-            .putLong("networkMigrations",networkMigrations).putLong("lastRecoveryMs",lastRecoveryMs).putString("lastRecoveryReason",lastRecoveryReason).apply();
+            .putInt("isolationRole",isolationRole).putLong("networkMigrations",networkMigrations).putLong("lastRecoveryMs",lastRecoveryMs).putString("lastRecoveryReason",lastRecoveryReason).apply();
         notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"VPN capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting · selected apps not yet protected":state;
         if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")){
             NotificationManager manager=getSystemService(NotificationManager.class);
