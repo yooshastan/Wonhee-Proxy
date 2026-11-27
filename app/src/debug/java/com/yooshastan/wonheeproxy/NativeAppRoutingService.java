@@ -95,7 +95,9 @@ public final class NativeAppRoutingService extends VpnService {
     private int dnsProvider,dnsRole,dnsMode,dnsAlternate;
     private Set<String> blocklist=Collections.emptySet();
     private final AtomicBoolean started=new AtomicBoolean();
-    private volatile boolean stopping;
+    private volatile boolean stopping,explicitStop;
+    private NativeEgressGuard egressGuard;
+    private String egressStatus(){return egressGuard==null?NativeEgressGuard.staleStatus(this):egressGuard.status();}
     private volatile NativeEndpointBootstrap bootstrap;
     private Thread worker;
     private final long[] handles=new long[3];
@@ -117,7 +119,7 @@ public final class NativeAppRoutingService extends VpnService {
         if(RECOVERY_TEST.equals(action)){if(started.get()&&autoRecovery)recoveryTest=true;else if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(ISOLATION_TEST.equals(action)){if(started.get())isolationRequest.set(intent.getIntExtra("role",-1));else stopSelf();return START_NOT_STICKY;}
         if(GUARD_TEST.equals(action)){if(started.get())guardTest=true;else stopSelf();return START_NOT_STICKY;}
-        if(STOP.equals(action)){requestStop();if(!started.get())stopSelf();return START_NOT_STICKY;}
+        if(STOP.equals(action)){explicitStop=true;requestStop();if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(!START.equals(action)){if(!started.get())stopSelf();return START_NOT_STICKY;}
         if(!started.compareAndSet(false,true))return START_NOT_STICKY;
         serviceRunning=true;
@@ -307,6 +309,9 @@ public final class NativeAppRoutingService extends VpnService {
     private void run(Intent intent){
         String stage="preflight";boolean captured=false;
         try{
+            if(NativeEgressGuard.pending(this))throw new NativePeerProfiles.Rejected("EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE");
+            boolean rootGuard=intent.getBooleanExtra("rootEgressGuard",false);
+            if(rootGuard&&!intent.getBooleanExtra("allApps",false))throw new NativePeerProfiles.Rejected("EGRESS_REQUIRES_ALL_APP_CAPTURE");
             if(Build.VERSION.SDK_INT<29){stage="preflight/API_UNSUPPORTED";throw new IllegalStateException();}
             if(!dnsOff()){stage="preflight/PRIVATE_DNS_NOT_OFF";throw new IllegalStateException();}
             if(VpnService.prepare(this)!=null){stage="preflight/VPN_PERMISSION_REQUIRED";throw new IllegalStateException();}
@@ -394,6 +399,14 @@ public final class NativeAppRoutingService extends VpnService {
             long visibleUntil=SystemClock.elapsedRealtime()+8000;
             while(!stopping&&!ownNetwork()){if(SystemClock.elapsedRealtime()>visibleUntil)throw new IllegalStateException();Thread.sleep(50);}
             if(stopping)return;
+            if(rootGuard){
+                stage="root-egress-guard";
+                Network vpn=vpnNetwork();LinkProperties link=vpn==null?null:cm().getLinkProperties(vpn);
+                if(link==null)throw new NativePeerProfiles.Rejected("EGRESS_TUN_NOT_IDENTIFIED");
+                egressGuard=new NativeEgressGuard(this);
+                egressGuard.install(link.getInterfaceName(),sessionConfigs,intent.getBooleanExtra("rootLocalDiscovery",false));
+                if(stopping)return;
+            }
             stage="dns-relay";
             newRelay();
             lastVerifiedUnderlay=physicalLabel(underlay);
@@ -401,6 +414,7 @@ public final class NativeAppRoutingService extends VpnService {
             long nextReport=0,nextHealth=0;
             while(!stopping){
                 long now=SystemClock.elapsedRealtime();
+                if(egressGuard!=null&&egressGuard.failed()){stage="root-egress-verification";throw new IllegalStateException();}
                 String reason=null;
                 if(now>=nextHealth||networkDirty.getAndSet(false)){
                     if(!dnsOff()){stage="private-dns-changed";throw new IllegalStateException();}
@@ -466,7 +480,15 @@ public final class NativeAppRoutingService extends VpnService {
             retireDns();
             if(sessionConfigs!=null)Arrays.fill(sessionConfigs,null);
             if(sessionAddresses!=null)Arrays.fill(sessionAddresses,null);
-            boolean ok=closePeers()&&!cleanupFailed;if(tun!=null){try{tun.close();}catch(Exception e){ok=false;}tun=null;}
+            boolean ok=closePeers()&&!cleanupFailed;
+            // Stop is explicit. Unexpected revocation/destruction retains the narrow
+            // owned firewall record for deliberate offline recovery.
+            if(egressGuard!=null){
+                Thread.interrupted();
+                if(explicitStop){if(!egressGuard.remove())ok=false;}
+                else{egressGuard.retain();ok=false;}
+            }
+            if(tun!=null){try{tun.close();}catch(Exception e){ok=false;}tun=null;}
             if(stopping||captured)report(stats(ok?"STOPPED — peer sessions released; TUN closed; normal networking resumes":"STOPPED — cleanup unconfirmed"));
             serviceRunning=false;
             stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();
@@ -599,6 +621,7 @@ public final class NativeAppRoutingService extends VpnService {
     }
     private String stats(String prefix){
         StringBuilder b=new StringBuilder(prefix);
+        b.append("\nRoot egress guard=").append(egressStatus());
         b.append("\nIsolation test=").append(isolationRole>=0?NativePeerProfiles.SLOTS[isolationRole]:"off").append(" held out A/B/Home=").append(isolationOut[0]).append("/").append(isolationOut[1]).append("/").append(isolationOut[2]).append(" held in A/B/Home=").append(isolationIn[0]).append("/").append(isolationIn[1]).append("/").append(isolationIn[2]);
         for(int j=0;j<categoryFlows.length;j++)if(categoryFlows[j][0]+categoryFlows[j][1]+categoryFlows[j][2]>0)b.append("\nCategory flows ").append(AppUseCategories.LABELS[j]).append(" A/B/Home=").append(categoryFlows[j][0]).append("/").append(categoryFlows[j][1]).append("/").append(categoryFlows[j][2]);
         b.append("\nCapture mode=").append(allApps?"all-app preview":"selected apps").append(" resolved UIDs=").append(owners.size());
@@ -627,7 +650,7 @@ public final class NativeAppRoutingService extends VpnService {
         getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("state",state).putLong("heartbeat",now).putLong("upRate",upRate).putLong("downRate",downRate).putLong("blocked",blocked)
             .putString("dnsHealth",state.equals("ACTIVE")?dnsStatus(0):"Not active").putString("dnsProbe",state.equals("ACTIVE")?dnsStatus(1):"Not active").putString("dnsFunctional",state.equals("ACTIVE")?dnsStatus(2):"Not active").putString("dnsActiveConfig",state.equals("ACTIVE")?NativeProtectedDnsRelay.NAMES[dnsProvider]+" · "+NativeDnsTransportPolicy.LABELS[dnsMode]+" · "+dnsRouteLabel():"None")
             .putInt("dnsActiveStrategy",dnsStrategy).putInt("dnsActiveProvider",dnsProvider).putInt("dnsActiveMode",dnsMode).putInt("dnsActiveRole",dnsRole).putInt("dnsActiveAlternate",dnsAlternate)
-            .putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
+            .putString("egressGuardStatus",egressStatus()).putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
             .putLong("isolationUntil",isolationUntil).putInt("isolationRole",isolationRole).putLong("networkMigrations",networkMigrations).putLong("lastRecoveryMs",lastRecoveryMs).putString("lastRecoveryReason",lastRecoveryReason).apply();
         notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"VPN capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting · apps not yet protected":state;
         if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")){
