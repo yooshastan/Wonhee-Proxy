@@ -63,7 +63,16 @@ final class NativeEgressGuard {
             }
         }
     }
-    void retain(){closing=true;auditor.shutdown();status=pending(context)?"Guard retained · offline recovery required":"Not installed";}
+    void retain(){
+        closing=true;auditor.shutdown();
+        synchronized(LOCK){
+            // Unexpected orderly teardown: try removing the NAT redirect before
+            // closing the listener. Keep the original journal for offline cleanup.
+            if(plan!=null&&plan.validationPlan()!=null)try{runtime.remove(plan.validationPlan());}
+            catch(Exception ignored){}
+            status=pending(context)?"Guard retained · offline recovery required":"Not installed";
+        }
+    }
     boolean remove(){
         closing=true;auditor.shutdown();
         synchronized(LOCK){
