@@ -4,11 +4,19 @@ import java.util.*;
 
 /** Exact-owned netfilter transaction. No policy changes, broad flushes or ACCEPT. */
 final class NativeEgressGuardRuntime {
+    interface OwnedPlan {
+        int[] families();
+        String chain(int family);
+        String tag(int family);
+        String prefix(int family);
+        String anchor(int family);
+        List<String> rules(int family);
+    }
     interface Runner { int run(List<String> output,String command)throws Exception; }
     private final Runner runner;
     NativeEgressGuardRuntime(Runner runner){this.runner=runner;}
     private void checked(String cmd)throws Exception{if(runner.run(null,cmd)!=0)throw new IllegalStateException("EGRESS_COMMAND_FAILED");}
-    private List<String> listing(NativeEgressGuardPlan p,int f)throws Exception{
+    private List<String> listing(OwnedPlan p,int f)throws Exception{
         List<String> out=new ArrayList<>();
         if(runner.run(out,p.prefix(f)+" -S")!=0)throw new IllegalStateException("EGRESS_LIST_UNAVAILABLE");
         if(out.stream().noneMatch(x->x.startsWith("-P OUTPUT ")))throw new IllegalStateException("EGRESS_OUTPUT_UNAVAILABLE");
@@ -18,7 +26,7 @@ final class NativeEgressGuardRuntime {
         boolean chain,anchor,first;
         final List<String> rules=new ArrayList<>();
     }
-    private Snapshot inspect(NativeEgressGuardPlan p,int f,boolean full)throws Exception{
+    private Snapshot inspect(OwnedPlan p,int f,boolean full)throws Exception{
         Snapshot state=new Snapshot();String chain=p.chain(f),tag=p.tag(f);
         List<String> expected=p.rules(f),lines=listing(p,f);
         Set<Integer> present=new LinkedHashSet<>();boolean sawOutput=false;
@@ -51,8 +59,8 @@ final class NativeEgressGuardRuntime {
         if(!checks.isEmpty())checked(String.join(" && ",checks));
         return state;
     }
-    void preflight(NativeEgressGuardPlan p)throws Exception{
-        for(int f:new int[]{4,6}){
+    void preflight(OwnedPlan p)throws Exception{
+        for(int f:p.families()){
             Snapshot s=inspect(p,f,false);
             if(s.chain||s.anchor)throw new IllegalStateException("EGRESS_EXISTING_CHAIN_REFUSED");
         }
@@ -60,28 +68,33 @@ final class NativeEgressGuardRuntime {
     void install(NativeEgressGuardPlan p)throws Exception{
         // No activation of broad IPv4 denial until the narrower device trial is proven.
         if(p.mode!=NativeEgressGuardPlan.DNS_IPV6)throw new IllegalStateException("EGRESS_STRICT_IPV4_NOT_ENABLED");
+        installOwned(p);
+    }
+    void installValidation(NativeValidationDnsPlan p)throws Exception{installOwned(p);}
+    private void installOwned(OwnedPlan p)throws Exception{
         preflight(p);
-        for(int f:new int[]{4,6}){
+        for(int f:p.families()){
             checked(p.prefix(f)+" -N "+p.chain(f));
             for(String rule:p.rules(f))checked(p.prefix(f)+" -A "+p.chain(f)+" "+rule);
             Snapshot s=inspect(p,f,false);
             if(!s.chain||s.anchor||!s.rules.equals(p.rules(f)))throw new IllegalStateException("EGRESS_PREANCHOR_AUDIT_FAILED");
         }
-        for(int f:new int[]{4,6})checked(p.prefix(f)+" -I OUTPUT 1 "+p.anchor(f));
+        for(int f:p.families())checked(p.prefix(f)+" -I OUTPUT 1 "+p.anchor(f));
         verify(p);
     }
-    void verify(NativeEgressGuardPlan p)throws Exception{
-        for(int f:new int[]{4,6})inspect(p,f,true);
+    void verify(OwnedPlan p)throws Exception{
+        for(int f:p.families())inspect(p,f,true);
     }
-    void remove(NativeEgressGuardPlan p)throws Exception{
-        // Refuse foreign or duplicate objects in either family before mutation.
-        Snapshot a=inspect(p,4,false),b=inspect(p,6,false);
-        for(int f:new int[]{4,6}){
-            Snapshot s=f==4?a:b;
+    void remove(OwnedPlan p)throws Exception{
+        // Refuse foreign or duplicate objects in all owned families before mutation.
+        Map<Integer,Snapshot> snapshots=new LinkedHashMap<>();
+        for(int f:p.families())snapshots.put(f,inspect(p,f,false));
+        for(int f:p.families()){
+            Snapshot s=snapshots.get(f);
             if(s.anchor)checked(p.prefix(f)+" -D OUTPUT "+p.anchor(f));
         }
-        for(int f:new int[]{4,6}){
-            Snapshot s=f==4?a:b;
+        for(int f:p.families()){
+            Snapshot s=snapshots.get(f);
             if(!s.chain)continue;
             // Delete each known rule, not the whole chain's contents.
             for(String rule:s.rules)checked(p.prefix(f)+" -D "+p.chain(f)+" "+rule);
