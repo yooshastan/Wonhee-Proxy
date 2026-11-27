@@ -31,7 +31,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private static final int BG=0xfff8f3ff, INK=0xff312446, ACCENT=0xff7051aa, SURFACE=0xffeee4fa, PINK=0xfff4ddec;
     private static final String[] SECTIONS={"Home","Tunnels","Routing","Protection","Activity"};
     private EditText homeCidr;
-    private CheckBox home;
+    private CheckBox home,allApps;
     private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference;
     private CheckBox hostsEnabled,blockExternal853,autoRecovery;
     private TextView hostsStatus,dnsHealth,dnsPending;
@@ -49,7 +49,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.23.0 PREVIEW",12);
+        label(header,"PROXY  /  0.23.1 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -76,7 +76,7 @@ public final class NativeAppRoutingActivity extends Activity {
         button(root,"Routing · choose apps and exits",()->showPage(2));
         button(root,"Protection · DNS and hosts",()->showPage(3));
         button(root,"Activity · connection details",()->showPage(4));
-        label(root,"Selected apps only. Other apps use normal networking. Private DNS must remain OFF.",13);
+        label(root,"Choose all-app preview or selected-app testing in Routing. Protection starts only after VPN establishment. Private DNS must remain OFF.",13);
         button(root,"Enable traffic notification",()->{if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},8330);else notice.setText("Notification permission already available.");});
         root=pages[1];
         label(root,"Tunnels",23);
@@ -127,18 +127,23 @@ public final class NativeAppRoutingActivity extends Activity {
         button(root,"Save & return home",()->{save();showPage(0);});
         root=pages[2];
         label(root,"Routing",23);
+        allApps=new CheckBox(this);allApps.setText("Capture all apps in this Android user (preview)");allApps.setChecked(draft.getBoolean("allApps",false));root.addView(allApps);
+        allApps.setOnCheckedChangeListener((v,on)->{if(on)new android.app.AlertDialog.Builder(this).setTitle("All-app preview").setMessage("All app traffic in this Android user is captured after VPN startup. Unknown owners, conflicting shared UIDs, unsupported protocols and IPv6 are blocked. Some system or LAN services may stop working. Stop restores normal networking. Not an always-on kill switch.").setPositiveButton("Use all-app preview",null).setNegativeButton("Keep selected apps",(d,b)->allApps.setChecked(false)).setOnCancelListener(d->allApps.setChecked(false)).show();});
         label(root,"Categories",18);
-        label(root,"Home destinations take precedence. Assign categories to Exit A or B, inherit default, or block public traffic.",14);
+        label(root,"Explicit blocks win, then authorized Home destinations. Assign categories to Exit A or B, inherit default, or block traffic.",14);
         for(int i=0;i<categories.length;i++){
             label(root,AppUseCategories.LABELS[i],14);categories[i]=spinner(root,CHOICES,draft.getInt("cat"+i,0));
         }
         label(root,"Protocol overrides",18);
-        label(root,"These TCP/UDP destination-port rules override app and category exit assignments for public traffic; explicit app/category blocks still win. Port names are hints, not application-protocol detection.",14);
+        label(root,"Public TCP/UDP destination-port rules override category and app routes. Explicit blocks win; managed DNS uses its configured DNS tunnel. Port names are hints, not protocol detection.",14);
         for(int i=0;i<protocols.length;i++){
             label(root,NativeAppRoutingPolicy.SELECTOR_NAMES[i],14);protocols[i]=spinner(root,CHOICES,draft.getInt("proto"+i,0));
         }
         label(root,"Installed applications",18);
-        label(root,"Select only apps you want to test. Choose a category and optional individual override. Changes apply at the next Start. Start with two browsers and Moka; do not select critical apps.",14);
+        label(root,"All-app mode ignores selection boxes; use them to expand individual category/exit settings. Selected-app mode captures only checked apps. Changes apply at next Start.",14);
+        button(root,"Select all visible apps",()->{for(AppRow a:apps)a.selected.setChecked(true);});
+        button(root,"Clear selected apps",()->{for(AppRow a:apps)a.selected.setChecked(false);});
+        button(root,"Reset categories to automatic suggestions",()->new android.app.AlertDialog.Builder(this).setTitle("Reset app categories?").setMessage("Replaces manual category choices for visible apps; individual exit overrides are retained.").setPositiveButton("Reset",(d,b)->{for(AppRow a:apps)try{android.content.pm.ApplicationInfo info=getPackageManager().getApplicationInfo(a.pkg,0);a.category.setSelection(NativeAppCategorySuggestions.suggest(a.pkg,info.category,(info.flags&android.content.pm.ApplicationInfo.FLAG_SYSTEM)!=0));}catch(Exception ignored){}}).setNegativeButton("Cancel",null).show());
         EditText filter=new EditText(this);filter.setSingleLine(true);filter.setHint("Search installed apps");root.addView(filter);
         LinearLayout appList=new LinearLayout(this);appList.setOrientation(LinearLayout.VERTICAL);root.addView(appList);
         final Map<View,String> searchRows=new LinkedHashMap<>();
@@ -152,7 +157,7 @@ public final class NativeAppRoutingActivity extends Activity {
             selected.setChecked(draft.getBoolean("selected:"+pkg,false));
             LinearLayout appCard=new LinearLayout(this);appCard.setOrientation(LinearLayout.VERTICAL);appCard.addView(selected);appList.addView(appCard);searchRows.put(appCard,selected.getText().toString().toLowerCase(Locale.ROOT));
             LinearLayout detail=new LinearLayout(this);detail.setOrientation(LinearLayout.VERTICAL);
-            label(detail,"Category",13);Spinner category=spinner(detail,AppUseCategories.LABELS,draft.getInt("category:"+pkg,0));
+            label(detail,"Category",13);Spinner category=spinner(detail,AppUseCategories.LABELS,draft.getInt("category:"+pkg,NativeAppCategorySuggestions.suggest(pkg,r.activityInfo.applicationInfo.category,(r.activityInfo.applicationInfo.flags&android.content.pm.ApplicationInfo.FLAG_SYSTEM)!=0)));
             label(detail,"Individual exit override",13);Spinner role=spinner(detail,CHOICES,draft.getInt("role:"+pkg,0));
             appCard.addView(detail);detail.setVisibility(selected.isChecked()?View.VISIBLE:View.GONE);
             selected.setOnCheckedChangeListener((v,checked)->detail.setVisibility(checked?View.VISIBLE:View.GONE));
@@ -166,6 +171,7 @@ public final class NativeAppRoutingActivity extends Activity {
         button(root,"Save & return home",()->{save();notice.setText("Saved. Stop and Start to apply changes.");showPage(0);});
         root=pages[4];
         label(root,"Activity",23);
+        label(root,"Routing evidence · open two browsers assigned to different exits, test their public IPs, and stream Moka. Per-port flow counts below show admitted connections, not verified remote identities.",13);
         status=label(root,"",14);
         button(root,"Copy redacted diagnostics",()->{
             android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
@@ -218,7 +224,7 @@ public final class NativeAppRoutingActivity extends Activity {
         if(functionalTestButton!=null)functionalTestButton.setEnabled(busy&&active);
         if(functionalStatus!=null)functionalStatus.setText("Functional DNS test · "+(active?prefs.getString("dnsFunctional","Not tested"):"Not active"));
         int selected=0;for(AppRow r:apps)if(r.selected.isChecked())selected++;
-        if(summary!=null)summary.setText("Configuration · "+selected+" apps selected · "+(home.isChecked()?"2 exits + Home":"2 exits")+"\nChanges apply on next Start.");
+        if(summary!=null)summary.setText("Configuration · "+(allApps.isChecked()?"All-app preview":selected+" apps selected")+" · "+(home.isChecked()?"2 exits + Home":"2 exits")+"\nChanges apply on next Start.");
         startButton.setEnabled(!busy);stopButton.setEnabled(busy);status.setText(formatActivity(report));
     }
     private static String formatActivity(String report){
@@ -249,7 +255,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private int value(Spinner spinner){return VALUES[spinner.getSelectedItemPosition()];}
     private void save(){
         android.content.SharedPreferences.Editor e=draft.edit().putBoolean("home",home.isChecked()).putString("homeCidr",homeCidr.getText().toString().trim()).putInt("default",fallback.getSelectedItemPosition());
-        e.putBoolean("autoRecovery",autoRecovery.isChecked()).putInt("networkPreference",networkPreference.getSelectedItemPosition());
+        e.putBoolean("allApps",allApps.isChecked()).putBoolean("autoRecovery",autoRecovery.isChecked()).putInt("networkPreference",networkPreference.getSelectedItemPosition());
         e.putInt("dnsMode",dnsMode.getSelectedItemPosition()).putInt("dnsProvider",dnsProvider.getSelectedItemPosition()).putInt("dnsRole",dnsRole.getSelectedItemPosition()).putInt("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putBoolean("hostsEnabled",hostsEnabled.isChecked()).putBoolean("blockExternal853",blockExternal853.isChecked());
         for(int i=0;i<categories.length;i++)e.putInt("cat"+i,categories[i].getSelectedItemPosition());
         for(int i=0;i<protocols.length;i++)e.putInt("proto"+i,protocols[i].getSelectedItemPosition());
@@ -265,15 +271,15 @@ public final class NativeAppRoutingActivity extends Activity {
         for(int i=0;i<3;i++)ips[i]=overrides[i].getText().toString().trim();
         int def=fallback.getSelectedItemPosition();
         new NativeAppRoutingPolicy(useHome?new NativeAppRoutingPolicy.Prefix(cidr):null,def,cat,proto);
-        List<AppRow> selected=new ArrayList<>();for(AppRow r:apps)if(r.selected.isChecked())selected.add(r);
-        if(selected.isEmpty()||selected.size()>32)throw new IllegalArgumentException();
+        List<AppRow> selected=new ArrayList<>();for(AppRow r:apps)if(allApps.isChecked()||r.selected.isChecked())selected.add(r);
+        if((!allApps.isChecked()&&selected.isEmpty())||selected.size()>512)throw new IllegalArgumentException();
         String[] names=new String[selected.size()];int[] appCat=new int[names.length],appRole=new int[names.length];
         for(int i=0;i<names.length;i++){AppRow r=selected.get(i);names[i]=r.pkg;appCat[i]=r.category.getSelectedItemPosition();appRole[i]=value(r.role);}
         String[] checked=NativePeerProfiles.prepare(this,useHome,ips,new String[3]);Arrays.fill(checked,null);
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
             .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("dnsMode",dnsMode.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
-            .putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
+            .putExtra("allApps",allApps.isChecked()).putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
     private void launch(){try{startForegroundService(makeIntent());notice.setText("Starting…");;}catch(Exception e){notice.setText("Start refused: "+e.getClass().getSimpleName());}}
     private void refresh(){
