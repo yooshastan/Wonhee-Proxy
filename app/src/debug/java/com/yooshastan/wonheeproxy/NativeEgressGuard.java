@@ -28,12 +28,22 @@ final class NativeEgressGuard {
     static String staleStatus(Context c){return pending(c)?"Owned guard journal present · Stop or recover before Start":"No owned guard journal";}
     String status(){return status;}
     boolean failed(){return failed;}
-    void install(String tun,String[] configs,boolean discovery,int validationPort)throws Exception{
+    // Read-only capability check before Android captures apps. A nonzero
+    // IPv6 NAT listing means unavailable/unverified, not a filter exemption.
+    static boolean validationDualAvailable(Context context)throws Exception{
+        RootShell shell=new RootShell(context.getApplicationContext());
+        List<String> out=new ArrayList<>();
+        if(shell.run(out,"iptables -w 3 -t nat -S")!=0||out.stream().noneMatch(x->x.startsWith("-P OUTPUT ")))
+            throw new NativePeerProfiles.Rejected("VALIDATION_IPV4_NAT_UNAVAILABLE");
+        out.clear();
+        return shell.run(out,"ip6tables -w 3 -t nat -S")==0&&out.stream().anyMatch(x->x.startsWith("-P OUTPUT "));
+    }
+    void install(String tun,String[] configs,boolean discovery,int validationPort,boolean validationDual)throws Exception{
         synchronized(LOCK){
             if(pending(context))throw new IllegalStateException("EGRESS_JOURNAL_PENDING");
             byte[] bytes=new byte[6];new SecureRandom().nextBytes(bytes);
             StringBuilder token=new StringBuilder();for(byte b:bytes)token.append(String.format(Locale.ROOT,"%02x",b&255));
-            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort,true,validationPort!=0);
+            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort,true,validationDual,validationPort!=0);
             runtime.preflight(plan);
             if(plan.validationPlan()!=null)runtime.preflight(plan.validationPlan());
             if(!prefs(context).edit().putString(KEY,plan.encode()).commit())throw new IllegalStateException("EGRESS_JOURNAL_WRITE_FAILED");
