@@ -9,12 +9,16 @@ final class NativeEgressGuardPlan implements NativeEgressGuardRuntime.OwnedPlan 
     static final int DNS_IPV6=1, STRICT_IP=2;
     final String token, tun;
     final int uid, mode, validationPort;
-    final boolean localDiscovery;
+    final boolean localDiscovery, dnsDiagnostics;
     final List<String> endpoints;
     NativeEgressGuardPlan(String token,String tun,int uid,int mode,boolean localDiscovery,List<String> endpoints){
         this(token,tun,uid,mode,localDiscovery,endpoints,0);
     }
     NativeEgressGuardPlan(String token,String tun,int uid,int mode,boolean localDiscovery,List<String> endpoints,int validationPort){
+        this(token,tun,uid,mode,localDiscovery,endpoints,validationPort,false);
+    }
+    NativeEgressGuardPlan(String token,String tun,int uid,int mode,boolean localDiscovery,List<String> endpoints,int validationPort,boolean dnsDiagnostics){
+        this.dnsDiagnostics=dnsDiagnostics;
         if(token==null||!token.matches("[0-9a-f]{12}")||tun==null||!tun.matches("tun[0-9]{1,8}")
             ||uid<10000||(mode!=DNS_IPV6&&mode!=STRICT_IP)||endpoints==null||endpoints.size()<2||endpoints.size()>3)
             throw new IllegalArgumentException("INVALID_EGRESS_PLAN");
@@ -80,8 +84,17 @@ final class NativeEgressGuardPlan implements NativeEgressGuardRuntime.OwnedPlan 
             base.add("-p udp --dport 5353 -j DROP");
             base.add("-p udp --dport 1900 -j DROP");
         }
-        for(String proto:new String[]{"tcp","udp"})for(int port:new int[]{53,853})
-            base.add("-p "+proto+" --dport "+port+" -j DROP");
+        // Partition the existing terminal DNS53 DROP by Wi-Fi and actual
+        // kernel socket owner. No new RETURN/ACCEPT, no logging or payload capture.
+        for(String proto:new String[]{"tcp","udp"}){
+            if(dnsDiagnostics){
+                for(int owner:new int[]{1051,1073,0,1000})
+                    base.add("-o wlan0 -p "+proto+" --dport 53 -m owner --uid-owner "+owner+" -j DROP");
+                base.add("-o wlan0 -p "+proto+" --dport 53 -j DROP");
+            }
+            base.add("-p "+proto+" --dport 53 -j DROP");
+            base.add("-p "+proto+" --dport 853 -j DROP");
+        }
         // In the narrow mode all remaining IPv4 is unchanged. IPv6 direct data is denied.
         base.add(family==6||mode==STRICT_IP?"-j DROP":"-j RETURN");
         List<String> result=new ArrayList<>();
@@ -91,16 +104,17 @@ final class NativeEgressGuardPlan implements NativeEgressGuardRuntime.OwnedPlan 
         }
         return result;
     }
-    String encode(){return token+"\n"+tun+"\n"+uid+"\n"+mode+"\n"+(localDiscovery?"1":"0")+"\n"+String.join("\n",endpoints)+(validationPort==0?"":"\nvalidation="+validationPort);}
+    String encode(){return token+"\n"+tun+"\n"+uid+"\n"+mode+"\n"+(localDiscovery?"1":"0")+"\n"+String.join("\n",endpoints)+(validationPort==0?"":"\nvalidation="+validationPort)+(dnsDiagnostics?"\ndiagnostics=1":"");}
     static NativeEgressGuardPlan decode(String data){
         if(data==null||data.length()>1024)throw new IllegalArgumentException("INVALID_EGRESS_JOURNAL");
         String[] p=data.split("\\n",-1);
-        if(p.length<7||p.length>9||(!p[4].equals("0")&&!p[4].equals("1")))throw new IllegalArgumentException("INVALID_EGRESS_JOURNAL");
+        if(p.length<7||p.length>10||(!p[4].equals("0")&&!p[4].equals("1")))throw new IllegalArgumentException("INVALID_EGRESS_JOURNAL");
         int end=p.length,port=0;
+        boolean diagnostics=p[end-1].equals("diagnostics=1");if(diagnostics)end--;
         if(p[end-1].startsWith("validation=")){
             port=Integer.parseInt(p[--end].substring("validation=".length()));
             if(port<1024||port>65535)throw new IllegalArgumentException("INVALID_VALIDATION_PORT");
         }
-        return new NativeEgressGuardPlan(p[0],p[1],Integer.parseInt(p[2]),Integer.parseInt(p[3]),p[4].equals("1"),Arrays.asList(p).subList(5,end),port);
+        return new NativeEgressGuardPlan(p[0],p[1],Integer.parseInt(p[2]),Integer.parseInt(p[3]),p[4].equals("1"),Arrays.asList(p).subList(5,end),port,diagnostics);
     }
 }
