@@ -125,6 +125,9 @@ public final class NativeAppRoutingService extends VpnService {
     private final AtomicBoolean started=new AtomicBoolean();
     private volatile boolean stopping,explicitStop;
     private NativeEgressGuard egressGuard;
+    private NativeValidationDnsBridge validationBridge;
+    private boolean validationWifi;
+    private String validationStatus(){return validationBridge==null?"Off":validationBridge.status();}
     private String egressStatus(){return egressGuard==null?NativeEgressGuard.staleStatus(this):egressGuard.status();}
     private volatile NativeEndpointBootstrap bootstrap;
     private Thread worker;
@@ -318,6 +321,7 @@ public final class NativeAppRoutingService extends VpnService {
         }
     }
     private void retireDns(){
+        if(validationBridge!=null)validationBridge.setRelay(null);
         StringBuilder stats=new StringBuilder();
         for(NativeProtectedDnsRelay old:dnsRelays)if(old!=null)old.close();
         for(int i=0;i<dnsRelays.length;i++){
@@ -419,6 +423,8 @@ public final class NativeAppRoutingService extends VpnService {
         try{
             if(NativeEgressGuard.pending(this))throw new NativePeerProfiles.Rejected("EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE");
             boolean rootGuard=intent.getBooleanExtra("rootEgressGuard",false);
+            boolean validationCompat=intent.getBooleanExtra("validationCompat",false);
+            if(validationCompat&&(!rootGuard||intent.getIntExtra("dnsStrategy",0)!=NativeAppRoutingPolicy.DNS_STRICT))throw new NativePeerProfiles.Rejected("VALIDATION_REQUIRES_ROOT_GUARD_AND_STRICT_DNS");
             if(rootGuard&&!intent.getBooleanExtra("allApps",false))throw new NativePeerProfiles.Rejected("EGRESS_REQUIRES_ALL_APP_CAPTURE");
             if(Build.VERSION.SDK_INT<29){stage="preflight/API_UNSUPPORTED";throw new IllegalStateException();}
             if(!dnsOff()){stage="preflight/PRIVATE_DNS_NOT_OFF";throw new IllegalStateException();}
@@ -511,8 +517,9 @@ public final class NativeAppRoutingService extends VpnService {
                 stage="root-egress-guard";
                 Network vpn=vpnNetwork();LinkProperties link=vpn==null?null:cm().getLinkProperties(vpn);
                 if(link==null)throw new NativePeerProfiles.Rejected("EGRESS_TUN_NOT_IDENTIFIED");
+                if(validationCompat)validationBridge=new NativeValidationDnsBridge();
                 egressGuard=new NativeEgressGuard(this);
-                egressGuard.install(link.getInterfaceName(),sessionConfigs,intent.getBooleanExtra("rootLocalDiscovery",false));
+                egressGuard.install(link.getInterfaceName(),sessionConfigs,intent.getBooleanExtra("rootLocalDiscovery",false),validationBridge==null?0:validationBridge.port());
                 if(stopping)return;
             }
             stage="dns-relay";
@@ -528,6 +535,8 @@ public final class NativeAppRoutingService extends VpnService {
                 if(now>=nextHealth||networkDirty.getAndSet(false)){
                     if(!dnsOff()){stage="private-dns-changed";throw new IllegalStateException();}
                     if(!captureIntact()){stage="vpn-capture-lost";throw new IllegalStateException();}
+                    LinkProperties physicalLink=cm().getLinkProperties(underlay);
+                    validationWifi=physicalLink!=null&&"wlan0".equals(physicalLink.getInterfaceName());
                     boolean androidValidated=usable(underlay);
                     boolean peerReady=protectedSockets()&&ready();
                     if(androidValidated!=lastAndroidValidated){
@@ -577,6 +586,7 @@ public final class NativeAppRoutingService extends VpnService {
                 }
                 if(dnsTest.getAndSet(false))runDnsTests(false,now);
                 if(functionalTest.getAndSet(false))runDnsTests(true,now);
+                if(validationBridge!=null)validationBridge.setRelay(validationWifi&&!NativeRoutingSafety.held(0,isolationRole,now,isolationUntil)?dnsRelays[0]:null);
                 pump(now);
                 // Prime configured encrypted relays after the pump is running;
                 // skip any held role and never use the physical resolver.
@@ -607,6 +617,7 @@ public final class NativeAppRoutingService extends VpnService {
             }
         }finally{
             unwatchNetworks();
+            if(validationBridge!=null)validationBridge.close();
             retireDns();
             if(sessionConfigs!=null)Arrays.fill(sessionConfigs,null);
             if(sessionAddresses!=null)Arrays.fill(sessionAddresses,null);
@@ -763,6 +774,7 @@ public final class NativeAppRoutingService extends VpnService {
     private String stats(String prefix){
         StringBuilder b=new StringBuilder(prefix);
         b.append("\nRoot egress guard=").append(egressStatus());
+        b.append("\nValidation DNS bridge=").append(validationStatus());
         b.append("\nIsolation test=").append(isolationRole>=0?NativePeerProfiles.SLOTS[isolationRole]:"off").append(" held out A/B/Home=").append(isolationOut[0]).append("/").append(isolationOut[1]).append("/").append(isolationOut[2]).append(" held in A/B/Home=").append(isolationIn[0]).append("/").append(isolationIn[1]).append("/").append(isolationIn[2]);
         for(int j=0;j<categoryFlows.length;j++)if(categoryFlows[j][0]+categoryFlows[j][1]+categoryFlows[j][2]>0)b.append("\nCategory flows ").append(AppUseCategories.LABELS[j]).append(" A/B/Home=").append(categoryFlows[j][0]).append("/").append(categoryFlows[j][1]).append("/").append(categoryFlows[j][2]);
         b.append("\nCapture mode=").append(allApps?"all-app preview":"selected apps").append(" resolved UIDs=").append(owners.size());
@@ -793,7 +805,7 @@ public final class NativeAppRoutingService extends VpnService {
         getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("state",state).putLong("heartbeat",now).putLong("upRate",upRate).putLong("downRate",downRate).putLong("blocked",blocked)
             .putString("dnsHealth",state.equals("ACTIVE")?dnsStatus(0):"Not active").putString("dnsProbe",state.equals("ACTIVE")?dnsStatus(1):"Not active").putString("dnsFunctional",state.equals("ACTIVE")?dnsStatus(2):"Not active").putString("dnsActiveConfig",state.equals("ACTIVE")?NativeProtectedDnsRelay.NAMES[dnsProvider]+" · "+NativeDnsTransportPolicy.LABELS[dnsMode]+" · "+dnsRouteLabel():"None")
             .putInt("dnsActiveStrategy",dnsStrategy).putInt("dnsActiveProvider",dnsProvider).putInt("dnsActiveMode",dnsMode).putInt("dnsActiveRole",dnsRole).putInt("dnsActiveAlternate",dnsAlternate)
-            .putString("egressGuardStatus",egressStatus()).putString("peerEvidence",peerEvidence).putString("peerDetails",state.equals("ACTIVE")?peerDetails(now):"Not active").putString("trialStatus",trialStatus).putLong("validationLosses",validationLosses).putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
+            .putString("egressGuardStatus",egressStatus()).putString("validationStatus",validationStatus()).putString("peerEvidence",peerEvidence).putString("peerDetails",state.equals("ACTIVE")?peerDetails(now):"Not active").putString("trialStatus",trialStatus).putLong("validationLosses",validationLosses).putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
             .putLong("isolationUntil",isolationUntil).putInt("isolationRole",isolationRole).putLong("networkMigrations",networkMigrations).putLong("lastRecoveryMs",lastRecoveryMs).putString("lastRecoveryReason",lastRecoveryReason).apply();
         notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"VPN capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting · apps not yet protected":state;
         if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")){
