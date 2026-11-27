@@ -33,7 +33,7 @@ final class NativeEgressGuard {
             if(pending(context))throw new IllegalStateException("EGRESS_JOURNAL_PENDING");
             byte[] bytes=new byte[6];new SecureRandom().nextBytes(bytes);
             StringBuilder token=new StringBuilder();for(byte b:bytes)token.append(String.format(Locale.ROOT,"%02x",b&255));
-            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort);
+            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort,true);
             runtime.preflight(plan);
             if(plan.validationPlan()!=null)runtime.preflight(plan.validationPlan());
             if(!prefs(context).edit().putString(KEY,plan.encode()).commit())throw new IllegalStateException("EGRESS_JOURNAL_WRITE_FAILED");
@@ -50,8 +50,14 @@ final class NativeEgressGuard {
     }
     // Counter presentation is diagnostic, not the verified rule integrity check.
     private String verifiedStatus(){
-        try{return "Verified · "+runtime.counters(plan);}
-        catch(Exception e){return "Verified · counters unavailable";}
+        String result;
+        try{result="Verified · "+runtime.counters(plan);}
+        catch(Exception e){result="Verified · filter counters unavailable";}
+        if(plan.validationPlan()!=null){
+            try{result+=" · "+runtime.validationCounters(plan.validationPlan());}
+            catch(Exception e){result+=" · NAT counters unavailable";}
+        }else result+=" · NAT redirect off";
+        return result;
     }
     private void audit(){
         synchronized(LOCK){
