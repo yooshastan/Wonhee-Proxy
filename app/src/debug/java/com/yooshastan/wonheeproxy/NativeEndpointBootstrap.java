@@ -8,10 +8,17 @@ import java.net.*;
 import java.util.*;
 import javax.net.ssl.*;
 
-// Explicit pre-tunnel DNS-over-HTTPS (HTTP/1.1 over authenticated TLS). Never use Android/system DNS, never retry plaintext.
+// Explicit pre-tunnel DNS-over-HTTPS or DNS-over-TLS; fixed numeric provider addresses. Never use Android/system DNS, never retry plaintext.
 final class NativeEndpointBootstrap {
     private final VpnService service;
     private final Network network;
+    static final String[] OPTIONS={"Cloudflare DoH · TCP 443","Cloudflare DoT · TCP 853","Quad9 DoH · TCP 443","Quad9 DoT · TCP 853","AdGuard DoH · TCP 443","AdGuard DoT · TCP 853"};
+    private static final String[] HOSTS={"cloudflare-dns.com","dns.quad9.net","dns.adguard-dns.com"};
+    private static final byte[][] IPS={{1,1,1,1},{9,9,9,9},{94,(byte)140,14,14}};
+    private final String tlsHost;
+    private final byte[] resolverIp;
+    private final int port;
+    static boolean validOption(int n){return n>=0&&n<OPTIONS.length;}
     private final Map<String,Cache> cache=new HashMap<>();
     private final String[] status={"numeric/override","numeric/override","numeric/override"};
     private boolean closed;
@@ -39,7 +46,8 @@ final class NativeEndpointBootstrap {
         final String ip;final long expiry;
         Cache(String ip,long expiry){this.ip=ip;this.expiry=expiry;}
     }
-    NativeEndpointBootstrap(VpnService service,Network network){this.service=service;this.network=network;}
+    NativeEndpointBootstrap(VpnService service,Network network){this(service,network,0);}
+    NativeEndpointBootstrap(VpnService service,Network network,int option){if(!validOption(option))throw new IllegalArgumentException();this.service=service;this.network=network;tlsHost=HOSTS[option/2];resolverIp=IPS[option/2].clone();port=option%2==0?443:853;}
     private int timeout()throws IOException{
         long left=deadline-SystemClock.elapsedRealtime();if(left<=0)throw new IOException();
         return (int)Math.min(5000L,left);
@@ -61,7 +69,7 @@ final class NativeEndpointBootstrap {
         if(a==null)a=query(host,28);
         if(a==null)throw new Failure("NO_USABLE_ANSWER");
         if(a.ttl>0)cache.put(host,new Cache(a.ip,SystemClock.elapsedRealtime()+a.ttl*1000L));
-        status[slot]="authenticated-DoH";
+        status[slot]=port==443?"authenticated-DoH":"authenticated-DoT";
         return a.ip;
     }
     String resolveTransferTarget()throws Exception{
@@ -70,7 +78,7 @@ final class NativeEndpointBootstrap {
         return answer.ip;
     }
     private NativeEndpointDnsMessage.Answer query(String host,int type)throws Exception{
-        int id=0; // RFC 8484 recommends zero for HTTP-correlated DNS queries
+        int id=port==443?0:new java.security.SecureRandom().nextInt(65536);
         byte[] q=NativeEndpointDnsMessage.query(host,id,type);
         String stage="socket-create";
         try(Socket raw=new Socket()){
@@ -84,25 +92,28 @@ final class NativeEndpointBootstrap {
             stage="network-bind";
             network.bindSocket(raw);
             stage="connect";
-            raw.connect(new InetSocketAddress(InetAddress.getByAddress(new byte[]{1,1,1,1}),443),timeout());
+            raw.connect(new InetSocketAddress(InetAddress.getByAddress(resolverIp),port),timeout());
             raw.setSoTimeout(timeout());
             stage="tls-setup";
             SSLSocketFactory factory=(SSLSocketFactory)SSLSocketFactory.getDefault();
-            try(SSLSocket tls=(SSLSocket)factory.createSocket(raw,"cloudflare-dns.com",443,true)){
+            try(SSLSocket tls=(SSLSocket)factory.createSocket(raw,tlsHost,port,true)){
                 SSLParameters params=tls.getSSLParameters();
                 params.setEndpointIdentificationAlgorithm("HTTPS");
-                params.setServerNames(Collections.singletonList(new SNIHostName("cloudflare-dns.com")));
+                params.setServerNames(Collections.singletonList(new SNIHostName(tlsHost)));
                 tls.setSSLParameters(params);
                 stage="tls-handshake";
                 tls.setSoTimeout(timeout());tls.startHandshake();
-                stage="doh-write";
-                NativeBootstrapHttp.request(tls.getOutputStream(),q);
-                stage="doh-read";
+                stage=port==443?"doh-write":"dot-write";
+                if(port==443)NativeBootstrapHttp.request(tls.getOutputStream(),q,tlsHost);
+                else{DataOutputStream out=new DataOutputStream(tls.getOutputStream());out.writeShort(q.length);out.write(q);out.flush();}
+                stage=port==443?"doh-read":"dot-read";
                 InputStream bounded=new FilterInputStream(tls.getInputStream()){
                     @Override public int read()throws IOException{tls.setSoTimeout(timeout());return in.read();}
                     @Override public int read(byte[] b,int off,int len)throws IOException{tls.setSoTimeout(timeout());return in.read(b,off,len);}
                 };
-                byte[] b=NativeBootstrapHttp.response(new BufferedInputStream(bounded));
+                byte[] b;
+                if(port==443)b=NativeBootstrapHttp.response(new BufferedInputStream(bounded));
+                else{DataInputStream in=new DataInputStream(bounded);int n=in.readUnsignedShort();if(n<12||n>16384)throw new IOException();b=new byte[n];in.readFully(b);}
                 stage="dns-validate";
                 return NativeEndpointDnsMessage.parse(b,host,id,type);
             }
