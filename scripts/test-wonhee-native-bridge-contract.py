@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(164)' in gradle
+assert 'versionCode.set(165)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.26.0-egress-guard')" in gradle
+assert "versionName.set('0.26.1-underlay-recovery')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -299,3 +299,20 @@ assert 'EGRESS_STRICT_IPV4_NOT_ENABLED' in egress_runtime
 assert ' -F ' not in egress_runtime and ' -P ' not in egress_runtime and '-j ACCEPT' not in egress_plan
 assert 'RootGuardSafetyGate' not in egress_runtime
 assert 'static boolean activationPaused() { return true; }' in (root / "app/src/main/java/com/yooshastan/wonheeproxy/RootGuardSafetyGate.java").read_text()
+
+# 0.26.1: validation loss alone is not a physical failure under the root guard.
+assert 'private Network preferredNetwork(){return pickNetwork(false,false);}' in app_routing
+assert 'NativeUnderlayPolicy.sessionCandidate(eligibleLink(n),usable(n),guardedSession())' in app_routing
+assert 'NET_CAPABILITY_CAPTIVE_PORTAL' in app_routing
+assert 'if(!sessionUsable(underlay))reason="physical-underlay-lost"' in app_routing
+assert 'else if(!peerReady)reason="peer-health"' in app_routing
+assert 'NativeUnderlayPolicy.retainUnvalidated' in app_routing and 'Network next=recoveryCandidate()' in app_routing
+assert 'FAILED_TRIAL_COOLDOWN_MS' in app_routing and 'UNDERLAY TRIAL — ' in app_routing
+assert 'if(!captureIntact()||!dnsOff()||!sessionUsable(next)||!protectedSockets()' in app_routing
+assert 'isolationRole=-1;isolationUntil=0;' not in app_routing[app_routing.index('if(recoveryTest||reason!=null)'):app_routing.index('if(dnsTest.getAndSet(false))')]
+assert 'retained "+NativePeerProfiles.SLOTS[isolationRole]+" through recovery; original deadline unchanged' in app_routing
+assert 'UNDERLAY PROBE — encrypted DNS through non-held exits; diagnostic only' in app_routing
+assert 'nextValidationProbe=now+30000' in app_routing
+assert 'egressGuard!=null&&egressGuard.failed()' in app_routing
+assert 'peerEvidence' in ui_activity and 'validationLosses' in ui_activity
+assert 'per-rule counters unavailable' in egress_runtime and 'DNS53=' in egress_runtime
