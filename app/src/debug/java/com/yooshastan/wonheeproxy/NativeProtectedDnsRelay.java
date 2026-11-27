@@ -39,6 +39,9 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicBoolean probeRunning=new java.util.concurrent.atomic.AtomicBoolean();
     private volatile long lastSuccessMs,lastFailureMs;
     private final NativeDnsFreshBackoff freshBackoff=new NativeDnsFreshBackoff();
+    private final Object coldQuicGate=new Object();
+    private volatile boolean quicEstablished;
+    final AtomicLong coldQuicTrials=new AtomicLong();
     private final long tcpHandle;
     private final byte[] quicRoots;
     private final ArrayDeque<QuicConnection> quicIdle=new ArrayDeque<>();
@@ -343,6 +346,21 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         return answer;
     }
     private byte[] exchangeQuic(byte[] query)throws Exception{
+        // During cold startup, let one worker establish the first authenticated
+        // connection. Never block the TUN pump or bypass the existing backoff.
+        // Once verified, the original pooled concurrency is restored.
+        if(!quicEstablished)synchronized(coldQuicGate){
+            if(!quicEstablished){
+                if(closed)throw new IOException("relay stopped");
+                coldQuicTrials.incrementAndGet();
+                byte[] answer=exchangeQuicInternal(query);
+                quicEstablished=true;
+                return answer;
+            }
+        }
+        return exchangeQuicInternal(query);
+    }
+    private byte[] exchangeQuicInternal(byte[] query)throws Exception{
         if(closed)throw new IOException("relay stopped");
         QuicConnection c;
         synchronized(quicIdle){c=quicIdle.pollFirst();}
