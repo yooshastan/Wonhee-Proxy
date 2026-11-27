@@ -8,8 +8,12 @@ import java.util.Locale;
 final class NativeBootstrapHttp {
     private static final int MAX_BODY=16384,MAX_HEADERS=16384;
     static void request(OutputStream out,byte[] query)throws IOException{
+        request(out,query,"cloudflare-dns.com");
+    }
+    static void request(OutputStream out,byte[] query,String host)throws IOException{
+        if(!host.equals("cloudflare-dns.com")&&!host.equals("dns.quad9.net")&&!host.equals("dns.adguard-dns.com"))throw new IOException();
         if(query.length<12||query.length>512)throw new IOException();
-        String headers="POST /dns-query HTTP/1.1\r\nHost: cloudflare-dns.com\r\nAccept: application/dns-message\r\nContent-Type: application/dns-message\r\nAccept-Encoding: identity\r\nConnection: close\r\nContent-Length: "+query.length+"\r\n\r\n";
+        String headers="POST /dns-query HTTP/1.1\r\nHost: "+host+"\r\nAccept: application/dns-message\r\nContent-Type: application/dns-message\r\nAccept-Encoding: identity\r\nConnection: close\r\nContent-Length: "+query.length+"\r\n\r\n";
         out.write(headers.getBytes(StandardCharsets.US_ASCII));out.write(query);out.flush();
     }
     private static String line(InputStream in,int[] budget)throws IOException{
