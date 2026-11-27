@@ -30,6 +30,14 @@ public final class NativeUnderlayPolicyTest {
   yes(!NativeUnderlayPolicy.retainUnvalidated(1,false,true,false,true));
   yes(!NativeUnderlayPolicy.trialAllowed(999,1000));
   yes(NativeUnderlayPolicy.trialAllowed(1000,1000));
-  System.out.println("Underlay preference, validation separation and debounce PASS");
+  m.put(421L,2);m.put(447L,1);
+  eq(NativeUnderlayPolicy.recoveryTarget(0,447,421,m),447);
+  eq(NativeUnderlayPolicy.recoveryTarget(1,447,421,m),421);
+  eq(NativeUnderlayPolicy.recoveryTarget(0,421,421,m),421);
+  m.remove(447L);eq(NativeUnderlayPolicy.recoveryTarget(0,447,421,m),421);
+  m.clear();eq(NativeUnderlayPolicy.recoveryTarget(0,447,421,m),0);
+  eq(NativeUnderlayPolicy.handshakeBudget(true),15000L);
+  eq(NativeUnderlayPolicy.handshakeBudget(false),60000L);
+  System.out.println("Underlay preference, validation separation, pinned recovery target and debounce PASS");
  }
 }
