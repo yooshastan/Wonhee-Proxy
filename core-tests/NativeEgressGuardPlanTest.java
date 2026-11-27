@@ -27,6 +27,27 @@ public final class NativeEgressGuardPlanTest {
   reject(()->new NativeEgressGuardPlan("123456abcdef","tun0",10123,3,false,eps));
   reject(()->new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,Arrays.asList("host.invalid:443","192.0.2.1:53")));
   reject(()->NativeEgressGuardPlan.endpoints(new String[]{"Endpoint = 192.0.2.1:53\nEndpoint = 192.0.2.2:53"}));
-  System.out.println("Native egress guard plan PASS");
+  for(int port:new int[]{0,34567}){
+   NativeEgressGuardPlan d=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,port,true);
+   NativeEgressGuardPlan decoded=NativeEgressGuardPlan.decode(d.encode());
+   check(decoded.dnsDiagnostics&&decoded.validationPort==port&&decoded.encode().equals(d.encode()));
+   NativeEgressGuardPlan old=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,port);
+   check(!NativeEgressGuardPlan.decode(old.encode()).dnsDiagnostics);
+   for(int f:new int[]{4,6}){
+    List<String> rules=d.rules(f);
+    check(decoded.rules(f).equals(rules));
+    check(rules.stream().filter(x->x.contains("-o wlan0 ")&&x.contains("--dport 53 ")&&x.endsWith("-j DROP")).count()==10);
+    for(int owner:new int[]{1051,1073,0,1000})
+     check(rules.stream().filter(x->x.contains("-o wlan0 ")&&x.contains("--uid-owner "+owner+" ")&&x.endsWith("-j DROP")).count()==2);
+    // Removing only the new terminal drops leaves the original policy,
+    // ignoring renumbered exact-ownership comments.
+    List<String> unchanged=new ArrayList<>();
+    for(String rule:rules)if(!rule.contains("-o wlan0 "))unchanged.add(rule.replaceAll(" -m comment --comment WNE_[a-f0-9]+_[46]_[0-9]+",""));
+    List<String> baseline=new ArrayList<>();
+    for(String rule:old.rules(f))baseline.add(rule.replaceAll(" -m comment --comment WNE_[a-f0-9]+_[46]_[0-9]+",""));
+    check(unchanged.equals(baseline));
+   }
+  }
+  System.out.println("Native egress guard plan and backward compatible diagnostics journal PASS");
  }
 }
