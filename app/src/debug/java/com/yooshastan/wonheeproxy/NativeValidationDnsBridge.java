@@ -17,7 +17,9 @@ final class NativeValidationDnsBridge implements AutoCloseable {
     private volatile boolean closed;
     private volatile Socket currentTcp,currentTcp6;
     private final AtomicLong requests=new AtomicLong(),refused=new AtomicLong(),answered=new AtomicLong(),failed=new AtomicLong();
-    NativeValidationDnsBridge()throws IOException{
+    private final boolean dual;
+    NativeValidationDnsBridge(boolean dual)throws IOException{
+        this.dual=dual;
         InetAddress loop=InetAddress.getByAddress(new byte[]{127,0,0,1});
         InetAddress loop6=InetAddress.getByAddress(new byte[]{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1});
         ServerSocket t=new ServerSocket(),t6=null;DatagramSocket u=null,u6=null;
@@ -25,19 +27,19 @@ final class NativeValidationDnsBridge implements AutoCloseable {
             t.bind(new InetSocketAddress(loop,0),4);
             if(t.getLocalPort()<1024)throw new IOException("invalid local port");
             u=new DatagramSocket(null);u.bind(new InetSocketAddress(loop,t.getLocalPort()));
-            t6=new ServerSocket();t6.bind(new InetSocketAddress(loop6,t.getLocalPort()),4);
-            u6=new DatagramSocket(null);u6.bind(new InetSocketAddress(loop6,t.getLocalPort()));
+            if(dual){t6=new ServerSocket();t6.bind(new InetSocketAddress(loop6,t.getLocalPort()),4);
+                u6=new DatagramSocket(null);u6.bind(new InetSocketAddress(loop6,t.getLocalPort()));}
         }catch(IOException|RuntimeException e){try{t.close();}catch(IOException ignored){}if(u!=null)u.close();if(t6!=null)try{t6.close();}catch(IOException ignored){}if(u6!=null)u6.close();throw e;}
         tcp=t;udp=u;tcp6=t6;udp6=u6;
         udpWorker=new Thread(()->udpLoop(udp),"WonheeValidationUdp4");
         tcpWorker=new Thread(()->tcpLoop(tcp,false),"WonheeValidationTcp4");
-        udpWorker6=new Thread(()->udpLoop(udp6),"WonheeValidationUdp6");
-        tcpWorker6=new Thread(()->tcpLoop(tcp6,true),"WonheeValidationTcp6");
-        udpWorker.start();tcpWorker.start();udpWorker6.start();tcpWorker6.start();
+        udpWorker6=dual?new Thread(()->udpLoop(udp6),"WonheeValidationUdp6"):null;
+        tcpWorker6=dual?new Thread(()->tcpLoop(tcp6,true),"WonheeValidationTcp6"):null;
+        udpWorker.start();tcpWorker.start();if(dual){udpWorker6.start();tcpWorker6.start();}
     }
     int port(){return tcp.getLocalPort();}
     void setRelay(NativeProtectedDnsRelay next){relay=closed?null:next;}
-    String status(){return "Dual-stack validation bridge · "+(closed?"closed":relay==null?"waiting/held":"Exit A")+
+    String status(){return (dual?"Dual-stack validation bridge · ":"IPv4 root validation bridge · IPv6 NAT unavailable/unverified · ")+(closed?"closed":relay==null?"waiting/held":"Exit A")+
         " requests="+requests.get()+" answered="+answered.get()+" refused="+refused.get()+" failed="+failed.get();}
     private boolean local(InetAddress address){
         try{return address.isLoopbackAddress()||NetworkInterface.getByInetAddress(address)!=null;}
@@ -94,12 +96,12 @@ final class NativeValidationDnsBridge implements AutoCloseable {
         }
     }
     @Override public void close(){
-        closed=true;relay=null;udp.close();udp6.close();
-        for(ServerSocket listener:new ServerSocket[]{tcp,tcp6})try{listener.close();}catch(IOException ignored){}
+        closed=true;relay=null;udp.close();if(udp6!=null)udp6.close();
+        for(ServerSocket listener:new ServerSocket[]{tcp,tcp6})if(listener!=null)try{listener.close();}catch(IOException ignored){}
         for(Socket socket:new Socket[]{currentTcp,currentTcp6})if(socket!=null)try{socket.close();}catch(IOException ignored){}
-        for(Thread t:new Thread[]{udpWorker,tcpWorker,udpWorker6,tcpWorker6})t.interrupt();
+        for(Thread t:new Thread[]{udpWorker,tcpWorker,udpWorker6,tcpWorker6})if(t!=null)t.interrupt();
         boolean interrupted=false;
-        for(Thread t:new Thread[]{udpWorker,tcpWorker,udpWorker6,tcpWorker6})try{t.join(1000);}catch(InterruptedException e){interrupted=true;}
+        for(Thread t:new Thread[]{udpWorker,tcpWorker,udpWorker6,tcpWorker6})if(t!=null)try{t.join(1000);}catch(InterruptedException e){interrupted=true;}
         if(interrupted)Thread.currentThread().interrupt();
     }
 }
