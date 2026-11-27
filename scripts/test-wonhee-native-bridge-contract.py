@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(160)' in gradle
+assert 'versionCode.set(161)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.23.1-network-stabilization')" in gradle
+assert "versionName.set('0.24.0-reliability-security')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -250,3 +250,16 @@ assert 'allApps.isChecked()' in ui_activity and 'draft.getBoolean("allApps",fals
 assert 'Port flows ' in app_routing and 'portFlows[selector][role]++' in app_routing
 assert 'InvalidQuicResponse' in protected_dns and 'if(e instanceof InvalidQuicResponse)ok=true' in protected_dns
 assert 'android.permission.QUERY_ALL_PACKAGES' in manifest and 'android.permission.QUERY_ALL_PACKAGES' not in (root / "app/src/main/AndroidManifest.xml").read_text()
+
+# 0.24: bounded retry and hold tests; no provider fallback or bypass.
+assert 'NativeRoutingSafety.retryBootstrap' in bootstrap and 'queryOnce(host,type)' in bootstrap
+assert 'BOOTSTRAP RETRY' in bootstrap and 'stopped()' in bootstrap
+assert 'SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE' in app_routing
+assert 'SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE' in ui_activity
+assert 'r.category.getSelectedItemPosition()!=r.suggested' in ui_activity
+assert 'NativeRoutingSafety.isolationAllowed(request,count,dnsRole)' in app_routing
+assert app_routing.index('NativeRoutingSafety.held(role,isolationRole,now,isolationUntil)') < app_routing.index('RootlessNativeBridge.injectPacket(handles[role],translated)')
+assert 'NativeRoutingSafety.held(i,isolationRole,now,isolationUntil)' in app_routing
+assert 'Category flows ' in app_routing and 'ISOLATION_TEST' in ui_activity
+assert 'protection unconfirmed' in ui_activity
+assert 'Check configuration (offline)' in ui_activity
