@@ -136,11 +136,11 @@ final class NativeEgressGuard {
             String counters="Counters unavailable unless filter integrity is verified";
             if(filter.equals("Exact rules and first anchors present")){
                 try{counters=runtime.counters(p);runtime.verify(p);}
-                catch(Exception e){counters="Counters or subsequent verification unconfirmed";}
+                catch(Exception e){counters="Counters or subsequent verification unconfirmed";filter="Verification unconfirmed";}
             }
             return (p.mode==NativeEgressGuardPlan.STRICT_IP?"Strict IP preview":"DNS/IPv6 guard")
-                +" · filter: "+filter+" · NAT: "+nat+"\\n"+bootEvidence(c)+"\\n"+counters
-                +"\\nJournal retained; counters are cumulative, packet protection not proven";
+                +" · filter: "+filter+" · NAT: "+nat+"\n"+bootEvidence(c)+"\n"+counters
+                +"\nJournal retained; counters are cumulative, packet protection not proven";
 
         }
     }
