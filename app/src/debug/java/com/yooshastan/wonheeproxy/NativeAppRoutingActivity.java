@@ -49,7 +49,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.22.3 PREVIEW",12);
+        label(header,"PROXY  /  0.23.0 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -101,7 +101,7 @@ public final class NativeAppRoutingActivity extends Activity {
         label(root,"Recovery keeps selected apps inside the existing TUN. It uses the current session's endpoints and stops after five attempts. No protection guarantee if Android revokes or kills VPN.",13);
         label(root,"Encrypted DNS protocol",14);
         dnsMode=spinner(root,NativeDnsTransportPolicy.LABELS,draft.getInt("dnsMode",0));
-        label(root,"DoT: all four providers. DoQ: Quad9 or AdGuard. DoH3: Cloudflare, Quad9 or AdGuard (experimental). Unsupported combinations are refused; select a supported provider before Start. Endpoint bootstrap remains authenticated DoT.",13);
+        label(root,"DoT: all four providers. DoQ: Quad9 or AdGuard. DoH3: Cloudflare, Quad9 or AdGuard (experimental). Unsupported combinations are refused; select a supported provider before Start. Endpoint bootstrap uses authenticated Cloudflare DoH (TCP 443), independent of protected DNS. No plaintext fallback.",13);
         label(root,"Encrypted DNS provider",14);
         dnsProvider=spinner(root,NativeProtectedDnsRelay.NAMES,draft.getInt("dnsProvider",0));
         label(root,"DNS tunnel (all captured system DNS)",14);
