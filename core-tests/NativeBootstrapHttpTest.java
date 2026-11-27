@@ -23,6 +23,9 @@ public final class NativeBootstrapHttpTest {
         NativeBootstrapHttp.request(out,new byte[12]);
         String request=out.toString("US-ASCII");
         if(!request.startsWith("POST /dns-query HTTP/1.1\r\nHost: cloudflare-dns.com\r\n")||!request.contains("Content-Length: 12\r\n\r\n"))throw new AssertionError();
+        out.reset();NativeBootstrapHttp.request(out,new byte[12],"dns.quad9.net");
+        if(!out.toString("US-ASCII").contains("Host: dns.quad9.net\r\n"))throw new AssertionError();
+        try{NativeBootstrapHttp.request(out,new byte[12],"example.com");throw new AssertionError();}catch(IOException expected){}
         System.out.println("Native bootstrap HTTP checks PASS");
     }
 }
