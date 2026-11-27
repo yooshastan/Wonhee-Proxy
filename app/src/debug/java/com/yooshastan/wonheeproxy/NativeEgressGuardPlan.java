@@ -9,7 +9,7 @@ final class NativeEgressGuardPlan implements NativeEgressGuardRuntime.OwnedPlan 
     static final int DNS_IPV6=1, STRICT_IP=2;
     final String token, tun;
     final int uid, mode, validationPort;
-    final boolean localDiscovery, dnsDiagnostics, validationDual;
+    final boolean localDiscovery, dnsDiagnostics, validationDual, validationRoot;
     final List<String> endpoints;
     NativeEgressGuardPlan(String token,String tun,int uid,int mode,boolean localDiscovery,List<String> endpoints){
         this(token,tun,uid,mode,localDiscovery,endpoints,0);
@@ -21,6 +21,11 @@ final class NativeEgressGuardPlan implements NativeEgressGuardRuntime.OwnedPlan 
         this(token,tun,uid,mode,localDiscovery,endpoints,validationPort,dnsDiagnostics,false);
     }
     NativeEgressGuardPlan(String token,String tun,int uid,int mode,boolean localDiscovery,List<String> endpoints,int validationPort,boolean dnsDiagnostics,boolean validationDual){
+        this(token,tun,uid,mode,localDiscovery,endpoints,validationPort,dnsDiagnostics,validationDual,validationDual);
+    }
+    NativeEgressGuardPlan(String token,String tun,int uid,int mode,boolean localDiscovery,List<String> endpoints,int validationPort,boolean dnsDiagnostics,boolean validationDual,boolean validationRoot){
+        if(validationRoot&&validationPort==0||validationDual&&!validationRoot)throw new IllegalArgumentException("INVALID_VALIDATION_OWNER");
+        this.validationRoot=validationRoot;
         if(validationDual&&validationPort==0)throw new IllegalArgumentException("INVALID_DUAL_VALIDATION");
         this.validationDual=validationDual;
         this.dnsDiagnostics=dnsDiagnostics;
@@ -52,7 +57,7 @@ final class NativeEgressGuardPlan implements NativeEgressGuardRuntime.OwnedPlan 
         return endpoints;
     }
     public int[] families(){return new int[]{4,6};}
-    NativeValidationDnsPlan validationPlan(){return validationPort==0?null:new NativeValidationDnsPlan(token,validationPort,validationDual);}
+    NativeValidationDnsPlan validationPlan(){return validationPort==0?null:new NativeValidationDnsPlan(token,validationPort,validationDual,validationRoot);}
     public String chain(int family){return "WNE"+family+"_"+token;}
     public String tag(int family){return "WNE_"+token+"_"+family;}
     public String prefix(int family){if(family!=4&&family!=6)throw new IllegalArgumentException();return (family==4?"iptables":"ip6tables")+" -w 3 -t filter";}
@@ -109,18 +114,20 @@ final class NativeEgressGuardPlan implements NativeEgressGuardRuntime.OwnedPlan 
         }
         return result;
     }
-    String encode(){return token+"\n"+tun+"\n"+uid+"\n"+mode+"\n"+(localDiscovery?"1":"0")+"\n"+String.join("\n",endpoints)+(validationPort==0?"":"\nvalidation="+validationPort)+(dnsDiagnostics?"\ndiagnostics=1":"")+(validationDual?"\nvalidationDual=1":"");}
+    String encode(){return token+"\n"+tun+"\n"+uid+"\n"+mode+"\n"+(localDiscovery?"1":"0")+"\n"+String.join("\n",endpoints)+(validationPort==0?"":"\nvalidation="+validationPort)+(dnsDiagnostics?"\ndiagnostics=1":"")+(validationDual?"\nvalidationDual=1":"")+(validationRoot&&!validationDual?"\nvalidationRoot=1":"");}
     static NativeEgressGuardPlan decode(String data){
         if(data==null||data.length()>1024)throw new IllegalArgumentException("INVALID_EGRESS_JOURNAL");
         String[] p=data.split("\\n",-1);
         if(p.length<7||p.length>11||(!p[4].equals("0")&&!p[4].equals("1")))throw new IllegalArgumentException("INVALID_EGRESS_JOURNAL");
         int end=p.length,port=0;
+        boolean rootOnly=p[end-1].equals("validationRoot=1");if(rootOnly)end--;
         boolean dual=p[end-1].equals("validationDual=1");if(dual)end--;
+        if(rootOnly&&dual)throw new IllegalArgumentException("INVALID_VALIDATION_OWNER");
         boolean diagnostics=p[end-1].equals("diagnostics=1");if(diagnostics)end--;
         if(p[end-1].startsWith("validation=")){
             port=Integer.parseInt(p[--end].substring("validation=".length()));
             if(port<1024||port>65535)throw new IllegalArgumentException("INVALID_VALIDATION_PORT");
         }
-        return new NativeEgressGuardPlan(p[0],p[1],Integer.parseInt(p[2]),Integer.parseInt(p[3]),p[4].equals("1"),Arrays.asList(p).subList(5,end),port,diagnostics,dual);
+        return new NativeEgressGuardPlan(p[0],p[1],Integer.parseInt(p[2]),Integer.parseInt(p[3]),p[4].equals("1"),Arrays.asList(p).subList(5,end),port,diagnostics,dual,rootOnly||dual);
     }
 }
