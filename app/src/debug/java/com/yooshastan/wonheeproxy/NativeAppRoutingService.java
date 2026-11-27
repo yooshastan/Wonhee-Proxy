@@ -617,7 +617,6 @@ public final class NativeAppRoutingService extends VpnService {
             }
         }finally{
             unwatchNetworks();
-            if(validationBridge!=null)validationBridge.close();
             retireDns();
             if(sessionConfigs!=null)Arrays.fill(sessionConfigs,null);
             if(sessionAddresses!=null)Arrays.fill(sessionAddresses,null);
@@ -629,6 +628,7 @@ public final class NativeAppRoutingService extends VpnService {
                 if(explicitStop){if(!egressGuard.remove())ok=false;}
                 else{egressGuard.retain();ok=false;}
             }
+            if(validationBridge!=null)validationBridge.close();
             if(tun!=null){try{tun.close();}catch(Exception e){ok=false;}tun=null;}
             if(stopping||captured)report(stats(ok?"STOPPED — peer sessions released; TUN closed; normal networking resumes":"STOPPED — cleanup unconfirmed"));
             serviceRunning=false;
