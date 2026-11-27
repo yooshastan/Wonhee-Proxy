@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(161)' in gradle
+assert 'versionCode.set(162)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.24.0-reliability-security')" in gradle
+assert "versionName.set('0.25.0-configuration-persistence')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -263,3 +263,10 @@ assert 'NativeRoutingSafety.held(i,isolationRole,now,isolationUntil)' in app_rou
 assert 'Category flows ' in app_routing and 'ISOLATION_TEST' in ui_activity
 assert 'protection unconfirmed' in ui_activity
 assert 'Check configuration (offline)' in ui_activity
+
+# Configuration retention contract: same draft namespace and package, autosaved routes and endpoint overrides, bounded route-only backup.
+assert 'native_app_route_draft_v1' in ui_activity
+assert 'wireDraftAutosave()' in ui_activity and 'autoSave();super.onPause()' in ui_activity
+assert 'draft.getString("endpointOverride"+i,"")' in ui_activity and 'e.putString("endpointOverride"+i' in ui_activity
+assert 'EXPORT_RULES' in ui_activity and 'IMPORT_RULES' in ui_activity and 'if(routingKey(key))e.remove(key)' in ui_activity
+assert '1048576' in ui_activity and 'putRoutingValue(e,k,values.get(k))' in ui_activity

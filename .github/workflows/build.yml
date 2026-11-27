@@ -34,7 +34,7 @@ jobs:
         run: python3 scripts/test-wonhee-home-entrypoints.py
       - name: Verify App Routing draft privacy and safety contract
         run: python3 scripts/test-wonhee-app-routing.py
-      - name: Verify debug-only 0.24.0 RootLab APK and read-only readiness screen
+      - name: Verify debug-only 0.25.0 RootLab APK and read-only readiness screen
         run: python3 scripts/test-wonhee-rootlab-preview.py
       - name: Verify secure endpoint DNS wire codec
         run: |
@@ -445,13 +445,13 @@ jobs:
           apk="app/build/outputs/apk/debug/app-debug.apk"
           aapt="$ANDROID_HOME/build-tools/35.0.0/aapt"
           badging="$("$aapt" dump badging "$apk")"
-          printf '%s\n' "$badging" | grep -F "package: name='com.yooshastan.wonheeproxy.rootlab01562triple1native160' versionCode='161' versionName='0.24.0-reliability-security'"
+          printf '%s\n' "$badging" | grep -F "package: name='com.yooshastan.wonheeproxy.rootlab01562triple1native160' versionCode='162' versionName='0.25.0-configuration-persistence'"
           launchers="$(printf '%s\n' "$badging" | grep '^launchable-activity:')"
           test "$(printf '%s\n' "$launchers" | wc -l)" -eq 1
           printf '%s\n' "$launchers" | grep -F "name='com.yooshastan.wonheeproxy.NativeAppRoutingActivity'"
       - uses: actions/upload-artifact@v4
         with:
-          name: wonhee-0.24.0-reliability-security-apk
+          name: wonhee-0.25.0-configuration-persistence-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
