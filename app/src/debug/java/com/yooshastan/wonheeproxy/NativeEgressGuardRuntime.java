@@ -154,7 +154,7 @@ final class NativeEgressGuardRuntime {
         for(int f:new int[]{4,6}){
             List<String> out=new ArrayList<>();
             if(runner.run(out,p.prefix(f)+" -L "+p.chain(f)+" -v -n -x")!=0)throw new IllegalStateException("EGRESS_COUNTERS_UNAVAILABLE");
-            long dropped=0,returned=0,dns53=0,dns853=0,mdns=0,ssdp=0,other=0;int rows=0;
+            long dropped=0,returned=0,dns53=0,dns853=0,mdns=0,ssdp=0,other=0,terminalDrop=0;int rows=0;
             List<String> expected=p.rules(f);boolean detailed=true;
             long[] wifiDns=new long[5];long nonWifiDns=0;
             int[] ownerUids={1051,1073,0,1000};
@@ -168,6 +168,7 @@ final class NativeEgressGuardRuntime {
                 rows++;
                 if(x[2].equals("DROP")){
                     dropped+=n;
+                    if(rows==expected.size()&&rule.endsWith("-j DROP"))terminalDrop=n;
                     if(rule.contains("--dport 53 ")){
                         dns53+=n;
                         if(p.dnsDiagnostics){
@@ -193,6 +194,7 @@ final class NativeEgressGuardRuntime {
             if(detailed)report.append(" [DNS53=").append(dns53).append(" DNS853=").append(dns853)
                 .append(" mDNS=").append(mdns).append(" SSDP=").append(ssdp).append(" other=").append(other).append("]");
             else report.append(" [per-rule counters unavailable]");
+            if(detailed&&p.mode==NativeEgressGuardPlan.STRICT_IP)report.append(" [terminal DROP packets=").append(terminalDrop).append("]");
             if(detailed&&p.dnsDiagnostics)report.append(" [DNS53 Wi-Fi owner 1051=").append(wifiDns[0])
                 .append(" 1073=").append(wifiDns[1]).append(" root=").append(wifiDns[2])
                 .append(" system=").append(wifiDns[3]).append(" other/unmatched=").append(wifiDns[4])
