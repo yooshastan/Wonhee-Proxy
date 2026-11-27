@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(172)' in gradle
+assert 'versionCode.set(173)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.27.0-protection-hardening')" in gradle
+assert "versionName.set('0.27.1-protection-modes')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -389,3 +389,17 @@ assert 'p.mode!=NativeEgressGuardPlan.STRICT_IP||p.localDiscovery||p.validationP
 assert 'String offlineState(OwnedPlan p)' in egress_runtime and 'if(!any)return "Absent"' in egress_runtime
 assert 'static String inspectOffline(Context c)' in egress and 'Inspect owned guard (offline)' in ui_activity
 assert 'if(explicitStop){if(!egressGuard.remove())ok=false;}' in app_routing and 'else{egressGuard.retain();ok=false;}' in app_routing
+
+# 0.27.1: exclusive protection modes, retained journal and boot evidence.
+assert 'protectionMode=spinner(root,PROTECTION_MODES,previousMode)' in ui_activity
+assert 'return protection()==PROTECT_STRICT' in ui_activity and 'return protection()==PROTECT_WIFI' in ui_activity
+assert 'return protection()==PROTECT_DNS||protection()==PROTECT_WIFI' in ui_activity
+assert 'if(!discoveryAllowed())rootLocalDiscovery.setChecked(false)' in ui_activity
+assert 'draft.getBoolean("validationCompat",false)?PROTECT_WIFI' in ui_activity
+assert 'Wi-Fi recovery mode requires Strict DNS under Protection.' in ui_activity
+assert 'Guard recovery required · protection unconfirmed' in ui_activity
+assert 'Settings.Global.BOOT_COUNT' in egress and '.putInt(BOOT,bootCount(context)).commit()' in egress
+assert '.remove(KEY).remove(BOOT).putString(RECEIPT,receipt)' in egress
+assert 'Explicit offline recovery: prior filter ' in egress and 'Explicit Stop: owned rules absent after cleanup' in egress
+assert 'terminal DROP packets=' in egress_runtime and 'p.mode==NativeEgressGuardPlan.STRICT_IP' in egress_runtime
+assert 'counters=runtime.counters(p);runtime.verify(p)' in egress
