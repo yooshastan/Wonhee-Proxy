@@ -8,8 +8,8 @@ final class NativeAppRoutingPolicy {
     static final int TUN=MultiTunnelIpv4Rewriter.parseIpv4("10.253.0.1");
     static final int DNS=MultiTunnelIpv4Rewriter.parseIpv4("1.1.1.1");
     static final int MAX_FLOWS=4096;
-    static final int[][] SELECTORS={{6,80},{6,443},{17,443},{6,53},{17,53},{6,853},{17,853},{6,22},{6,110},{6,995},{6,143},{6,993},{6,465},{6,587}};
-    static final String[] SELECTOR_NAMES={"HTTP · TCP 80","HTTPS · TCP 443","QUIC-like · UDP 443","DNS · TCP 53","DNS · UDP 53","DoT-like · TCP 853","DoQ-like · UDP 853","SSH · TCP 22","POP3 · TCP 110","POP3 TLS · TCP 995","IMAP · TCP 143","IMAP TLS · TCP 993","SMTP TLS · TCP 465","SMTP submission · TCP 587"};
+    static final int[][] SELECTORS={{6,80},{6,443},{17,443},{6,53},{17,53},{6,853},{17,853},{6,22},{6,110},{6,995},{6,143},{6,993},{6,465},{6,587},{6,25},{17,123}};
+    static final String[] SELECTOR_NAMES={"HTTP · TCP 80","HTTPS · TCP 443","QUIC-like · UDP 443","DNS · TCP 53","DNS · UDP 53","DoT-like · TCP 853","DoQ-like · UDP 853","SSH · TCP 22","POP3 · TCP 110","POP3 TLS · TCP 995","IMAP · TCP 143","IMAP TLS · TCP 993","SMTP TLS · TCP 465","SMTP submission · TCP 587","SMTP · TCP 25","NTP · UDP 123"};
     static final class App {
         final int category,role;
         App(int category,int role){
@@ -48,13 +48,13 @@ final class NativeAppRoutingPolicy {
         for(int r:categories)if(!choice(r))throw new IllegalArgumentException();
         for(int r:protocols)if(!choice(r))throw new IllegalArgumentException();
     }
+    static int selector(Key key){for(int i=0;i<SELECTORS.length;i++)if(SELECTORS[i][0]==key.proto&&SELECTORS[i][1]==key.remotePort)return i;return -1;}
     int choose(Key key,App app,boolean systemDns){
         // Only explicitly configured private Home ranges can reach Home.
         if(app==null&&(!systemDns||!key.fixedDns()))return DROP;
+        if(app!=null&&(app.role==DROP||categories[app.category]==DROP))return DROP;
         if(privateIp(key.remote))return app!=null&&home!=null&&home.contains(key.remote)?HOME:DROP;
         if(!publicIp(key.remote))return DROP;
-        // Explicit public-traffic blocks are not overridden by a port route.
-        if(app!=null&&(app.role==DROP||app.role==INHERIT&&categories[app.category]==DROP))return DROP;
         for(int i=0;i<SELECTORS.length;i++)if(SELECTORS[i][0]==key.proto&&SELECTORS[i][1]==key.remotePort&&protocols[i]!=INHERIT)return protocols[i];
         if(app==null)return fallback; // fixed resolver only, no other unidentified traffic
         if(app.role!=INHERIT)return app.role;
