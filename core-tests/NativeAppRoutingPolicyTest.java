@@ -21,7 +21,14 @@ public class NativeAppRoutingPolicyTest {
   eq(p.choose(key("8.8.8.8",6,443),null,false),-1);
   eq(p.choose(key("8.8.8.8",6,443),null,true),-1);
   eq(p.choose(key("8.8.8.8",6,443),blocked,false),-1);
-  NativeAppRoutingPolicy.Ledger l=new NativeAppRoutingPolicy.Ledger();
+  eq(p.choose(key("10.0.0.169",6,443),blocked,false),-1);
+   cat[AppUseCategories.REGIONAL]=-1;
+   NativeAppRoutingPolicy p2=new NativeAppRoutingPolicy(new NativeAppRoutingPolicy.Prefix("10.0.0.0/24"),0,cat,pro);
+   eq(p2.choose(key("8.8.8.8",6,443),direct,false),-1);
+   eq(p2.choose(key("10.0.0.169",6,443),direct,false),-1);
+   eq(NativeAppRoutingPolicy.selector(key("8.8.8.8",17,123)),15);
+   eq(NativeAppRoutingPolicy.selector(key("8.8.8.8",6,25)),14);
+   NativeAppRoutingPolicy.Ledger l=new NativeAppRoutingPolicy.Ledger();
   NativeAppRoutingPolicy.Key tcp=key("8.8.8.8",6,443),udp=key("1.1.1.1",17,53);
   if(l.admit(tcp,false,10001,0,1)!=null||l.reply(tcp,0,1))throw new AssertionError("unowned flow");
   if(l.admit(tcp,true,10001,0,1)==null||!l.reply(tcp,0,2)||l.reply(tcp,1,2))throw new AssertionError("ownership");
