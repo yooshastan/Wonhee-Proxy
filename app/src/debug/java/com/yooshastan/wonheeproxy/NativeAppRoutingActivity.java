@@ -32,7 +32,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private static final String[] SECTIONS={"Home","Tunnels","Routing","Protection","Activity"};
     private EditText homeCidr;
     private CheckBox home,allApps;
-    private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference;
+    private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference,bootstrapOption;
     private CheckBox hostsEnabled,blockExternal853,autoRecovery;
     private TextView hostsStatus,dnsHealth,dnsPending;
     private Button dnsTestButton,functionalTestButton;
@@ -80,6 +80,9 @@ public final class NativeAppRoutingActivity extends Activity {
         button(root,"Enable traffic notification",()->{if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},8330);else notice.setText("Notification permission already available.");});
         root=pages[1];
         label(root,"Tunnels",23);
+        label(root,"Secure endpoint bootstrap (before VPN)",15);
+        bootstrapOption=spinner(root,NativeEndpointBootstrap.OPTIONS,draft.getInt("bootstrapOption",0));
+        label(root,"Default Cloudflare DoH is the tested control. Alternatives are explicit, no fallback. Numeric overrides skip endpoint DNS.",13);
         label(root,"Physical connection preference",15);
         networkPreference=spinner(root,NativeUnderlayPolicy.LABELS,draft.getInt("networkPreference",NativeUnderlayPolicy.WIFI_FIRST));
         label(root,"Wi-Fi or cellular preferences use the other validated physical network if needed. Android best available uses Android's best physical match where supported. Maintain current switches only on loss. Migration requires automatic recovery. Changes apply on next Start.",13);
@@ -101,7 +104,7 @@ public final class NativeAppRoutingActivity extends Activity {
         label(root,"Recovery keeps selected apps inside the existing TUN. It uses the current session's endpoints and stops after five attempts. No protection guarantee if Android revokes or kills VPN.",13);
         label(root,"Encrypted DNS protocol",14);
         dnsMode=spinner(root,NativeDnsTransportPolicy.LABELS,draft.getInt("dnsMode",0));
-        label(root,"DoT: all four providers. DoQ: Quad9 or AdGuard. DoH3: Cloudflare, Quad9 or AdGuard (experimental). Unsupported combinations are refused; select a supported provider before Start. Endpoint bootstrap uses authenticated Cloudflare DoH (TCP 443), independent of protected DNS. No plaintext fallback.",13);
+        label(root,"DoT: all four providers. DoQ: Quad9 or AdGuard. DoH3: Cloudflare, Quad9 or AdGuard (experimental). Unsupported combinations are refused; select a supported provider before Start. Endpoint bootstrap is configured separately in Tunnels. No plaintext fallback.",13);
         label(root,"Encrypted DNS provider",14);
         dnsProvider=spinner(root,NativeProtectedDnsRelay.NAMES,draft.getInt("dnsProvider",0));
         label(root,"DNS tunnel (all captured system DNS)",14);
@@ -255,7 +258,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private int value(Spinner spinner){return VALUES[spinner.getSelectedItemPosition()];}
     private void save(){
         android.content.SharedPreferences.Editor e=draft.edit().putBoolean("home",home.isChecked()).putString("homeCidr",homeCidr.getText().toString().trim()).putInt("default",fallback.getSelectedItemPosition());
-        e.putBoolean("allApps",allApps.isChecked()).putBoolean("autoRecovery",autoRecovery.isChecked()).putInt("networkPreference",networkPreference.getSelectedItemPosition());
+        e.putInt("bootstrapOption",bootstrapOption.getSelectedItemPosition()).putBoolean("allApps",allApps.isChecked()).putBoolean("autoRecovery",autoRecovery.isChecked()).putInt("networkPreference",networkPreference.getSelectedItemPosition());
         e.putInt("dnsMode",dnsMode.getSelectedItemPosition()).putInt("dnsProvider",dnsProvider.getSelectedItemPosition()).putInt("dnsRole",dnsRole.getSelectedItemPosition()).putInt("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putBoolean("hostsEnabled",hostsEnabled.isChecked()).putBoolean("blockExternal853",blockExternal853.isChecked());
         for(int i=0;i<categories.length;i++)e.putInt("cat"+i,categories[i].getSelectedItemPosition());
         for(int i=0;i<protocols.length;i++)e.putInt("proto"+i,protocols[i].getSelectedItemPosition());
@@ -279,7 +282,7 @@ public final class NativeAppRoutingActivity extends Activity {
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
             .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("dnsMode",dnsMode.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
-            .putExtra("allApps",allApps.isChecked()).putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
+            .putExtra("bootstrapOption",bootstrapOption.getSelectedItemPosition()).putExtra("allApps",allApps.isChecked()).putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
     private void launch(){try{startForegroundService(makeIntent());notice.setText("Starting…");;}catch(Exception e){notice.setText("Start refused: "+e.getClass().getSimpleName());}}
     private void refresh(){
