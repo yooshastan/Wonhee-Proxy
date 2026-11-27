@@ -33,7 +33,10 @@ public final class NativeAppRoutingActivity extends Activity {
     private EditText homeCidr;
     private CheckBox home,allApps;
     private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference,bootstrapOption,dnsStrategy;
-    private CheckBox hostsEnabled,blockExternal853,autoRecovery;
+    private CheckBox hostsEnabled,blockExternal853,autoRecovery,rootEgressGuard,rootLocalDiscovery;
+    private TextView rootGuardStatus;
+    private Button rootRecoverButton;
+    private boolean rootRecoveryBusy;
     private TextView hostsStatus,dnsHealth,dnsPending;
     private Button dnsTestButton,functionalTestButton;
     private TextView functionalStatus;
@@ -49,7 +52,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.25.1 PREVIEW",12);
+        label(header,"PROXY  /  0.26.0 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -74,7 +77,7 @@ public final class NativeAppRoutingActivity extends Activity {
         summary=label(root,"",15);
         button(root,"Tunnels · import or change",()->showPage(1));
         button(root,"Routing · choose apps and exits",()->showPage(2));
-        button(root,"Protection · DNS and hosts",()->showPage(3));
+        button(root,"Protection · DNS, hosts and egress",()->showPage(3));
         button(root,"Activity · connection details",()->showPage(4));
         label(root,"Choose all-app preview or selected-app testing in Routing. Protection starts only after VPN establishment. Private DNS must remain OFF.",13);
         button(root,"Enable traffic notification",()->{if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},8330);else notice.setText("Notification permission already available.");});
@@ -99,9 +102,29 @@ public final class NativeAppRoutingActivity extends Activity {
         button(root,"Save & return home",()->{save();showPage(0);});
         root=pages[3];
         label(root,"Protection",23);
-        label(root,"Local UDP and TCP DNS use the selected authenticated encrypted transport and DNS routing strategy. DoT and QUIC reuse authenticated connections. No transport fallback. Application-owned DoH is not intercepted. Captured IPv6 is blocked. Guard is in-process only.",14);
+        label(root,"Local UDP and TCP DNS use the selected authenticated encrypted transport and DNS routing strategy. DoT and QUIC reuse authenticated connections. No transport fallback. Application-owned DoH is not intercepted. Captured IPv6 is blocked. The default guard is in-process only; the optional root trial below covers additional physical egress.",14);
         autoRecovery=new CheckBox(this);autoRecovery.setText("Recover tunnels automatically while VPN remains established");autoRecovery.setChecked(draft.getBoolean("autoRecovery",true));root.addView(autoRecovery);
         label(root,"Recovery keeps selected apps inside the existing TUN. It uses the current session's endpoints and stops after five attempts. No protection guarantee if Android revokes or kills VPN.",13);
+        label(root,"Root egress guard · experimental",18);
+        rootEgressGuard=new CheckBox(this);rootEgressGuard.setText("Block direct DNS and IPv6 outside Wonhee (root)");rootEgressGuard.setChecked(draft.getBoolean("rootEgressGuard",false));root.addView(rootEgressGuard);
+        rootLocalDiscovery=new CheckBox(this);rootLocalDiscovery.setText("Allow direct mDNS and SSDP discovery");rootLocalDiscovery.setChecked(draft.getBoolean("rootLocalDiscovery",false));root.addView(rootLocalDiscovery);
+        label(root,"Requires root and all-app capture. Installs only after VPN establishment; blocks direct port 53/853 and IPv6 data, except exact WireGuard endpoints and narrow local control. Other direct IPv4 remains allowed. IPv4 IPsec is unchanged; carrier DNS and IPv6 calls may be affected. No broad IPv4 lockdown. Stop to remove the guard. Unexpected process death can leave rules installed; use recovery below. AFWall+ is not changed. A firewall reload can remove or move the guard; periodic verification holds captured traffic on detection.",13);
+        rootGuardStatus=label(root,"Root guard · not active",14);
+        rootRecoverButton=button(root,"Recover owned root guard (offline)",()->{
+            if(rootRecoveryBusy||NativeAppRoutingService.running())return;
+            new android.app.AlertDialog.Builder(this).setTitle("Remove owned guard rules?")
+                .setMessage("Only exact journaled Wonhee rules are removed. Normal networking may resume without VPN protection. Stop any active Wonhee connection first.")
+                .setPositiveButton("Recover",(d,b)->{
+                    rootRecoveryBusy=true;updateLive();
+                    new Thread(()->{
+                        String msg;
+                        try{msg=NativeEgressGuard.recover(this);}
+                        catch(Exception e){msg="Root guard recovery refused or unconfirmed; journal retained";}
+                        final String result=msg;
+                        runOnUiThread(()->{rootRecoveryBusy=false;notice.setText(result);updateLive();});
+                    }).start();
+                }).setNegativeButton("Cancel",null).show();
+        });
         label(root,"Encrypted DNS protocol",14);
         dnsMode=spinner(root,NativeDnsTransportPolicy.LABELS,draft.getInt("dnsMode",0));
         label(root,"DoT: all four providers. DoQ: Quad9 or AdGuard. DoH3: Cloudflare, Quad9 or AdGuard (experimental). Unsupported combinations are refused; select a supported provider before Start. Endpoint bootstrap is configured separately in Tunnels. No plaintext fallback.",13);
@@ -242,7 +265,9 @@ public final class NativeAppRoutingActivity extends Activity {
         if(functionalStatus!=null)functionalStatus.setText("Functional DNS test · "+(active?prefs.getString("dnsFunctional","Not tested"):"Not active"));
         int selected=0;for(AppRow r:apps)if(r.selected.isChecked())selected++;
         if(summary!=null)summary.setText("Configuration · "+(allApps.isChecked()?"All-app preview":selected+" apps selected")+" · "+(home.isChecked()?"2 exits + Home":"2 exits")+"\nChanges apply on next Start.");
-        startButton.setEnabled(!busy);stopButton.setEnabled(busy);status.setText(formatActivity(report));
+        if(rootGuardStatus!=null)rootGuardStatus.setText("Root guard · "+(busy?prefs.getString("egressGuardStatus","Waiting for VPN") : NativeEgressGuard.staleStatus(this)));
+        if(rootRecoverButton!=null)rootRecoverButton.setEnabled(!busy&&!rootRecoveryBusy&&NativeEgressGuard.pending(this));
+        startButton.setEnabled(!busy&&!rootRecoveryBusy&&!NativeEgressGuard.pending(this));stopButton.setEnabled(busy);status.setText(formatActivity(report));
     }
     private static String formatActivity(String report){
         return report.replace("\nDNS provider=","\n\nDNS relay\nDNS provider=")
@@ -273,6 +298,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private void save(){
         android.content.SharedPreferences.Editor e=draft.edit().putBoolean("home",home.isChecked()).putString("homeCidr",homeCidr.getText().toString().trim()).putInt("default",fallback.getSelectedItemPosition());
         e.putInt("bootstrapOption",bootstrapOption.getSelectedItemPosition()).putBoolean("allApps",allApps.isChecked()).putBoolean("autoRecovery",autoRecovery.isChecked()).putInt("networkPreference",networkPreference.getSelectedItemPosition());
+        e.putBoolean("rootEgressGuard",rootEgressGuard.isChecked()).putBoolean("rootLocalDiscovery",rootLocalDiscovery.isChecked());
         e.putInt("dnsStrategy",dnsStrategy.getSelectedItemPosition()).putInt("dnsMode",dnsMode.getSelectedItemPosition()).putInt("dnsProvider",dnsProvider.getSelectedItemPosition()).putInt("dnsRole",dnsRole.getSelectedItemPosition()).putInt("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putBoolean("hostsEnabled",hostsEnabled.isChecked()).putBoolean("blockExternal853",blockExternal853.isChecked());
         for(int i=0;i<categories.length;i++)e.putInt("cat"+i,categories[i].getSelectedItemPosition());
         for(int i=0;i<protocols.length;i++)e.putInt("proto"+i,protocols[i].getSelectedItemPosition());
@@ -290,7 +316,7 @@ public final class NativeAppRoutingActivity extends Activity {
         for(Spinner v:categories)v.setOnItemSelectedListener(change);
         for(Spinner v:protocols)v.setOnItemSelectedListener(change);
         for(AppRow r:apps){r.category.setOnItemSelectedListener(change);r.role.setOnItemSelectedListener(change);}
-        for(CheckBox v:new CheckBox[]{home,hostsEnabled,blockExternal853,autoRecovery})v.setOnCheckedChangeListener((b,on)->autoSave());
+        for(CheckBox v:new CheckBox[]{home,hostsEnabled,blockExternal853,autoRecovery,rootEgressGuard,rootLocalDiscovery})v.setOnCheckedChangeListener((b,on)->autoSave());
         android.text.TextWatcher edits=new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence s,int st,int c,int a){}
             public void onTextChanged(CharSequence s,int st,int b,int c){autoSave();}
@@ -352,6 +378,8 @@ public final class NativeAppRoutingActivity extends Activity {
         draftReady=false;recreate();
     }
     private Intent makeIntent()throws Exception{
+        if(NativeEgressGuard.pending(this)&&!NativeAppRoutingService.running())throw new NativePeerProfiles.Rejected("EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE");
+        if(rootEgressGuard.isChecked()&&!allApps.isChecked())throw new NativePeerProfiles.Rejected("EGRESS_REQUIRES_ALL_APP_CAPTURE");
         if(!NativeDnsTransportPolicy.supports(dnsProvider.getSelectedItemPosition(),dnsMode.getSelectedItemPosition()))throw new IllegalArgumentException("unsupported DNS combination");
         boolean useHome=home.isChecked();String cidr=homeCidr.getText().toString().trim();
         int[] cat=new int[categories.length],proto=new int[protocols.length];String[] ips=new String[3];
@@ -377,7 +405,7 @@ public final class NativeAppRoutingActivity extends Activity {
         String[] checked=NativePeerProfiles.prepare(this,useHome,ips,new String[3]);Arrays.fill(checked,null);
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
-            .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("dnsStrategy",dnsStrategy.getSelectedItemPosition()).putExtra("dnsMode",dnsMode.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
+            .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("rootEgressGuard",rootEgressGuard.isChecked()).putExtra("rootLocalDiscovery",rootLocalDiscovery.isChecked()).putExtra("dnsStrategy",dnsStrategy.getSelectedItemPosition()).putExtra("dnsMode",dnsMode.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
             .putExtra("bootstrapOption",bootstrapOption.getSelectedItemPosition()).putExtra("allApps",allApps.isChecked()).putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
     private static String preflightReason(Exception e){return e instanceof NativePeerProfiles.Rejected?((NativePeerProfiles.Rejected)e).code:e instanceof IllegalArgumentException?"INVALID_HOME_CIDR_OR_ROUTING_OR_DNS_SELECTION":e.getClass().getSimpleName();}
