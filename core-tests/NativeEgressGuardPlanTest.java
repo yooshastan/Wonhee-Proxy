@@ -48,6 +48,23 @@ public final class NativeEgressGuardPlanTest {
     if(!unchanged.equals(baseline))throw new AssertionError("Baseline rule mismatch IPv"+f+" port="+port+"\nactual="+unchanged+"\nexpected="+baseline);
    }
   }
-  System.out.println("Native egress guard plan and backward compatible diagnostics journal PASS");
+  NativeEgressGuardPlan dual=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,34567,true,true);
+  NativeEgressGuardPlan decoded=NativeEgressGuardPlan.decode(dual.encode());
+  check(decoded.validationDual&&decoded.dnsDiagnostics&&decoded.encode().equals(dual.encode()));
+  check(Arrays.equals(dual.validationPlan().families(),new int[]{4,6}));
+  for(int f:new int[]{4,6}){
+   String address=f==4?"127.0.0.1":"::1";
+   List<String> rules=dual.rules(f);
+   check(decoded.rules(f).equals(rules));
+   check(dual.validationPlan().rules(f).size()==2);
+   check(dual.validationPlan().rules(f).stream().allMatch(x->x.contains("-o wlan0 ")&&x.contains("--uid-owner 0 ")&&x.contains("--dport 53 ")&&x.endsWith("-j REDIRECT --to-ports 34567")));
+   check(rules.get(0).contains("-o lo -d "+address+" ")&&rules.get(0).contains("--uid-owner 0 ")&&rules.get(0).endsWith("-j RETURN"));
+   check(rules.get(1).contains("-o lo -d "+address+" ")&&rules.get(1).endsWith("-j DROP"));
+   check(rules.stream().noneMatch(x->x.contains("-j ACCEPT")));
+   check(rules.get(rules.size()-1).endsWith(f==6?"-j DROP":"-j RETURN"));
+  }
+  reject(()->new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,eps,0,true,true));
+  check(!NativeEgressGuardPlan.decode(p.encode()).validationDual);
+  System.out.println("Native egress guard plan and backward compatible dual-stack journal PASS");
  }
 }
