@@ -39,8 +39,8 @@ public final class NativeAppRoutingActivity extends Activity {
     private TextView functionalStatus;
     private android.content.SharedPreferences draft;
     private static final class AppRow {
-        final String pkg;final CheckBox selected;final Spinner category,role;
-        AppRow(String p,CheckBox s,Spinner c,Spinner r){pkg=p;selected=s;category=c;role=r;}
+        final String pkg;final CheckBox selected;final Spinner category,role;final int suggested;
+        AppRow(String p,CheckBox s,Spinner c,Spinner r,int suggestion){pkg=p;selected=s;category=c;role=r;suggested=suggestion;}
     }
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
@@ -49,7 +49,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.23.1 PREVIEW",12);
+        label(header,"PROXY  /  0.24.0 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -67,7 +67,7 @@ public final class NativeAppRoutingActivity extends Activity {
         blocked=label(root,"Blocked DNS · 0",17);blocked.setPadding(dp(12),dp(8),dp(12),dp(12));blocked.setBackground(round(PINK,14));
         startButton=button(root,"Start connection",()->{
             try{makeIntent();save();Intent consent=VpnService.prepare(this);if(consent!=null)startActivityForResult(consent,VPN);else launch();}
-            catch(Exception e){notice.setText("Start refused: check selected apps, profiles, Home CIDR and DNS provider/protocol.");}
+            catch(Exception e){notice.setText("Start refused: "+preflightReason(e));}
         });startButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(ACCENT));startButton.setTextColor(0xffffffff);
         stopButton=button(root,"Stop connection",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.STOP)));
         notice=label(root,"",14);
@@ -143,8 +143,8 @@ public final class NativeAppRoutingActivity extends Activity {
             label(root,NativeAppRoutingPolicy.SELECTOR_NAMES[i],14);protocols[i]=spinner(root,CHOICES,draft.getInt("proto"+i,0));
         }
         label(root,"Installed applications",18);
-        label(root,"All-app mode ignores selection boxes; use them to expand individual category/exit settings. Selected-app mode captures only checked apps. Changes apply at next Start.",14);
-        button(root,"Select all visible apps",()->{for(AppRow a:apps)a.selected.setChecked(true);});
+        label(root,"All-app mode needs no checked apps. Use checkboxes only to expand individual exceptions or select apps in the limited test mode. Changes apply at next Start.",14);
+        button(root,"Use recommended all-app capture",()->{if(!allApps.isChecked())allApps.setChecked(true);});
         button(root,"Clear selected apps",()->{for(AppRow a:apps)a.selected.setChecked(false);});
         button(root,"Reset categories to automatic suggestions",()->new android.app.AlertDialog.Builder(this).setTitle("Reset app categories?").setMessage("Replaces manual category choices for visible apps; individual exit overrides are retained.").setPositiveButton("Reset",(d,b)->{for(AppRow a:apps)try{android.content.pm.ApplicationInfo info=getPackageManager().getApplicationInfo(a.pkg,0);a.category.setSelection(NativeAppCategorySuggestions.suggest(a.pkg,info.category,(info.flags&android.content.pm.ApplicationInfo.FLAG_SYSTEM)!=0));}catch(Exception ignored){}}).setNegativeButton("Cancel",null).show());
         EditText filter=new EditText(this);filter.setSingleLine(true);filter.setHint("Search installed apps");root.addView(filter);
@@ -160,17 +160,19 @@ public final class NativeAppRoutingActivity extends Activity {
             selected.setChecked(draft.getBoolean("selected:"+pkg,false));
             LinearLayout appCard=new LinearLayout(this);appCard.setOrientation(LinearLayout.VERTICAL);appCard.addView(selected);appList.addView(appCard);searchRows.put(appCard,selected.getText().toString().toLowerCase(Locale.ROOT));
             LinearLayout detail=new LinearLayout(this);detail.setOrientation(LinearLayout.VERTICAL);
-            label(detail,"Category",13);Spinner category=spinner(detail,AppUseCategories.LABELS,draft.getInt("category:"+pkg,NativeAppCategorySuggestions.suggest(pkg,r.activityInfo.applicationInfo.category,(r.activityInfo.applicationInfo.flags&android.content.pm.ApplicationInfo.FLAG_SYSTEM)!=0)));
+            int suggested=NativeAppCategorySuggestions.suggest(pkg,r.activityInfo.applicationInfo.category,(r.activityInfo.applicationInfo.flags&android.content.pm.ApplicationInfo.FLAG_SYSTEM)!=0);
+            label(detail,"Category (suggested: "+AppUseCategories.label(suggested)+")",13);Spinner category=spinner(detail,AppUseCategories.LABELS,draft.getInt("category:"+pkg,suggested));
             label(detail,"Individual exit override",13);Spinner role=spinner(detail,CHOICES,draft.getInt("role:"+pkg,0));
             appCard.addView(detail);detail.setVisibility(selected.isChecked()?View.VISIBLE:View.GONE);
             selected.setOnCheckedChangeListener((v,checked)->detail.setVisibility(checked?View.VISIBLE:View.GONE));
-            apps.add(new AppRow(pkg,selected,category,role));
+            apps.add(new AppRow(pkg,selected,category,role,suggested));
         }
         filter.addTextChangedListener(new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence x,int st,int c,int after){}
             public void onTextChanged(CharSequence x,int st,int before,int c){String q=x.toString().trim().toLowerCase(Locale.ROOT);for(Map.Entry<View,String> e:searchRows.entrySet())e.getKey().setVisibility(e.getValue().contains(q)?View.VISIBLE:View.GONE);}
             public void afterTextChanged(android.text.Editable x){}
         });
+        button(root,"Check configuration (offline)",()->{try{makeIntent();notice.setText("Offline configuration passed. Network/TLS/peer tests run at Start.");}catch(Exception e){notice.setText("Configuration refused: "+preflightReason(e));}showPage(0);});
         button(root,"Save & return home",()->{save();notice.setText("Saved. Stop and Start to apply changes.");showPage(0);});
         root=pages[4];
         label(root,"Activity",23);
@@ -180,6 +182,8 @@ public final class NativeAppRoutingActivity extends Activity {
             android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
             if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Wonhee diagnostics",getSharedPreferences(NativeAppRoutingService.PREFS,MODE_PRIVATE).getString("status","Not started")));
         });
+        button(root,"Test one route held (30 seconds)",()->new android.app.AlertDialog.Builder(this).setTitle("Route isolation simulation").setItems(new String[]{"Exit A","Exit B","Home"},(d,role)->new android.app.AlertDialog.Builder(this).setMessage("Temporarily drop traffic assigned to this route without changing its peer or rerouting packets. The active DNS exit cannot be selected. Other routes should continue.").setPositiveButton("Test",(x,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.ISOLATION_TEST).putExtra("role",role))).setNegativeButton("Cancel",null).show()).setNegativeButton("Cancel",null).show());
+        button(root,"End route isolation test",()->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.ISOLATION_TEST).putExtra("role",-1)));
         button(root,"Test automatic recovery",()->new android.app.AlertDialog.Builder(this).setTitle("Test tunnel recovery?").setMessage("Restarts peer sessions while keeping the existing VPN. Selected apps may temporarily lose connectivity. Enable automatic recovery and restart first.").setPositiveButton("Test",(d,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.RECOVERY_TEST))).setNegativeButton("Cancel",null).show());
         button(root,"Simulate tunnel failure (test guard)",()->new android.app.AlertDialog.Builder(this).setTitle("Test failure guard?").setMessage("This deliberately interrupts captured traffic until you press Stop.").setPositiveButton("Test",(d,b)->startService(new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.GUARD_TEST))).setNegativeButton("Cancel",null).show());
         button(root,"Return home",()->showPage(0));
@@ -208,7 +212,7 @@ public final class NativeAppRoutingActivity extends Activity {
         if(!NativeAppRoutingService.running()&&(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")))state="INACTIVE";
         if(state.equals("ACTIVE")&&(age<0||age>8000))state="STALE";
         boolean busy=NativeAppRoutingService.running();
-        headline.setText(state.equals("ACTIVE")?"Connected":state.equals("BLOCKED")?"Traffic blocked":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"Capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting…":state.equals("STALE")?"Status stale":state.equals("FAILED")?"Connection refused":"Disconnected");
+        headline.setText(state.equals("ACTIVE")?(prefs.getInt("isolationRole",-1)>=0?"Connected · route test active":"Connected"):state.equals("BLOCKED")?"Traffic blocked":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"Capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting…":state.equals("STALE")?"Status stale":state.equals("FAILED")?"Connection refused":state.equals("INACTIVE")?"Service ended · protection unconfirmed":"Disconnected");
         if(underlayStatus!=null)underlayStatus.setText(busy?"Physical connection · "+prefs.getString("underlay","pending")+"\n"+prefs.getString("networkPreference","")+" · migrations "+prefs.getLong("networkMigrations",0)+"\nLast recovery: "+prefs.getString("lastRecoveryReason","none")+" · "+prefs.getLong("lastRecoveryMs",0)+" ms":"Physical connection · disconnected");
         speed.setText("↓ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("downRate",0):0)+"    ↑ "+NativeRoutingMetrics.rate(state.equals("ACTIVE")?prefs.getLong("upRate",0):0));
         blocked.setText("Blocked DNS · "+prefs.getLong("blocked",0));
@@ -274,17 +278,28 @@ public final class NativeAppRoutingActivity extends Activity {
         for(int i=0;i<3;i++)ips[i]=overrides[i].getText().toString().trim();
         int def=fallback.getSelectedItemPosition();
         new NativeAppRoutingPolicy(useHome?new NativeAppRoutingPolicy.Prefix(cidr):null,def,cat,proto);
-        List<AppRow> selected=new ArrayList<>();for(AppRow r:apps)if(allApps.isChecked()||r.selected.isChecked())selected.add(r);
-        if((!allApps.isChecked()&&selected.isEmpty())||selected.size()>512)throw new IllegalArgumentException();
+        List<AppRow> selected=new ArrayList<>();for(AppRow r:apps)if(allApps.isChecked()?(r.category.getSelectedItemPosition()!=r.suggested||value(r.role)!=NativeAppRoutingPolicy.INHERIT):r.selected.isChecked())selected.add(r);
+        if(!allApps.isChecked()&&selected.isEmpty())throw new NativePeerProfiles.Rejected("SELECT_APPS_OR_ENABLE_ALL_APP_CAPTURE");
+        if(selected.size()>512)throw new NativePeerProfiles.Rejected("TOO_MANY_EXPLICIT_APP_RULES");
         String[] names=new String[selected.size()];int[] appCat=new int[names.length],appRole=new int[names.length];
         for(int i=0;i<names.length;i++){AppRow r=selected.get(i);names[i]=r.pkg;appCat[i]=r.category.getSelectedItemPosition();appRole[i]=value(r.role);}
+        if(!allApps.isChecked()){
+            Set<String> included=new HashSet<>(Arrays.asList(names));
+            for(int i=0;i<names.length;i++){
+                int uid=getPackageManager().getApplicationInfo(names[i],0).uid;
+                String[] shared=getPackageManager().getPackagesForUid(uid);
+                if(uid<10000||shared==null||shared.length==0)throw new NativePeerProfiles.Rejected("SELECTED_UID_UNSUPPORTED_USE_ALL_APP_MODE");
+                for(String member:shared){int j=Arrays.asList(names).indexOf(member);if(!included.contains(member)||j<0||appCat[j]!=appCat[i]||appRole[j]!=appRole[i])throw new NativePeerProfiles.Rejected("SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE");}
+            }
+        }
         String[] checked=NativePeerProfiles.prepare(this,useHome,ips,new String[3]);Arrays.fill(checked,null);
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
             .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("dnsMode",dnsMode.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
             .putExtra("bootstrapOption",bootstrapOption.getSelectedItemPosition()).putExtra("allApps",allApps.isChecked()).putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
-    private void launch(){try{startForegroundService(makeIntent());notice.setText("Starting…");;}catch(Exception e){notice.setText("Start refused: "+e.getClass().getSimpleName());}}
+    private static String preflightReason(Exception e){return e instanceof NativePeerProfiles.Rejected?((NativePeerProfiles.Rejected)e).code:e instanceof IllegalArgumentException?"INVALID_HOME_CIDR_OR_ROUTING_OR_DNS_SELECTION":e.getClass().getSimpleName();}
+    private void launch(){try{startForegroundService(makeIntent());notice.setText("Starting…");}catch(Exception e){notice.setText("Start refused: "+preflightReason(e));}}
     private void refresh(){
         try{
             SecureTunnelProfileStore.Profile[] p=NativePeerProfiles.load(this);StringBuilder s=new StringBuilder();
