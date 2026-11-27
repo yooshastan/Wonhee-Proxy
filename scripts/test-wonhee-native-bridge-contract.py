@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(171)' in gradle
+assert 'versionCode.set(172)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.26.7-validation-lifecycle')" in gradle
+assert "versionName.set('0.27.0-protection-hardening')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -377,3 +377,15 @@ assert 'validationBridge.setRelay(validationRelayReady(now)?dnsRelays[0]:null)' 
 assert 'dnsGeneration++;startupProbePending=true;\n        refreshValidationRelay(SystemClock.elapsedRealtime());' in app_routing
 assert 'migrationSettle(validationRelayReady(now),androidValidated,targetWifi,usable(candidate))' in app_routing
 assert 'noRelay=' in validation_bridge and 'upstreamError=' in validation_bridge and 'UDP received/sent=' in validation_bridge and 'workers=' in validation_bridge
+
+# 0.27.0: separate strict-IP crash-survival trial, narrow mode unchanged.
+assert 'getBooleanExtra("strictIpGuard",false)' in app_routing
+assert 'draft.getBoolean("strictIpGuard",false)' in ui_activity
+assert 'STRICT_IP_REQUIRES_GUARD_NO_BRIDGE_NO_DISCOVERY' in ui_activity and 'STRICT_IP_REQUIRES_GUARD_NO_BRIDGE_NO_DISCOVERY' in app_routing
+assert 'strictIp?NativeEgressGuardPlan.STRICT_IP:NativeEgressGuardPlan.DNS_IPV6' in egress
+assert 'if(strictIp)runtime.installStrict(plan);else runtime.install(plan)' in egress
+assert 'void installStrict(NativeEgressGuardPlan p)' in egress_runtime
+assert 'p.mode!=NativeEgressGuardPlan.STRICT_IP||p.localDiscovery||p.validationPort!=0' in egress_runtime
+assert 'String offlineState(OwnedPlan p)' in egress_runtime and 'if(!any)return "Absent"' in egress_runtime
+assert 'static String inspectOffline(Context c)' in egress and 'Inspect owned guard (offline)' in ui_activity
+assert 'if(explicitStop){if(!egressGuard.remove())ok=false;}' in app_routing and 'else{egressGuard.retain();ok=false;}' in app_routing
