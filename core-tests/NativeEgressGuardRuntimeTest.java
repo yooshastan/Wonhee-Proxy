@@ -51,6 +51,33 @@ public final class NativeEgressGuardRuntimeTest {
   runtime.remove(p);check(!fake.tables.get(4).containsKey(p.chain(4)));
   NativeEgressGuardPlan strict=new NativeEgressGuardPlan("123456abcdef","tun0",10123,2,false,endpoints);
   before=fake.mutations.size();reject(()->runtime.install(strict));check(fake.mutations.size()==before);
+  // Narrow activation must still reject strict mode; explicit opt-in is separate.
+  reject(()->runtime.installStrict(p));check(fake.mutations.size()==before);
+  NativeEgressGuardPlan strictDiscovery=new NativeEgressGuardPlan("123456abcdef","tun0",10123,2,true,endpoints);
+  reject(()->runtime.installStrict(strictDiscovery));check(fake.mutations.size()==before);
+  check(runtime.offlineState(strict).equals("Absent"));
+  runtime.installStrict(strict);runtime.verify(strict);
+  for(int f:new int[]{4,6}){
+   List<String> sr=strict.rules(f);check(sr.get(sr.size()-1).endsWith("-j DROP"));
+   check(sr.stream().noneMatch(x->x.endsWith("-j ACCEPT")));
+   check(fake.tables.get(f).get("OUTPUT").get(1).equals("-j AFWALL"));
+  }
+  // New runtime instance: simulated process death with persistent journal and rules.
+  NativeEgressGuardRuntime restarted=new NativeEgressGuardRuntime(fake);
+  NativeEgressGuardPlan restored=NativeEgressGuardPlan.decode(strict.encode());
+  before=fake.mutations.size();
+  check(restarted.offlineState(restored).equals("Exact rules and first anchors present"));
+  check(fake.mutations.size()==before);
+  fake.tables.get(4).get("OUTPUT").add(0,"-j RETURN");
+  check(restarted.offlineState(restored).equals("Partial or moved"));check(fake.mutations.size()==before);
+  fake.tables.get(4).get("OUTPUT").remove(0);
+  fake.tables.get(6).get(strict.chain(6)).add("-j ACCEPT");
+  reject(()->restarted.offlineState(restored));check(fake.mutations.size()==before);
+  fake.tables.get(6).get(strict.chain(6)).remove(strict.rules(6).size());
+  restarted.remove(restored);check(restarted.offlineState(restored).equals("Absent"));
+  for(int f:new int[]{4,6})check(fake.tables.get(f).size()==2&&fake.tables.get(f).get("OUTPUT").equals(Arrays.asList("-j AFWALL")));
+  // Journal persisted but kernel state absent (e.g. reboot): never report protected.
+  check(restarted.offlineState(restored).equals("Absent"));
   check(fake.mutations.stream().noneMatch(x->x.contains(" -F ")||x.contains(" -P ")||x.contains(" -D OUTPUT -j AFWALL")));
   NativeEgressGuardPlan bridge=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,endpoints,34567);
   check(NativeEgressGuardPlan.decode(bridge.encode()).validationPort==34567);
