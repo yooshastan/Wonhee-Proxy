@@ -33,7 +33,7 @@ final class NativeEgressGuard {
             if(pending(context))throw new IllegalStateException("EGRESS_JOURNAL_PENDING");
             byte[] bytes=new byte[6];new SecureRandom().nextBytes(bytes);
             StringBuilder token=new StringBuilder();for(byte b:bytes)token.append(String.format(Locale.ROOT,"%02x",b&255));
-            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort,true);
+            plan=new NativeEgressGuardPlan(token.toString(),tun,android.os.Process.myUid(),NativeEgressGuardPlan.DNS_IPV6,discovery,NativeEgressGuardPlan.endpoints(configs),validationPort,true,validationPort!=0);
             runtime.preflight(plan);
             if(plan.validationPlan()!=null)runtime.preflight(plan.validationPlan());
             if(!prefs(context).edit().putString(KEY,plan.encode()).commit())throw new IllegalStateException("EGRESS_JOURNAL_WRITE_FAILED");
