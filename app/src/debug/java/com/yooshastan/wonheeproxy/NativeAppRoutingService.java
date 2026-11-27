@@ -154,27 +154,65 @@ public final class NativeAppRoutingService extends VpnService {
             return n.equals(underlay)&&physical(n)&&!stopping;
         }catch(Exception failure){return false;}
     }
+    private final Map<Long,Long> underlayCooldown=new HashMap<>();
+    private String peerEvidence="Not verified";
+    private long validationLosses;
+    private boolean lastAndroidValidated=true;
+    private boolean guardedSession(){return egressGuard!=null&&!egressGuard.failed();}
+    private boolean eligibleLink(Network n){
+        NetworkCapabilities c=n==null?null:cm().getNetworkCapabilities(n);
+        if(!physical(n)||c==null||!c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            ||!c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            ||!c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            ||!c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            ||c.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL))return false;
+        LinkProperties lp=cm().getLinkProperties(n);
+        return lp!=null&&lp.getInterfaceName()!=null&&!lp.getInterfaceName().isEmpty();
+    }
+    private boolean sessionUsable(Network n){
+        return NativeUnderlayPolicy.sessionCandidate(eligibleLink(n),usable(n),guardedSession());
+    }
     private boolean usable(Network n){
         NetworkCapabilities c=n==null?null:cm().getNetworkCapabilities(n);
-        return physical(n)&&c!=null&&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return eligibleLink(n)&&c!=null&&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
             &&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED);
     }
     private static long id(Network n){return n==null?0:n.getNetworkHandle();}
-    private Network preferredNetwork(){
+    private Network preferredNetwork(){return pickNetwork(false,false);}
+    private Network pickNetwork(boolean allowUnvalidated,boolean honorCooldown){
+        long now=SystemClock.elapsedRealtime();
+        underlayCooldown.entrySet().removeIf(e->e.getValue()<=now);
         Map<Long,Integer> candidates=new HashMap<>();
         Map<Long,Network> networks=new HashMap<>();
-        for(Network n:cm().getAllNetworks())if(usable(n)){
+        for(Network n:cm().getAllNetworks())if(usable(n)||(allowUnvalidated&&sessionUsable(n))){
             NetworkCapabilities c=cm().getNetworkCapabilities(n);if(c==null)continue;
             long key=id(n);
+            if(honorCooldown&&!NativeUnderlayPolicy.trialAllowed(now,underlayCooldown.getOrDefault(key,0L)))continue;
             candidates.put(key,c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?NativeUnderlayPolicy.WIFI:NativeUnderlayPolicy.CELL);
             networks.put(key,n);
         }
         Network best=systemBest;
         if(best==null){Network active=cm().getActiveNetwork();if(usable(active))best=active;}
         return networks.get(NativeUnderlayPolicy.pick(networkPreference,id(underlay),id(best),candidates));
+    }
+    private Network migrationCandidate(){
+        if(!guardedSession())return preferredNetwork();
+        // Do not follow Android's best-network score off a still-working link
+        // merely because the direct validation probes are blocked.
+        if(NativeUnderlayPolicy.retainUnvalidated(networkPreference,true,eligibleLink(underlay),usable(underlay),true))return underlay;
+        // Explicit Wi-Fi/cellular preferences may trial an attached but
+        // unvalidated candidate. A failed authenticated trial is cooled down.
+        if(networkPreference==NativeUnderlayPolicy.WIFI_FIRST||networkPreference==NativeUnderlayPolicy.CELL_FIRST)
+            return pickNetwork(true,true);
+        Network candidate=pickNetwork(false,true);
+        return candidate==null?underlay:candidate;
+    }
+    private Network recoveryCandidate(){
+        if(!guardedSession())return preferredNetwork();
+        return pickNetwork(true,true);
     }
     private void watchNetworks(){
         NetworkRequest request=new NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -209,13 +247,15 @@ public final class NativeAppRoutingService extends VpnService {
         if(n==null)return "none";
         NetworkCapabilities c=cm().getNetworkCapabilities(n);
         String type=c==null?"unavailable":c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?"Wi-Fi":c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)?"Cellular":"other";
-        return type+" #"+n.toString()+" ("+(usable(n)?"validated":"not validated")+")";
+        return type+" #"+n.toString()+" ("+(usable(n)?"Android validated":eligibleLink(n)?"Android not validated · link eligible":"link unavailable/restricted")+")";
     }
     private String underlaySummary(){
         return "underlay="+physicalLabel(underlay)+" preference="+NativeUnderlayPolicy.LABELS[networkPreference]
             +" network migrations="+networkMigrations+" last recovery reason="+lastRecoveryReason+" last recovery ms="+lastRecoveryMs
             +" physical callback="+callbacksRegistered+" system best callback="+bestRegistered
-            +" last verified underlay="+lastVerifiedUnderlay;
+            +" last verified underlay="+lastVerifiedUnderlay
+            +" Android validation losses="+validationLosses+" peer evidence="+peerEvidence
+            +" candidate cooldowns="+underlayCooldown.size();
     }
     private boolean captureIntact(){return tun!=null&&ownNetwork()&&VpnService.prepare(this)==null;}
     private void discardCaptured(){
@@ -257,42 +297,50 @@ public final class NativeAppRoutingService extends VpnService {
         }
     }
     private boolean recover()throws InterruptedException{
-        if(!autoRecovery||guardTest||cleanupFailed||!captureIntact())return false;
+        if(!autoRecovery||guardTest||cleanupFailed||!captureIntact()||(egressGuard!=null&&egressGuard.failed()))return false;
         for(int attempt=0;attempt<MAX_RECOVERY_ATTEMPTS&&!stopping&&!guardTest;attempt++){
             long wait=NativeRecoveryPlan.delay(attempt),until=SystemClock.elapsedRealtime()+wait;
             report(stats("RECOVERING — selected apps held in existing TUN; retry "+(attempt+1)+"/"+MAX_RECOVERY_ATTEMPTS));
             while(SystemClock.elapsedRealtime()<until&&!stopping&&!guardTest){
-                if(!captureIntact())return false;discardCaptured();Thread.sleep(50);
+                if(!captureIntact()||(egressGuard!=null&&egressGuard.failed()))return false;discardCaptured();Thread.sleep(50);
             }
-            if(stopping||guardTest||!captureIntact()||!dnsOff())return false;
+            if(stopping||guardTest||!captureIntact()||!dnsOff()||(egressGuard!=null&&egressGuard.failed()))return false;
             recoveryAttempts++;
-            Network next=preferredNetwork();
+            Network next=recoveryCandidate();
             if(next==null)continue;
             underlay=next;
+            Log.i(TAG,"UNDERLAY TRIAL — "+physicalLabel(next)+"; forwarding held until fresh peer handshakes");
             try{
                 if(!setUnderlyingNetworks(new Network[]{next}))throw new IllegalStateException();
                 createPeers();
                 long deadline=SystemClock.elapsedRealtime()+60000;
                 while(!stopping&&!guardTest){
-                    if(!captureIntact()||!dnsOff()||!usable(next)||!protectedSockets())throw new IllegalStateException();
+                    if(!captureIntact()||!dnsOff()||!sessionUsable(next)||!protectedSockets()||(egressGuard!=null&&egressGuard.failed()))throw new IllegalStateException();
                     discardCaptured();
                     if(ready())break;
                     if(SystemClock.elapsedRealtime()>=deadline)throw new IllegalStateException();
                     Thread.sleep(100);
                 }
-                if(stopping||guardTest||!captureIntact()||!dnsOff()||!usable(next)||!ready())throw new IllegalStateException();
+                if(stopping||guardTest||!captureIntact()||!dnsOff()||!sessionUsable(next)||!ready()||(egressGuard!=null&&egressGuard.failed()))throw new IllegalStateException();
                 discardCaptured();
                 ledger.entries.clear();
                 newRelay();
                 recoverySuccess++;
                 if(recoveryFrom!=null&&!recoveryFrom.equals(next))networkMigrations++;
                 lastRecoveryMs=SystemClock.elapsedRealtime()-recoveryStarted;
-                lastVerifiedUnderlay=physicalLabel(next);migration.reset();
+                lastVerifiedUnderlay=physicalLabel(next);lastAndroidValidated=usable(next);migration.reset();
+                underlayCooldown.remove(id(next));
+                if(isolationRole>=0&&SystemClock.elapsedRealtime()<isolationUntil)
+                    Log.i(TAG,"ISOLATION TEST — retained "+NativePeerProfiles.SLOTS[isolationRole]+" through recovery; original deadline unchanged");
                 report(stats("ACTIVE — recovery verified; same TUN retained; "+lastRecoveryReason+"; "+lastRecoveryMs+" ms"));
                 return true;
             }catch(Exception|LinkageError failure){
                 retireDns();if(!closePeers())cleanupFailed=true;
-                if(cleanupFailed)return false;
+                if(guardedSession()){
+                    underlayCooldown.put(id(next),SystemClock.elapsedRealtime()+NativeUnderlayPolicy.FAILED_TRIAL_COOLDOWN_MS);
+                    Log.i(TAG,"UNDERLAY TRIAL — not verified; candidate cooled down for 120 seconds");
+                }
+                if(cleanupFailed||(egressGuard!=null&&egressGuard.failed()))return false;
                 report(stats("RECOVERING — attempt refused; forwarding remains disabled"));
                 if(failure instanceof InterruptedException)throw (InterruptedException)failure;
             }
@@ -409,7 +457,7 @@ public final class NativeAppRoutingService extends VpnService {
             }
             stage="dns-relay";
             newRelay();
-            lastVerifiedUnderlay=physicalLabel(underlay);
+            lastVerifiedUnderlay=physicalLabel(underlay);lastAndroidValidated=usable(underlay);
             stage="forwarding";report("ACTIVE — "+count+" verified peers; "+(allApps?"all-app preview":apps.length+" selected apps")+"; configured "+NativeDnsTransportPolicy.LABELS[dnsMode]+" · "+dnsRouteLabel()+"; hosts="+blocklist.size()+"; IPv6 blocked");
             long nextReport=0,nextHealth=0;
             while(!stopping){
@@ -419,10 +467,18 @@ public final class NativeAppRoutingService extends VpnService {
                 if(now>=nextHealth||networkDirty.getAndSet(false)){
                     if(!dnsOff()){stage="private-dns-changed";throw new IllegalStateException();}
                     if(!captureIntact()){stage="vpn-capture-lost";throw new IllegalStateException();}
-                    if(!usable(underlay))reason="physical-underlay-lost";
-                    else if(!protectedSockets()||!ready())reason="peer-health";
+                    boolean androidValidated=usable(underlay);
+                    boolean peerReady=protectedSockets()&&ready();
+                    if(androidValidated!=lastAndroidValidated){
+                        if(!androidValidated)validationLosses++;
+                        Log.i(TAG,"UNDERLAY VALIDATION — "+(androidValidated?"Android validated":"Android validation lost")
+                            +"; link eligible="+eligibleLink(underlay)+"; recent peer proof="+peerReady);
+                        lastAndroidValidated=androidValidated;
+                    }
+                    if(!sessionUsable(underlay))reason="physical-underlay-lost";
+                    else if(!peerReady)reason="peer-health";
                     else if(autoRecovery){
-                        Network candidate=preferredNetwork();
+                        Network candidate=migrationCandidate();
                         if(migration.due(id(underlay),id(candidate),now))reason="preferred-network-migration";
                     }
                     nextHealth=now+1000;
@@ -440,7 +496,8 @@ public final class NativeAppRoutingService extends VpnService {
                 }
                 if(recoveryTest||reason!=null){
                     stage=recoveryTest?"controlled-recovery-test":reason;recoveryTest=false;
-                    isolationRole=-1;isolationUntil=0;
+                    // Recovery does not cancel an isolation test. The original
+                    // elapsedRealtime deadline remains authoritative in pump().
                     lastRecoveryReason=stage;recoveryStarted=SystemClock.elapsedRealtime();recoveryFrom=underlay;
                     migration.reset();
                     report(stats("RECOVERING — "+stage+"; stopping forwarding"));
@@ -496,9 +553,16 @@ public final class NativeAppRoutingService extends VpnService {
     }
     private boolean protectedSockets(){long[] p=RootlessNativeBridge.protectionStats();return p!=null&&p.length>=2&&p[0]==2L*count&&p[1]==0;}
     private boolean ready(){
+        long maxAge=0,now=System.currentTimeMillis()/1000L;
         for(int i=0;i<count;i++){
-            long[] s=RootlessNativeBridge.peerStats(handles[i]);if(s==null||s.length<3||s[0]<=0||s[1]<=0||s[2]<=0||System.currentTimeMillis()/1000L-s[0]>240)return false;
-        }return true;
+            long[] s=RootlessNativeBridge.peerStats(handles[i]);
+            if(s==null||s.length<3||s[0]<=0||s[1]<=0||s[2]<=0||now-s[0]>240||now-s[0]<-5){
+                peerEvidence=NativePeerProfiles.SLOTS[i]+" lacks recent authenticated handshake evidence";return false;
+            }
+            maxAge=Math.max(maxAge,now-s[0]);
+        }
+        peerEvidence=count+" peers · oldest handshake "+maxAge+" s";
+        return true;
     }
     // Resolve a reported UID, never infer an owner from a packet or default-route an unknown UID.
     private boolean resolveOwner(int uid){
@@ -650,7 +714,7 @@ public final class NativeAppRoutingService extends VpnService {
         getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("state",state).putLong("heartbeat",now).putLong("upRate",upRate).putLong("downRate",downRate).putLong("blocked",blocked)
             .putString("dnsHealth",state.equals("ACTIVE")?dnsStatus(0):"Not active").putString("dnsProbe",state.equals("ACTIVE")?dnsStatus(1):"Not active").putString("dnsFunctional",state.equals("ACTIVE")?dnsStatus(2):"Not active").putString("dnsActiveConfig",state.equals("ACTIVE")?NativeProtectedDnsRelay.NAMES[dnsProvider]+" · "+NativeDnsTransportPolicy.LABELS[dnsMode]+" · "+dnsRouteLabel():"None")
             .putInt("dnsActiveStrategy",dnsStrategy).putInt("dnsActiveProvider",dnsProvider).putInt("dnsActiveMode",dnsMode).putInt("dnsActiveRole",dnsRole).putInt("dnsActiveAlternate",dnsAlternate)
-            .putString("egressGuardStatus",egressStatus()).putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
+            .putString("egressGuardStatus",egressStatus()).putString("peerEvidence",peerEvidence).putLong("validationLosses",validationLosses).putString("underlay",physicalLabel(underlay)).putString("networkPreference",NativeUnderlayPolicy.LABELS[networkPreference])
             .putLong("isolationUntil",isolationUntil).putInt("isolationRole",isolationRole).putLong("networkMigrations",networkMigrations).putLong("lastRecoveryMs",lastRecoveryMs).putString("lastRecoveryReason",lastRecoveryReason).apply();
         notificationLine=state.equals("ACTIVE")?"↓ "+NativeRoutingMetrics.rate(downRate)+"  ↑ "+NativeRoutingMetrics.rate(upRate)+"  ·  blocked "+blocked:state.equals("BLOCKED")?"Traffic blocked · Stop to release":state.equals("RECOVERING")?"Recovering · traffic held":state.equals("CAPTURE_LOST")?"VPN capture lost · protection unconfirmed":state.equals("STARTING")?"Connecting · apps not yet protected":state;
         if(state.equals("ACTIVE")||state.equals("BLOCKED")||state.equals("RECOVERING")||state.equals("CAPTURE_LOST")||state.equals("STARTING")){
