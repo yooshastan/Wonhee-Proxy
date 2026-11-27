@@ -18,6 +18,18 @@ public final class NativeUnderlayPolicyTest {
   yes(!d.due(421,447,100));yes(!d.due(421,447,2099));yes(d.due(421,447,2100));
   yes(!d.due(421,448,2101));yes(!d.due(421,421,4101));yes(!d.due(421,448,4102));yes(d.due(421,448,6102));
   d.reset();yes(!d.due(421,447,9000));yes(!d.due(421,447,8000));
-  System.out.println("Underlay preference and debounce PASS");
+  yes(!NativeUnderlayPolicy.sessionCandidate(true,false,false));
+  yes(NativeUnderlayPolicy.sessionCandidate(true,false,true));
+  yes(!NativeUnderlayPolicy.sessionCandidate(false,true,true));
+  yes(NativeUnderlayPolicy.sessionCandidate(true,true,false));
+  yes(NativeUnderlayPolicy.retainUnvalidated(1,true,true,false,true));
+  yes(NativeUnderlayPolicy.retainUnvalidated(3,true,true,false,true));
+  yes(!NativeUnderlayPolicy.retainUnvalidated(0,true,true,false,true));
+  yes(!NativeUnderlayPolicy.retainUnvalidated(1,true,true,false,false));
+  yes(!NativeUnderlayPolicy.retainUnvalidated(1,true,false,false,true));
+  yes(!NativeUnderlayPolicy.retainUnvalidated(1,false,true,false,true));
+  yes(!NativeUnderlayPolicy.trialAllowed(999,1000));
+  yes(NativeUnderlayPolicy.trialAllowed(1000,1000));
+  System.out.println("Underlay preference, validation separation and debounce PASS");
  }
 }
