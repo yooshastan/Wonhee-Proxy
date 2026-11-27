@@ -18,6 +18,15 @@ final class NativeUnderlayPolicy {
         return guarded&&physicalEligible&&!validated&&peerReady&&(mode==SYSTEM||mode==STICKY);
     }
     static boolean trialAllowed(long now,long cooldownUntil){return now>=cooldownUntil;}
+    // A scheduled migration must try its selected target, not re-read the
+    // Android score after closing the current peer sessions. On failure prefer
+    // the previous eligible link, then the ordinary bounded candidate search.
+    static long recoveryTarget(int attempt,long requested,long previous,Map<Long,Integer> candidates){
+        if(attempt==0&&requested!=0&&candidates.containsKey(requested))return requested;
+        if(previous!=0&&candidates.containsKey(previous))return previous;
+        return 0;
+    }
+    static long handshakeBudget(boolean speculative){return speculative?15000L:60000L;}
     static long pick(int mode,long current,long best,Map<Long,Integer> usable){
         if(!valid(mode))throw new IllegalArgumentException();
         if(mode==STICKY&&usable.containsKey(current))return current;
