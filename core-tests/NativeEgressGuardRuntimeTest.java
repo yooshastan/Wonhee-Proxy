@@ -5,10 +5,10 @@ public final class NativeEgressGuardRuntimeTest {
  static final class Fake implements NativeEgressGuardRuntime.Runner {
   final Map<Integer,Map<String,List<String>>> tables=new HashMap<>();
   final List<String> mutations=new ArrayList<>();
-  Fake(){for(int f:new int[]{4,6,14}){Map<String,List<String>> m=new LinkedHashMap<>();m.put("OUTPUT",new ArrayList<>(Arrays.asList("-j AFWALL")));m.put("AFWALL",new ArrayList<>(Arrays.asList("-j RETURN")));tables.put(f,m);}}
+  Fake(){for(int f:new int[]{4,6,14,16}){Map<String,List<String>> m=new LinkedHashMap<>();m.put("OUTPUT",new ArrayList<>(Arrays.asList("-j AFWALL")));m.put("AFWALL",new ArrayList<>(Arrays.asList("-j RETURN")));tables.put(f,m);}}
   public int run(List<String> out,String command){
    for(String cmd:command.split(" && ")){
-    String[] a=cmd.split(" ",8);int f=a[4].equals("nat")?14:a[0].equals("iptables")?4:6;Map<String,List<String>> m=tables.get(f);String op=a[5];String chain=a.length>6?a[6]:"";String rule=a.length>7?a[7]:"";
+    String[] a=cmd.split(" ",8);int f=(a[0].equals("iptables")?4:6)+(a[4].equals("nat")?10:0);Map<String,List<String>> m=tables.get(f);String op=a[5];String chain=a.length>6?a[6]:"";String rule=a.length>7?a[7]:"";
     if(op.equals("-S")){
      out.add("-P OUTPUT ACCEPT");for(String c:m.keySet())if(!c.equals("OUTPUT"))out.add("-N "+c);
      for(String c:m.keySet())for(String r:m.get(c))out.add("-A "+c+" "+r);
@@ -85,6 +85,21 @@ public final class NativeEgressGuardRuntimeTest {
   }
   runtime.remove(diagnostic.validationPlan());runtime.remove(diagnostic);
   check(fake.tables.get(14).get("OUTPUT").equals(Arrays.asList("-j AFWALL")));
-  System.out.println("Native egress guard, DNS owner counters and validation NAT exact ownership transaction PASS");
+  NativeEgressGuardPlan dual=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,endpoints,34567,true,true);
+  NativeValidationDnsPlan dn=dual.validationPlan();
+  runtime.install(dual);runtime.installValidation(dn);runtime.verify(dual);runtime.verify(dn);
+  check(runtime.validationCounters(dn).equals("NAT IPv4 redirect UDP=1 TCP=2 · NAT IPv6 redirect UDP=1 TCP=2"));
+  List<String> six=fake.tables.get(16).get(dn.chain(6));six.add("-j RETURN");
+  before=fake.mutations.size();reject(()->runtime.remove(dn));check(fake.mutations.size()==before);six.remove(six.size()-1);
+  runtime.remove(dn);runtime.remove(dual);
+  for(int f:new int[]{4,6,14,16}){
+   check(fake.tables.get(f).get("OUTPUT").equals(Arrays.asList("-j AFWALL")));
+   check(fake.tables.get(f).get("AFWALL").equals(Arrays.asList("-j RETURN")));
+   check(fake.tables.get(f).size()==2);
+  }
+  // Interrupted NAT install: only IPv4 redirect exists, IPv6 never created.
+  fake.tables.get(14).put(dn.chain(4),new ArrayList<>(dn.rules(4)));
+  runtime.remove(dn);check(fake.tables.get(14).size()==2&&fake.tables.get(16).size()==2);
+  System.out.println("Native egress guard, DNS owner counters and dual-stack validation NAT rollback PASS");
  }
 }
