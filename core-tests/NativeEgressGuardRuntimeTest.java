@@ -100,6 +100,14 @@ public final class NativeEgressGuardRuntimeTest {
   // Interrupted NAT install: only IPv4 redirect exists, IPv6 never created.
   fake.tables.get(14).put(dn.chain(4),new ArrayList<>(dn.rules(4)));
   runtime.remove(dn);check(fake.tables.get(14).size()==2&&fake.tables.get(16).size()==2);
-  System.out.println("Native egress guard, DNS owner counters and dual-stack validation NAT rollback PASS");
+  NativeEgressGuardPlan v4root=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,endpoints,34567,true,false,true);
+  NativeValidationDnsPlan v4nat=v4root.validationPlan();
+  // Model a kernel with no IPv6 NAT table at all.
+  fake.tables.remove(16);
+  runtime.install(v4root);runtime.installValidation(v4nat);runtime.verify(v4root);runtime.verify(v4nat);
+  check(runtime.validationCounters(v4nat).equals("NAT IPv4 redirect UDP=1 TCP=2 · IPv6 redirect not installed"));
+  runtime.remove(v4nat);runtime.remove(v4root);
+  for(int f:new int[]{4,6,14})check(fake.tables.get(f).size()==2&&fake.tables.get(f).get("OUTPUT").equals(Arrays.asList("-j AFWALL")));
+  System.out.println("Native egress guard, dual-stack and IPv4-only validation NAT rollback PASS");
  }
 }
