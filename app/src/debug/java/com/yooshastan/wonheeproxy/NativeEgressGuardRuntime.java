@@ -102,6 +102,26 @@ final class NativeEgressGuardRuntime {
         }
         preflight(p);
     }
+    String validationCounters(NativeValidationDnsPlan p)throws Exception{
+        List<String> out=new ArrayList<>();
+        if(runner.run(out,p.prefix(4)+" -L "+p.chain(4)+" -v -n -x")!=0)
+            throw new IllegalStateException("VALIDATION_COUNTERS_UNAVAILABLE");
+        long[] counts=new long[2];boolean[] seen=new boolean[2];int rows=0;
+        for(String line:out){
+            String[] x=line.trim().split("\\s+");
+            if(x.length<3||!x[0].matches("[0-9]+"))continue;
+            int idx=-1;
+            for(int i=0;i<2;i++)if(line.contains("/* "+p.tag(4)+"_"+i+" */")){
+                if(idx!=-1)throw new IllegalStateException("VALIDATION_COUNTER_TAG_AMBIGUOUS");
+                idx=i;
+            }
+            if(idx<0||seen[idx]||idx!=rows++||!x[2].equals("REDIRECT"))
+                throw new IllegalStateException("VALIDATION_COUNTER_TAG_MISMATCH");
+            seen[idx]=true;counts[idx]=Long.parseLong(x[0]);
+        }
+        if(rows!=2)throw new IllegalStateException("VALIDATION_COUNTER_ROWS_MISMATCH");
+        return "NAT IPv4 redirect UDP="+counts[0]+" TCP="+counts[1]+" · IPv6 redirect not installed";
+    }
     String counters(NativeEgressGuardPlan p)throws Exception{
         StringBuilder report=new StringBuilder();
         for(int f:new int[]{4,6}){
@@ -109,6 +129,8 @@ final class NativeEgressGuardRuntime {
             if(runner.run(out,p.prefix(f)+" -L "+p.chain(f)+" -v -n -x")!=0)throw new IllegalStateException("EGRESS_COUNTERS_UNAVAILABLE");
             long dropped=0,returned=0,dns53=0,dns853=0,mdns=0,ssdp=0,other=0;int rows=0;
             List<String> expected=p.rules(f);boolean detailed=true;
+            long[] wifiDns=new long[5];long nonWifiDns=0;
+            int[] ownerUids={1051,1073,0,1000};
             for(String l:out){
                 String[] x=l.trim().split("\\s+");
                 if(x.length<3||!x[0].matches("[0-9]+"))continue;
@@ -119,7 +141,17 @@ final class NativeEgressGuardRuntime {
                 rows++;
                 if(x[2].equals("DROP")){
                     dropped+=n;
-                    if(rule.contains("--dport 53 "))dns53+=n;
+                    if(rule.contains("--dport 53 ")){
+                        dns53+=n;
+                        if(p.dnsDiagnostics){
+                            if(rule.contains("-o wlan0 ")){
+                                int owner=4;
+                                for(int i=0;i<ownerUids.length;i++)
+                                    if(rule.contains("--uid-owner "+ownerUids[i]+" "))owner=i;
+                                wifiDns[owner]+=n;
+                            }else nonWifiDns+=n;
+                        }
+                    }
                     else if(rule.contains("--dport 853 "))dns853+=n;
                     else if(rule.contains("--dport 5353 "))mdns+=n;
                     else if(rule.contains("--dport 1900 "))ssdp+=n;
@@ -134,6 +166,10 @@ final class NativeEgressGuardRuntime {
             if(detailed)report.append(" [DNS53=").append(dns53).append(" DNS853=").append(dns853)
                 .append(" mDNS=").append(mdns).append(" SSDP=").append(ssdp).append(" other=").append(other).append("]");
             else report.append(" [per-rule counters unavailable]");
+            if(detailed&&p.dnsDiagnostics)report.append(" [DNS53 Wi-Fi owner 1051=").append(wifiDns[0])
+                .append(" 1073=").append(wifiDns[1]).append(" root=").append(wifiDns[2])
+                .append(" system=").append(wifiDns[3]).append(" other/unmatched=").append(wifiDns[4])
+                .append(" non-Wi-Fi=").append(nonWifiDns).append("]");
         }
         return report.toString();
     }
