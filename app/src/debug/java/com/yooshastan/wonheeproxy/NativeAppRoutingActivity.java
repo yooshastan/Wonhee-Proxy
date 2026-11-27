@@ -33,9 +33,9 @@ public final class NativeAppRoutingActivity extends Activity {
     private EditText homeCidr;
     private CheckBox home,allApps;
     private Spinner fallback,dnsProvider,dnsRole,dnsMode,dnsAlternate,networkPreference,bootstrapOption,dnsStrategy;
-    private CheckBox hostsEnabled,blockExternal853,autoRecovery,rootEgressGuard,rootLocalDiscovery,validationCompat;
+    private CheckBox hostsEnabled,blockExternal853,autoRecovery,rootEgressGuard,rootLocalDiscovery,validationCompat,strictIpGuard;
     private TextView rootGuardStatus,peerDetailsStatus,validationStatus;
-    private Button rootRecoverButton;
+    private Button rootRecoverButton,rootInspectButton;
     private boolean rootRecoveryBusy;
     private TextView hostsStatus,dnsHealth,dnsPending;
     private Button dnsTestButton,functionalTestButton;
@@ -52,7 +52,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.26.7 PREVIEW",12);
+        label(header,"PROXY  /  0.27.0 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -112,11 +112,24 @@ public final class NativeAppRoutingActivity extends Activity {
         rootEgressGuard=new CheckBox(this);rootEgressGuard.setText("Block direct DNS and IPv6 outside Wonhee (root)");rootEgressGuard.setChecked(draft.getBoolean("rootEgressGuard",false));root.addView(rootEgressGuard);
         rootLocalDiscovery=new CheckBox(this);rootLocalDiscovery.setText("Allow direct mDNS and SSDP discovery");rootLocalDiscovery.setChecked(draft.getBoolean("rootLocalDiscovery",false));root.addView(rootLocalDiscovery);
         label(root,"Requires root and all-app capture. Installs only after VPN establishment; blocks direct port 53/853 and IPv6 data, except exact WireGuard endpoints and narrow local control. Other direct IPv4 remains allowed. IPv4 IPsec is unchanged; carrier DNS and IPv6 calls may be affected. No broad IPv4 lockdown. Stop to remove the guard. Unexpected process death can leave rules installed; use recovery below. AFWall+ is not changed. A firewall reload can remove or move the guard; periodic verification holds captured traffic on detection.",13);
+        strictIpGuard=new CheckBox(this);strictIpGuard.setText("Strict IPv4/IPv6 guard · crash-survival test (experimental)");strictIpGuard.setChecked(draft.getBoolean("strictIpGuard",false));root.addView(strictIpGuard);
+        label(root,"Optional separate test mode. Requires root guard, all-app capture, validation bridge OFF and local discovery OFF. Blocks other direct IPv4 as well as IPv6, except exact peer endpoints and local control. Android Wi-Fi validation, carrier calling and LAN access may fail. Does not install before VPN startup or survive every reboot, firewall reload or TUN replacement. If the service dies, inspect retained rules offline; do not assume protection. Default is OFF.",13);
         validationCompat=new CheckBox(this);validationCompat.setText("Wi-Fi validation DNS bridge (experimental)");validationCompat.setChecked(draft.getBoolean("validationCompat",false));root.addView(validationCompat);
-        label(root,"Requires root guard and Strict DNS. Root-owned wlan0 DNS is redirected locally on IPv4 and, only if supported, IPv6. Only three known validation names, A/AAAA, use encrypted Exit A. Other requests refused; Exit A held or cellular means no relay. Android still performs real HTTP/HTTPS validation; direct IPv4 probe traffic is not newly exempted. All other external DNS remains blocked. IPv6 direct data remains blocked; genuine validation can still fail if local routing or HTTP/HTTPS probes cannot complete.",13);
+        label(root,"Requires root guard and Strict DNS. Root-owned wlan0 DNS is redirected locally on IPv4 and, only if supported, IPv6. Only three known validation names, A/AAAA, use encrypted Exit A. Other requests refused; Exit A held or peer recovery means no relay; verified cellular Exit A is supported. Android still performs real HTTP/HTTPS validation; direct IPv4 probe traffic is not newly exempted. All other external DNS remains blocked. IPv6 direct data remains blocked; genuine validation can still fail if local routing or HTTP/HTTPS probes cannot complete.",13);
         label(root,"DNS ownership audit: root guard counts blocked port 53 packets by IPv4/IPv6 and Wi-Fi socket UID (1051 DNS resolver, 1073 NetworkStack, root, system, other/unmatched); non-Wi-Fi drops are separate. NAT counters describe matching new connections, not DNS query counts. No new DNS exceptions. IPv4 NAT is required; IPv6 NAT is capability-checked before capture. Missing IPv6 NAT retains IPv6 DNS blocking. The bridge can use verified Exit A on cellular while Wi-Fi reconnects; it pauses during peer recovery or an Exit A hold.",13);
         validationStatus=label(root,"Validation bridge · off",14);
         rootGuardStatus=label(root,"Root guard · not active",14);
+        rootInspectButton=button(root,"Inspect owned guard (offline)",()->{
+            if(rootRecoveryBusy||NativeAppRoutingService.running())return;
+            rootRecoveryBusy=true;updateLive();
+            new Thread(()->{
+                String msg;
+                try{msg=NativeEgressGuard.inspectOffline(this);}
+                catch(Exception e){msg="Guard inspection unconfirmed; no changes made; journal retained";}
+                final String result=msg;
+                runOnUiThread(()->{rootRecoveryBusy=false;updateLive();new android.app.AlertDialog.Builder(this).setTitle("Owned guard inspection").setMessage(result).setPositiveButton("OK",null).show();});
+            }).start();
+        });
         rootRecoverButton=button(root,"Recover owned root guard (offline)",()->{
             if(rootRecoveryBusy||NativeAppRoutingService.running())return;
             new android.app.AlertDialog.Builder(this).setTitle("Remove owned guard rules?")
@@ -285,6 +298,7 @@ public final class NativeAppRoutingActivity extends Activity {
         if(summary!=null)summary.setText("Configuration · "+(allApps.isChecked()?"All-app preview":selected+" apps selected")+" · "+(home.isChecked()?"2 exits + Home":"2 exits")+"\nChanges apply on next Start.");
         if(validationStatus!=null)validationStatus.setText("Validation bridge · "+(busy?prefs.getString("validationStatus","Pending"):"Off"));
         if(rootGuardStatus!=null)rootGuardStatus.setText("Root guard · "+(busy?prefs.getString("egressGuardStatus","Waiting for VPN") : NativeEgressGuard.staleStatus(this)));
+        if(rootInspectButton!=null)rootInspectButton.setEnabled(!busy&&!rootRecoveryBusy&&NativeEgressGuard.pending(this));
         if(rootRecoverButton!=null)rootRecoverButton.setEnabled(!busy&&!rootRecoveryBusy&&NativeEgressGuard.pending(this));
         startButton.setEnabled(!busy&&!rootRecoveryBusy&&!NativeEgressGuard.pending(this));stopButton.setEnabled(busy);status.setText(formatActivity(report));
     }
@@ -317,7 +331,7 @@ public final class NativeAppRoutingActivity extends Activity {
     private void save(){
         android.content.SharedPreferences.Editor e=draft.edit().putBoolean("home",home.isChecked()).putString("homeCidr",homeCidr.getText().toString().trim()).putInt("default",fallback.getSelectedItemPosition());
         e.putInt("bootstrapOption",bootstrapOption.getSelectedItemPosition()).putBoolean("allApps",allApps.isChecked()).putBoolean("autoRecovery",autoRecovery.isChecked()).putInt("networkPreference",networkPreference.getSelectedItemPosition());
-        e.putBoolean("rootEgressGuard",rootEgressGuard.isChecked()).putBoolean("rootLocalDiscovery",rootLocalDiscovery.isChecked()).putBoolean("validationCompat",validationCompat.isChecked());
+        e.putBoolean("rootEgressGuard",rootEgressGuard.isChecked()).putBoolean("rootLocalDiscovery",rootLocalDiscovery.isChecked()).putBoolean("validationCompat",validationCompat.isChecked()).putBoolean("strictIpGuard",strictIpGuard.isChecked());
         e.putInt("dnsStrategy",dnsStrategy.getSelectedItemPosition()).putInt("dnsMode",dnsMode.getSelectedItemPosition()).putInt("dnsProvider",dnsProvider.getSelectedItemPosition()).putInt("dnsRole",dnsRole.getSelectedItemPosition()).putInt("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putBoolean("hostsEnabled",hostsEnabled.isChecked()).putBoolean("blockExternal853",blockExternal853.isChecked());
         for(int i=0;i<categories.length;i++)e.putInt("cat"+i,categories[i].getSelectedItemPosition());
         for(int i=0;i<protocols.length;i++)e.putInt("proto"+i,protocols[i].getSelectedItemPosition());
@@ -335,7 +349,7 @@ public final class NativeAppRoutingActivity extends Activity {
         for(Spinner v:categories)v.setOnItemSelectedListener(change);
         for(Spinner v:protocols)v.setOnItemSelectedListener(change);
         for(AppRow r:apps){r.category.setOnItemSelectedListener(change);r.role.setOnItemSelectedListener(change);}
-        for(CheckBox v:new CheckBox[]{home,hostsEnabled,blockExternal853,autoRecovery,rootEgressGuard,rootLocalDiscovery,validationCompat})v.setOnCheckedChangeListener((b,on)->autoSave());
+        for(CheckBox v:new CheckBox[]{home,hostsEnabled,blockExternal853,autoRecovery,rootEgressGuard,rootLocalDiscovery,validationCompat,strictIpGuard})v.setOnCheckedChangeListener((b,on)->autoSave());
         android.text.TextWatcher edits=new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence s,int st,int c,int a){}
             public void onTextChanged(CharSequence s,int st,int b,int c){autoSave();}
@@ -397,6 +411,7 @@ public final class NativeAppRoutingActivity extends Activity {
         draftReady=false;recreate();
     }
     private Intent makeIntent()throws Exception{
+        if(strictIpGuard.isChecked()&&(!rootEgressGuard.isChecked()||validationCompat.isChecked()||rootLocalDiscovery.isChecked()))throw new NativePeerProfiles.Rejected("STRICT_IP_REQUIRES_GUARD_NO_BRIDGE_NO_DISCOVERY");
         if(validationCompat.isChecked()&&(!rootEgressGuard.isChecked()||dnsStrategy.getSelectedItemPosition()!=NativeAppRoutingPolicy.DNS_STRICT))throw new NativePeerProfiles.Rejected("VALIDATION_REQUIRES_ROOT_GUARD_AND_STRICT_DNS");
         if(NativeEgressGuard.pending(this)&&!NativeAppRoutingService.running())throw new NativePeerProfiles.Rejected("EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE");
         if(rootEgressGuard.isChecked()&&!allApps.isChecked())throw new NativePeerProfiles.Rejected("EGRESS_REQUIRES_ALL_APP_CAPTURE");
@@ -425,7 +440,7 @@ public final class NativeAppRoutingActivity extends Activity {
         String[] checked=NativePeerProfiles.prepare(this,useHome,ips,new String[3]);Arrays.fill(checked,null);
         return new Intent(this,NativeAppRoutingService.class).setAction(NativeAppRoutingService.START)
             .putExtra("home",useHome).putExtra("homeCidr",cidr).putExtra("default",def).putExtra("categories",cat).putExtra("protocols",proto)
-            .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("rootEgressGuard",rootEgressGuard.isChecked()).putExtra("rootLocalDiscovery",rootLocalDiscovery.isChecked()).putExtra("validationCompat",validationCompat.isChecked()).putExtra("dnsStrategy",dnsStrategy.getSelectedItemPosition()).putExtra("dnsMode",dnsMode.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
+            .putExtra("autoRecovery",autoRecovery.isChecked()).putExtra("networkPreference",networkPreference.getSelectedItemPosition()).putExtra("rootEgressGuard",rootEgressGuard.isChecked()).putExtra("rootLocalDiscovery",rootLocalDiscovery.isChecked()).putExtra("validationCompat",validationCompat.isChecked()).putExtra("strictIpGuard",strictIpGuard.isChecked()).putExtra("dnsStrategy",dnsStrategy.getSelectedItemPosition()).putExtra("dnsMode",dnsMode.getSelectedItemPosition()).putExtra("dnsProvider",dnsProvider.getSelectedItemPosition()).putExtra("dnsRole",dnsRole.getSelectedItemPosition()).putExtra("dnsAlternate",dnsAlternate.getSelectedItemPosition()).putExtra("hostsEnabled",hostsEnabled.isChecked()).putExtra("blockExternal853",blockExternal853.isChecked())
             .putExtra("bootstrapOption",bootstrapOption.getSelectedItemPosition()).putExtra("allApps",allApps.isChecked()).putExtra("apps",names).putExtra("appCategories",appCat).putExtra("appRoles",appRole).putExtra("overrides",ips);
     }
     private static String preflightReason(Exception e){return e instanceof NativePeerProfiles.Rejected?((NativePeerProfiles.Rejected)e).code:e instanceof IllegalArgumentException?"INVALID_HOME_CIDR_OR_ROUTING_OR_DNS_SELECTION":e.getClass().getSimpleName();}
