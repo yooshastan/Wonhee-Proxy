@@ -6,7 +6,7 @@ import java.util.Map;
 final class NativeUnderlayPolicy {
     static final int WIFI_FIRST=0,SYSTEM=1,CELL_FIRST=2,STICKY=3;
     static final int WIFI=1,CELL=2;
-    static final long SETTLE_MS=2000, FAILED_TRIAL_COOLDOWN_MS=120000;
+    static final long SETTLE_MS=2000, VALIDATION_GRACE_MS=12000, FAILED_TRIAL_COOLDOWN_MS=120000;
     static final String[] LABELS={"Prefer Wi-Fi","Android best available","Prefer cellular","Maintain current connection"};
     static boolean valid(int mode){return mode>=0&&mode<LABELS.length;}
     // Initial startup never relaxes Android validation. During a verified
@@ -43,13 +43,22 @@ final class NativeUnderlayPolicy {
         for(long id:usable.keySet())if(found==0||Long.compareUnsigned(id,found)<0)found=id;
         return found;
     }
+    // Give the returning Wi-Fi network a bounded chance to validate through
+    // the currently verified cellular exit. Never delay recovery on actual loss.
+    static long migrationSettle(boolean bridgeReady,boolean currentValidated,boolean targetWifi,boolean targetValidated){
+        return bridgeReady&&currentValidated&&targetWifi&&!targetValidated?VALIDATION_GRACE_MS:SETTLE_MS;
+    }
+    static boolean validationRelayAllowed(boolean guardVerified,boolean stopping,boolean held,boolean relayPresent){
+        return guardVerified&&!stopping&&!held&&relayPresent;
+    }
     static final class Debounce {
         private long pending,since;
         void reset(){pending=0;since=0;}
-        boolean due(long current,long candidate,long now){
+        boolean due(long current,long candidate,long now){return due(current,candidate,now,SETTLE_MS);}
+        boolean due(long current,long candidate,long now,long settle){
             if(candidate==0||candidate==current){reset();return false;}
             if(pending!=candidate||now<since){pending=candidate;since=now;return false;}
-            return now-since>=SETTLE_MS;
+            return now-since>=settle;
         }
     }
 }
