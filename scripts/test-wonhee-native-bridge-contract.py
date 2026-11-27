@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(163)' in gradle
+assert 'versionCode.set(164)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.25.1-dns-isolation')" in gradle
+assert "versionName.set('0.26.0-egress-guard')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -283,3 +283,19 @@ assert 'owner==RELAY_UID?(dnsRelay==null?-1:dnsRelay.role)' in app_routing
 assert 'if(found!=null)return null' in app_routing
 assert 'dnsStrategy' in ui_activity and 'Strict · deny unattributed DNS' in ui_activity
 assert 'isolationUntil' in ui_activity and 'isolationUntil' in app_routing
+
+# 0.26.0: isolated root egress trial, not legacy root guard reactivation.
+egress = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEgressGuard.java").read_text()
+egress_plan = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEgressGuardPlan.java").read_text()
+egress_runtime = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEgressGuardRuntime.java").read_text()
+assert 'getBooleanExtra("rootEgressGuard",false)' in app_routing
+assert app_routing.index('tun=builder.establish()') < app_routing.index('egressGuard.install(') < app_routing.index('stage="dns-relay";')
+assert 'egressGuard.failed()' in app_routing and 'egressGuard.retain()' in app_routing and 'egressGuard.remove()' in app_routing
+assert 'EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE' in app_routing
+assert 'rootEgressGuard' in ui_activity and 'Recover owned root guard (offline)' in ui_activity
+assert 'putString(KEY,plan.encode()).commit()' in egress and 'runtime.remove(plan)' in egress
+assert 'scheduleWithFixedDelay(this::audit,5,5,TimeUnit.SECONDS)' in egress
+assert 'EGRESS_STRICT_IPV4_NOT_ENABLED' in egress_runtime
+assert ' -F ' not in egress_runtime and ' -P ' not in egress_runtime and '-j ACCEPT' not in egress_plan
+assert 'RootGuardSafetyGate' not in egress_runtime
+assert 'static boolean activationPaused() { return true; }' in (root / "app/src/main/java/com/yooshastan/wonheeproxy/RootGuardSafetyGate.java").read_text()
