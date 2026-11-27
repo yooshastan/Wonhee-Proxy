@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(158)' in gradle
+assert 'versionCode.set(159)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.22.3-native-protected-routing')" in gradle
+assert "versionName.set('0.23.0-network-stabilization')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -233,3 +233,9 @@ assert 'functionalOwns(key)' in app_routing and 'return UNKNOWN_DNS' in app_rout
 assert 'network.bindSocket(socket)' in protected_dns and 'NativeAppRoutingPolicy.DNS),53)' in protected_dns
 assert 'closeFunctional();functionalWorker.shutdownNow()' in protected_dns
 assert 'DNS_FUNCTIONAL_TEST' in ui_activity and 'dnsRelay.testFunctional()' in app_routing
+
+# 0.23: strict fixed-address HTTPS bootstrap; no resolver fallback.
+assert 'new byte[]{1,1,1,1}),443)' in bootstrap
+assert 'NativeBootstrapHttp.request' in bootstrap and 'NativeBootstrapHttp.response' in bootstrap
+assert 'authenticated-DoH' in bootstrap and '853' not in bootstrap
+assert 'tls.setSoTimeout(timeout())' in bootstrap
