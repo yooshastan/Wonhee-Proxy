@@ -126,7 +126,12 @@ public final class NativeAppRoutingService extends VpnService {
     private volatile boolean stopping,explicitStop;
     private NativeEgressGuard egressGuard;
     private NativeValidationDnsBridge validationBridge;
-    private boolean validationWifi;
+    private boolean validationRelayReady(long now){
+        return validationBridge!=null&&NativeUnderlayPolicy.validationRelayAllowed(guardedSession(),stopping,NativeRoutingSafety.held(0,isolationRole,now,isolationUntil),dnsRelays[0]!=null);
+    }
+    private void refreshValidationRelay(long now){
+        if(validationBridge!=null)validationBridge.setRelay(validationRelayReady(now)?dnsRelays[0]:null);
+    }
     private String validationStatus(){return validationBridge==null?"Off":validationBridge.status();}
     private String egressStatus(){return egressGuard==null?NativeEgressGuard.staleStatus(this):egressGuard.status();}
     private volatile NativeEndpointBootstrap bootstrap;
@@ -340,6 +345,7 @@ public final class NativeAppRoutingService extends VpnService {
         for(int role=0;role<2;role++)if(dnsStrategy!=NativeAppRoutingPolicy.DNS_GLOBAL||role==dnsRole)
             dnsRelays[role]=new NativeProtectedDnsRelay(vpn,dnsProvider,role,dnsMode,dnsAlternate,blocklist);
         dnsGeneration++;startupProbePending=true;
+        refreshValidationRelay(SystemClock.elapsedRealtime());
     }
     private void createPeers()throws Exception{
         peerEvidence="Awaiting fresh protected peer handshakes";
@@ -543,8 +549,6 @@ public final class NativeAppRoutingService extends VpnService {
                 if(now>=nextHealth||networkDirty.getAndSet(false)){
                     if(!dnsOff()){stage="private-dns-changed";throw new IllegalStateException();}
                     if(!captureIntact()){stage="vpn-capture-lost";throw new IllegalStateException();}
-                    LinkProperties physicalLink=cm().getLinkProperties(underlay);
-                    validationWifi=physicalLink!=null&&"wlan0".equals(physicalLink.getInterfaceName());
                     boolean androidValidated=usable(underlay);
                     boolean peerReady=protectedSockets()&&ready();
                     if(androidValidated!=lastAndroidValidated){
@@ -557,7 +561,10 @@ public final class NativeAppRoutingService extends VpnService {
                     else if(!peerReady)reason="peer-health";
                     else if(autoRecovery){
                         Network candidate=migrationCandidate();
-                        if(migration.due(id(underlay),id(candidate),now)){reason="preferred-network-migration";requestedMigration=candidate;}
+                        NetworkCapabilities target=candidate==null?null:cm().getNetworkCapabilities(candidate);
+                        boolean targetWifi=target!=null&&target.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+                        long settle=NativeUnderlayPolicy.migrationSettle(validationRelayReady(now),androidValidated,targetWifi,usable(candidate));
+                        if(migration.due(id(underlay),id(candidate),now,settle)){reason="preferred-network-migration";requestedMigration=candidate;}
                     }
                     nextHealth=now+1000;
                 }
@@ -579,6 +586,7 @@ public final class NativeAppRoutingService extends VpnService {
                     lastRecoveryReason=stage;recoveryStarted=SystemClock.elapsedRealtime();recoveryFrom=underlay;
                     recoveryRequested=stage.equals("preferred-network-migration")?requestedMigration:recoveryFrom;
                     migration.reset();
+                    if(validationBridge!=null)validationBridge.setRelay(null);
                     report(stats("RECOVERING — "+stage+"; stopping forwarding"));
                     retireDns();if(!closePeers())cleanupFailed=true;ledger.entries.clear();
                     if(!recover())throw new IllegalStateException("recovery unavailable");
@@ -594,7 +602,7 @@ public final class NativeAppRoutingService extends VpnService {
                 }
                 if(dnsTest.getAndSet(false))runDnsTests(false,now);
                 if(functionalTest.getAndSet(false))runDnsTests(true,now);
-                if(validationBridge!=null)validationBridge.setRelay(validationWifi&&!NativeRoutingSafety.held(0,isolationRole,now,isolationUntil)?dnsRelays[0]:null);
+                refreshValidationRelay(now);
                 pump(now);
                 // Prime configured encrypted relays after the pump is running;
                 // skip any held role and never use the physical resolver.
