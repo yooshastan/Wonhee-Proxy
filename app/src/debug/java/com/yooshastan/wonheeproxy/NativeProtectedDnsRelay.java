@@ -39,6 +39,9 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicBoolean probeRunning=new java.util.concurrent.atomic.AtomicBoolean();
     private volatile long lastSuccessMs,lastFailureMs;
     private final NativeDnsFreshBackoff freshBackoff=new NativeDnsFreshBackoff();
+    private final Object coldQuicGate=new Object();
+    private volatile boolean quicEstablished;
+    final AtomicLong coldQuicTrials=new AtomicLong();
     private final long tcpHandle;
     private final byte[] quicRoots;
     private final ArrayDeque<QuicConnection> quicIdle=new ArrayDeque<>();
@@ -202,6 +205,12 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         if(closed)return;udpQueries.incrementAndGet();
         resolve(Arrays.copyOfRange(packet,28,packet.length),answer->enqueue(packet,answer));
     }
+    void resolveValidation(byte[] raw,java.util.function.Consumer<byte[]> callback){
+        // Defense in depth: only the fixed canonical validation question is admitted.
+        try{NativeValidationDnsPolicy.canonical(raw,NativeProtectedDnsMessage.u16(raw,0));}
+        catch(IOException|RuntimeException invalid){return;}
+        resolve(raw,callback::accept);
+    }
     private void resolve(byte[] raw,AnswerSink sink){
         if(closed)return;queries.incrementAndGet();
         final byte[] query;
@@ -273,6 +282,7 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
             finally{probeRunning.set(false);}
         });}catch(RejectedExecutionException full){probeStatus="Busy · retry later";probeRunning.set(false);}
     }
+    private static final class InvalidQuicResponse extends IOException {}
     private final class QuicConnection implements AutoCloseable{
         final DatagramSocket raw;final int port;final long handle;
         long lastUsed=SystemClock.elapsedRealtime();int exchanges;
@@ -297,12 +307,12 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
                 if(exchanges==0)quicFreshExchangeLastMs.set(elapsed);
                 if(n<12||n>output.length){
                     if(n==-3)quicTimeout.incrementAndGet();else if(n==-7){quicTimeout.incrementAndGet();quicHandshakeTimeout.incrementAndGet();quicHandshakeTimeoutLastMs.set(elapsed);throw new HandshakeTimeout();}else if(n==-8)quicStreamReset.incrementAndGet();else if(n==-9)quicRemoteClose.incrementAndGet();else if(n==-10)quicTransportError.incrementAndGet();else if(n==-11)quicTlsError.incrementAndGet();else if(n==-4)quicCertificate.incrementAndGet();
-                    else if(n==-1||n==-2)quicSocketError.incrementAndGet();else if(n==-6)quicInvalid.incrementAndGet();else quicOther.incrementAndGet();
+                    else if(n==-1||n==-2)quicSocketError.incrementAndGet();else if(n==-6){quicInvalid.incrementAndGet();throw new InvalidQuicResponse();}else quicOther.incrementAndGet();
                     throw new IOException("QUIC exchange refused");
                 }
                 byte[] answer;
                 try{answer=NativeProtectedDnsMessage.validateFull(query,Arrays.copyOf(output,n));}
-                catch(IOException invalid){quicInvalid.incrementAndGet();throw invalid;}
+                catch(IOException invalid){quicInvalid.incrementAndGet();throw new InvalidQuicResponse();}
                 exchanges++;lastUsed=SystemClock.elapsedRealtime();return answer;
             }
         }
@@ -342,6 +352,21 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         return answer;
     }
     private byte[] exchangeQuic(byte[] query)throws Exception{
+        // During cold startup, let one worker establish the first authenticated
+        // connection. Never block the TUN pump or bypass the existing backoff.
+        // Once verified, the original pooled concurrency is restored.
+        if(!quicEstablished)synchronized(coldQuicGate){
+            if(!quicEstablished){
+                if(closed)throw new IOException("relay stopped");
+                coldQuicTrials.incrementAndGet();
+                byte[] answer=exchangeQuicInternal(query);
+                quicEstablished=true;
+                return answer;
+            }
+        }
+        return exchangeQuicInternal(query);
+    }
+    private byte[] exchangeQuicInternal(byte[] query)throws Exception{
         if(closed)throw new IOException("relay stopped");
         QuicConnection c;
         synchronized(quicIdle){c=quicIdle.pollFirst();}
@@ -352,7 +377,7 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
             try{return useQuic(c,query);}
             catch(Exception|LinkageError stale){
                 c.close();if(closed)throw stale;
-                quicFailed.incrementAndGet();retry=true;
+                quicFailed.incrementAndGet();if(stale instanceof InvalidQuicResponse)throw stale;retry=true;
             }
         }
         // Only fresh connection failures open the circuit. Reuse remains possible
@@ -372,6 +397,8 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
             }catch(Exception|LinkageError e){
                 if(c!=null)c.close();
                 if(!closed){quicFailed.incrementAndGet();quicFreshFailures.incrementAndGet();}
+                // An authenticated but rejected response is not a transport outage. Reject only this query.
+                if(e instanceof InvalidQuicResponse)ok=true;
                 if(!NativeDnsFreshBackoff.canRetryHandshake(freshAttempt,retry,closed,e instanceof HandshakeTimeout))throw e;
             }finally{freshBackoff.finish(ticket,ok,SystemClock.elapsedRealtime());}
         }

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <!-- Debug-only: resolve local UID ownership for explicit all-app preview. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <application
         android:name=".RootlabApplication"
         tools:replace="android:name">
@@ -66,7 +68,7 @@
             android:exported="false" android:foregroundServiceType="specialUse">
             <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-initiated debug VPN for selected apps, two independent encrypted exits and optional private Home route" />
+                android:value="User-initiated debug VPN for selected or all apps in current Android user, two independent encrypted exits and optional private Home route" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>

@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(158)' in gradle
+assert 'versionCode.set(173)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.22.3-native-protected-routing')" in gradle
+assert "versionName.set('0.27.1-protection-modes')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -143,7 +143,7 @@ assert 'allowBypass' not in app_routing and 'Settings.Global.put' not in app_rou
 protected_dns = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeProtectedDnsRelay.java").read_text()
 assert 'network.bindSocket(raw)' in protected_dns and 'raw.bind(' in protected_dns
 assert 'setEndpointIdentificationAlgorithm("HTTPS")' in protected_dns and 'tls.startHandshake()' in protected_dns
-assert 'ports.putIfAbsent(port,raw)' in protected_dns and 'dnsRelay.owns(key)' in app_routing
+assert 'ports.putIfAbsent(port,raw)' in protected_dns and 'relayForSocket(key)' in app_routing
 assert 'key.remotePort==53' in app_routing and 'dnsRelay.submit(p)' in app_routing
 assert 'RootBlocklistStore.current(getFilesDir())' in app_routing
 assert 'controlled-guard-test' in app_routing and 'old.close()' in app_routing
@@ -225,11 +225,182 @@ assert 'NativeAdvancedDnsBridge.createQuic(provider,mode,alternate,quicRoots)' i
 assert 'if(k.remote!=ip||k.remotePort!=NativeDnsTransportPolicy.port(mode)' in protected_dns
 assert 'freshBackoff.begin' in protected_dns and 'freshBackoff.finish' in protected_dns
 assert 'QUIC_IDLE_LIMIT=10000' in protected_dns and 'quicFreshRetries' in protected_dns
-assert 'dnsRelay.testProvider()' in app_routing and 'DNS_TEST' in ui_activity
+assert 'r.testProvider()' in app_routing and 'DNS_TEST' in ui_activity
 assert 'dnsAlternate.getSelectedItemPosition()' in ui_activity
 assert 'DNS probe attempts=' in app_routing and 'dnsHealth' in ui_activity
 
 assert 'functionalOwns(key)' in app_routing and 'return UNKNOWN_DNS' in app_routing
 assert 'network.bindSocket(socket)' in protected_dns and 'NativeAppRoutingPolicy.DNS),53)' in protected_dns
 assert 'closeFunctional();functionalWorker.shutdownNow()' in protected_dns
-assert 'DNS_FUNCTIONAL_TEST' in ui_activity and 'dnsRelay.testFunctional()' in app_routing
+assert 'DNS_FUNCTIONAL_TEST' in ui_activity and 'r.testFunctional()' in app_routing
+
+# 0.23: strict fixed-address HTTPS bootstrap; no resolver fallback.
+assert 'InetAddress.getByAddress(resolverIp),port)' in bootstrap and 'port=option%2==0?443:853' in bootstrap
+assert 'NativeBootstrapHttp.request' in bootstrap and 'NativeBootstrapHttp.response' in bootstrap
+assert 'authenticated-DoH' in bootstrap and 'authenticated-DoT' in bootstrap
+assert 'tls.setSoTimeout(timeout())' in bootstrap
+
+# 0.23.1: broad capture only when explicitly opted in; never route unknown owners.
+assert 'if(!allApps)builder.addAllowedApplication(getPackageName())' in app_routing
+assert 'if(!allApps)for(String app:apps)builder.addAllowedApplication(app)' in app_routing
+assert 'if(resolveOwner(uid))return uid' in app_routing and 'common.same(a)' in app_routing
+assert 'uid==android.os.Process.myUid()' in app_routing
+assert 'NativeAppCategorySuggestions.suggest' in app_routing and 'NativeAppCategorySuggestions.suggest' in ui_activity
+assert 'allApps.isChecked()' in ui_activity and 'draft.getBoolean("allApps",false)' in ui_activity
+assert 'Port flows ' in app_routing and 'portFlows[selector][role]++' in app_routing
+assert 'InvalidQuicResponse' in protected_dns and 'if(e instanceof InvalidQuicResponse)ok=true' in protected_dns
+assert 'android.permission.QUERY_ALL_PACKAGES' in manifest and 'android.permission.QUERY_ALL_PACKAGES' not in (root / "app/src/main/AndroidManifest.xml").read_text()
+
+# 0.24: bounded retry and hold tests; no provider fallback or bypass.
+assert 'NativeRoutingSafety.retryBootstrap' in bootstrap and 'queryOnce(host,type)' in bootstrap
+assert 'BOOTSTRAP RETRY' in bootstrap and 'stopped()' in bootstrap
+assert 'SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE' in app_routing
+assert 'SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE' in ui_activity
+assert 'r.category.getSelectedItemPosition()!=r.suggested' in ui_activity
+assert 'NativeRoutingSafety.isolationAllowed(request,count,dnsRole,dnsStrategy!=NativeAppRoutingPolicy.DNS_GLOBAL)' in app_routing
+assert app_routing.index('NativeRoutingSafety.held(role,isolationRole,now,isolationUntil)') < app_routing.index('RootlessNativeBridge.injectPacket(handles[role],translated)')
+assert 'NativeRoutingSafety.held(i,isolationRole,now,isolationUntil)' in app_routing
+assert 'Category flows ' in app_routing and 'ISOLATION_TEST' in ui_activity
+assert 'protection unconfirmed' in ui_activity
+assert 'Check configuration (offline)' in ui_activity
+
+# Configuration retention contract: same draft namespace and package, autosaved routes and endpoint overrides, bounded route-only backup.
+assert 'native_app_route_draft_v1' in ui_activity
+assert 'wireDraftAutosave()' in ui_activity and 'autoSave();super.onPause()' in ui_activity
+assert 'draft.getString("endpointOverride"+i,"")' in ui_activity and 'e.putString("endpointOverride"+i' in ui_activity
+assert 'EXPORT_RULES' in ui_activity and 'IMPORT_RULES' in ui_activity and 'if(routingKey(key))e.remove(key)' in ui_activity
+assert '1048576' in ui_activity and 'putRoutingValue(e,k,values.get(k))' in ui_activity
+
+# 0.25.1: strict routing for attributable DNS; explicit policy for unknown owner.
+assert 'NativeProtectedDnsRelay[] dnsRelays=new NativeProtectedDnsRelay[2]' in app_routing
+assert 'dnsRelays[role]=new NativeProtectedDnsRelay(vpn,dnsProvider,role,dnsMode,dnsAlternate,blocklist)' in app_routing
+assert 'policy.dnsExit(key,owners.get(owner),owner==UNKNOWN_DNS,dnsStrategy,dnsRole)' in app_routing
+assert 'dnsLedger.admit(key,syn,owner,route,now)' in app_routing and 'dnsLedger.reply(reply,dnsRelay.role,now)' in app_routing
+assert 'dnsLedger.entries.clear()' in app_routing
+assert 'if(held){dnsIsolationDropped++;continue;}' in app_routing
+assert 'NativeRoutingSafety.held(route,isolationRole,now,isolationUntil)' in app_routing
+assert 'owner==RELAY_UID?(dnsRelay==null?-1:dnsRelay.role)' in app_routing
+assert 'if(found!=null)return null' in app_routing
+assert 'dnsStrategy' in ui_activity and 'Strict · deny unattributed DNS' in ui_activity
+assert 'isolationUntil' in ui_activity and 'isolationUntil' in app_routing
+
+# 0.26.0: isolated root egress trial, not legacy root guard reactivation.
+egress = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEgressGuard.java").read_text()
+egress_plan = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEgressGuardPlan.java").read_text()
+egress_runtime = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeEgressGuardRuntime.java").read_text()
+assert 'getBooleanExtra("rootEgressGuard",false)' in app_routing
+assert app_routing.index('tun=builder.establish()') < app_routing.index('egressGuard.install(') < app_routing.index('stage="dns-relay";')
+assert 'egressGuard.failed()' in app_routing and 'egressGuard.retain()' in app_routing and 'egressGuard.remove()' in app_routing
+assert 'EGRESS_JOURNAL_PENDING_RECOVER_OFFLINE' in app_routing
+assert 'rootEgressGuard' in ui_activity and 'Recover owned root guard (offline)' in ui_activity
+assert 'putString(KEY,plan.encode()).putInt(BOOT,bootCount(context)).commit()' in egress and 'runtime.remove(plan)' in egress
+assert egress.index('putString(KEY,plan.encode()).putInt(BOOT,bootCount(context)).commit()') < egress.index('runtime.installStrict(plan)')
+assert 'scheduleWithFixedDelay(this::audit,5,5,TimeUnit.SECONDS)' in egress
+assert 'EGRESS_STRICT_IPV4_NOT_ENABLED' in egress_runtime
+assert ' -F ' not in egress_runtime and ' -P ' not in egress_runtime and '-j ACCEPT' not in egress_plan
+assert 'RootGuardSafetyGate' not in egress_runtime
+assert 'static boolean activationPaused() { return true; }' in (root / "app/src/main/java/com/yooshastan/wonheeproxy/RootGuardSafetyGate.java").read_text()
+
+# 0.26.1: validation loss alone is not a physical failure under the root guard.
+assert 'private Network preferredNetwork(){return pickNetwork(false,false);}' in app_routing
+assert 'NativeUnderlayPolicy.sessionCandidate(eligibleLink(n),usable(n),guardedSession())' in app_routing
+assert 'NET_CAPABILITY_CAPTIVE_PORTAL' in app_routing
+assert 'if(!sessionUsable(underlay))reason="physical-underlay-lost"' in app_routing
+assert 'else if(!peerReady)reason="peer-health"' in app_routing
+assert 'NativeUnderlayPolicy.retainUnvalidated' in app_routing and 'Network next=recoveryCandidate(attempt)' in app_routing
+assert 'FAILED_TRIAL_COOLDOWN_MS' in app_routing and 'UNDERLAY TRIAL — ' in app_routing
+assert 'if(!captureIntact()||!dnsOff()||!sessionUsable(next)||!protectedSockets()' in app_routing
+assert 'isolationRole=-1;isolationUntil=0;' not in app_routing[app_routing.index('if(recoveryTest||reason!=null)'):app_routing.index('if(dnsTest.getAndSet(false))')]
+assert 'retained "+NativePeerProfiles.SLOTS[isolationRole]+" through recovery; original deadline unchanged' in app_routing
+assert 'UNDERLAY PROBE — encrypted DNS through non-held exits; diagnostic only' in app_routing
+assert 'nextValidationProbe=now+30000' in app_routing
+assert 'egressGuard!=null&&egressGuard.failed()' in app_routing
+assert 'peerEvidence' in ui_activity and 'validationLosses' in ui_activity
+assert 'per-rule counters unavailable' in egress_runtime and 'DNS53=' in egress_runtime
+
+# 0.26.2: pinned guarded recovery and local-only diagnostics.
+assert 'recoveryRequested=stage.equals("preferred-network-migration")?requestedMigration:recoveryFrom' in app_routing
+assert 'NativeUnderlayPolicy.recoveryTarget(attempt,id(recoveryRequested),id(recoveryFrom),eligible)' in app_routing
+assert 'NativeUnderlayPolicy.handshakeBudget(speculative)' in app_routing and 'SystemClock.elapsedRealtime()+budget' in app_routing
+assert 'startupProbePending=true' in app_routing and 'if(startupProbePending){startupProbePending=false;runDnsTests(false,now);}' in app_routing
+assert 'if(!quicEstablished)synchronized(coldQuicGate)' in protected_dns
+assert 'quicEstablished=true' in protected_dns and 'exchangeQuicInternal(query)' in protected_dns
+assert 'peerDetails' in ui_activity and 'Inspect active routing' in ui_activity
+assert 'uidEvidence=Collections.unmodifiableMap(result)' in app_routing and 'uidEvidenceAt=0;uidEvidence=Collections.emptyMap()' in app_routing
+assert 'NativeAppRoutingService.inspectUid' in ui_activity
+assert 'publishUidEvidence(state,now)' in app_routing
+
+# 0.26.3: narrow validation bridge; no direct resolver exception.
+validation_policy = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeValidationDnsPolicy.java").read_text()
+validation_plan = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeValidationDnsPlan.java").read_text()
+validation_bridge = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeValidationDnsBridge.java").read_text()
+assert 'VALIDATION_REQUIRES_ROOT_GUARD_AND_STRICT_DNS' in app_routing and 'VALIDATION_REQUIRES_ROOT_GUARD_AND_STRICT_DNS' in ui_activity
+assert 'NETWORK_STACK_UID=1073' in validation_policy and 'new int[]{4}' in validation_plan
+assert '-o wlan0 -p ' in validation_plan and '--dport 53 -m owner --uid-owner ' in validation_plan and '-j REDIRECT --to-ports ' in validation_plan
+assert '-j ACCEPT' not in validation_plan and '-j ACCEPT' not in egress_plan
+assert 'new byte[]{127,0,0,1}' in validation_bridge and 'active.resolveValidation(canonical,result::complete)' in validation_bridge
+assert 'result.get(3500,TimeUnit.MILLISECONDS)' in validation_bridge and 'relay!=active' in validation_bridge
+assert 'validationBridge.setRelay(null)' in app_routing and 'NativeRoutingSafety.held(0,isolationRole,now,isolationUntil)' in app_routing
+assert 'runtime.installValidation(plan.validationPlan())' in egress and 'runtime.verify(plan.validationPlan())' in egress and 'runtime.remove(plan.validationPlan())' in egress
+assert 'runtime.remove(p.validationPlan())' in egress
+assert 'validationPort==0?null:new NativeValidationDnsPlan' in egress_plan
+assert 'validationCompat' in ui_activity and 'validationStatus' in app_routing
+
+# 0.26.4: partition existing terminal drops, never add a DNS bypass.
+assert 'for(int owner:new int[]{1051,1073,0,1000})' in egress_plan
+assert 'base.add("-o wlan0 -p "+proto+" --dport 53 -m owner --uid-owner "+owner+" -j DROP")' in egress_plan
+assert 'diagnostics=1' in egress_plan and 'validationPort,true,validationDual,validationPort!=0)' in egress
+assert 'DNS53 Wi-Fi owner 1051=' in egress_runtime and 'other/unmatched=' in egress_runtime
+assert 'append("NAT IPv").append(f).append(" redirect UDP=")' in egress_runtime and 'IPv6 redirect not installed' in egress_runtime
+assert 'runtime.validationCounters(plan.validationPlan())' in egress
+
+# 0.26.5: dual-stack opt-in loopback validation, actual observed owner.
+assert 'return rootOwner?0:NativeValidationDnsPolicy.NETWORK_STACK_UID' in validation_plan
+assert 'dual?new int[]{4,6}:new int[]{4}' in validation_plan
+assert 'validationDual=1' in egress_plan and 'validationPlan().owner()' in egress_plan
+assert 'family==4?"127.0.0.1":"::1"' in egress_plan
+assert 'new byte[]{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}' in validation_bridge
+assert 'u6.bind(new InetSocketAddress(loop6,t.getLocalPort()))' in validation_bridge
+assert 'udpWorker6,tcpWorker6' in validation_bridge
+
+# 0.26.6: missing IPv6 NAT is not fatal to the base VPN.
+assert 'validationRoot=1' in egress_plan and 'rootOnly||dual' in egress_plan
+assert 'static boolean validationDualAvailable' in egress and 'VALIDATION_IPV4_NAT_UNAVAILABLE' in egress
+assert 'validationDual=NativeEgressGuard.validationDualAvailable(this)' in app_routing
+assert app_routing.index('validationBridge=new NativeValidationDnsBridge(validationDual)') < app_routing.index('tun=builder.establish()')
+assert 'report(stats(blockedReason))' in app_routing
+assert 'if(udp6!=null)udp6.close()' in validation_bridge
+
+# 0.26.7: no resolver dependency on current physical network type.
+assert 'validationWifi' not in app_routing
+assert 'validationRelayAllowed(guardedSession(),stopping,NativeRoutingSafety.held(0,isolationRole,now,isolationUntil),dnsRelays[0]!=null)' in app_routing
+assert 'validationBridge.setRelay(validationRelayReady(now)?dnsRelays[0]:null)' in app_routing
+assert 'dnsGeneration++;startupProbePending=true;\n        refreshValidationRelay(SystemClock.elapsedRealtime());' in app_routing
+assert 'migrationSettle(validationRelayReady(now),androidValidated,targetWifi,usable(candidate))' in app_routing
+assert 'noRelay=' in validation_bridge and 'upstreamError=' in validation_bridge and 'UDP received/sent=' in validation_bridge and 'workers=' in validation_bridge
+
+# 0.27.0: separate strict-IP crash-survival trial, narrow mode unchanged.
+assert 'getBooleanExtra("strictIpGuard",false)' in app_routing
+assert 'draft.getBoolean("strictIpGuard",false)' in ui_activity
+assert 'STRICT_IP_REQUIRES_GUARD_NO_BRIDGE_NO_DISCOVERY' in ui_activity and 'STRICT_IP_REQUIRES_GUARD_NO_BRIDGE_NO_DISCOVERY' in app_routing
+assert 'strictIp?NativeEgressGuardPlan.STRICT_IP:NativeEgressGuardPlan.DNS_IPV6' in egress
+assert 'if(strictIp)runtime.installStrict(plan);else runtime.install(plan)' in egress
+assert 'void installStrict(NativeEgressGuardPlan p)' in egress_runtime
+assert 'p.mode!=NativeEgressGuardPlan.STRICT_IP||p.localDiscovery||p.validationPort!=0' in egress_runtime
+assert 'String offlineState(OwnedPlan p)' in egress_runtime and 'if(!any)return "Absent"' in egress_runtime
+assert 'static String inspectOffline(Context c)' in egress and 'Inspect owned guard (offline)' in ui_activity
+assert 'if(explicitStop){if(!egressGuard.remove())ok=false;}' in app_routing and 'else{egressGuard.retain();ok=false;}' in app_routing
+
+# 0.27.1: exclusive protection modes, retained journal and boot evidence.
+assert 'protectionMode=spinner(root,PROTECTION_MODES,previousMode)' in ui_activity
+assert 'return protection()==PROTECT_STRICT' in ui_activity and 'return protection()==PROTECT_WIFI' in ui_activity
+assert 'return protection()==PROTECT_DNS||protection()==PROTECT_WIFI' in ui_activity
+assert 'if(!discoveryAllowed())rootLocalDiscovery.setChecked(false)' in ui_activity
+assert 'draft.getBoolean("validationCompat",false)?PROTECT_WIFI' in ui_activity
+assert 'Wi-Fi recovery mode requires Strict DNS under Protection.' in ui_activity
+assert 'Guard recovery required · protection unconfirmed' in ui_activity
+assert 'Settings.Global.BOOT_COUNT' in egress and '.putInt(BOOT,bootCount(context)).commit()' in egress
+assert '.remove(KEY).remove(BOOT).putString(RECEIPT,receipt)' in egress
+assert 'Explicit offline recovery: prior filter ' in egress and 'Explicit Stop: owned rules absent after cleanup' in egress
+assert 'terminal DROP packets=' in egress_runtime and 'p.mode==NativeEgressGuardPlan.STRICT_IP' in egress_runtime
+assert 'counters=runtime.counters(p);runtime.verify(p)' in egress
