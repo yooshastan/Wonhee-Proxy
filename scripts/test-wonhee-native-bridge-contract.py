@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(166)' in gradle
+assert 'versionCode.set(167)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.26.2-connection-polish')" in gradle
+assert "versionName.set('0.26.3-validation-bridge')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -328,3 +328,19 @@ assert 'peerDetails' in ui_activity and 'Inspect active routing' in ui_activity
 assert 'uidEvidence=Collections.unmodifiableMap(result)' in app_routing and 'uidEvidenceAt=0;uidEvidence=Collections.emptyMap()' in app_routing
 assert 'NativeAppRoutingService.inspectUid' in ui_activity
 assert 'publishUidEvidence(state,now)' in app_routing
+
+# 0.26.3: narrow validation bridge; no direct resolver exception.
+validation_policy = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeValidationDnsPolicy.java").read_text()
+validation_plan = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeValidationDnsPlan.java").read_text()
+validation_bridge = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeValidationDnsBridge.java").read_text()
+assert 'VALIDATION_REQUIRES_ROOT_GUARD_AND_STRICT_DNS' in app_routing and 'VALIDATION_REQUIRES_ROOT_GUARD_AND_STRICT_DNS' in ui_activity
+assert 'NETWORK_STACK_UID=1073' in validation_policy and 'new int[]{4}' in validation_plan
+assert '-o wlan0 -p ' in validation_plan and '--dport 53 -m owner --uid-owner ' in validation_plan and '-j REDIRECT --to-ports ' in validation_plan
+assert '-j ACCEPT' not in validation_plan and '-j ACCEPT' not in egress_plan
+assert 'new byte[]{127,0,0,1}' in validation_bridge and 'active.resolveValidation(canonical,result::complete)' in validation_bridge
+assert 'result.get(3500,TimeUnit.MILLISECONDS)' in validation_bridge and 'relay!=active' in validation_bridge
+assert 'validationBridge.setRelay(null)' in app_routing and 'validationWifi&&!NativeRoutingSafety.held(0,isolationRole,now,isolationUntil)' in app_routing
+assert 'runtime.installValidation(plan.validationPlan())' in egress and 'runtime.verify(plan.validationPlan())' in egress and 'runtime.remove(plan.validationPlan())' in egress
+assert 'runtime.remove(p.validationPlan())' in egress
+assert 'validationPort==0?null:new NativeValidationDnsPlan' in egress_plan
+assert 'validationCompat' in ui_activity and 'validationStatus' in app_routing
