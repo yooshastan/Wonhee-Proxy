@@ -15,7 +15,7 @@ public final class NativeEgressGuardRuntimeTest {
     }else if(op.equals("-L")){
       int idx=0;for(String r:m.get(chain)){
         String tag=r.substring(r.indexOf("--comment ")+10).split(" ")[0];
-        String target=r.substring(r.lastIndexOf("-j ")+3);
+        String target=r.substring(r.lastIndexOf("-j ")+3).split(" ")[0];
         out.add((++idx)+" 100 "+target+" all -- * * 0.0.0.0/0 0.0.0.0/0 /* "+tag+" */");
       }
     }else if(op.equals("-C")){if(!m.containsKey(chain)||!m.get(chain).contains(rule))return 1;}
@@ -65,6 +65,26 @@ public final class NativeEgressGuardRuntimeTest {
   runtime.remove(nat);runtime.remove(bridge);
   check(fake.tables.get(14).get("OUTPUT").equals(Arrays.asList("-j AFWALL")));
   check(fake.tables.get(14).get("AFWALL").equals(Arrays.asList("-j RETURN")));
-  System.out.println("Native egress guard and validation NAT exact ownership transaction PASS");
+  NativeEgressGuardPlan diagnostic=new NativeEgressGuardPlan("123456abcdef","tun0",10123,1,false,endpoints,34567,true);
+  runtime.install(diagnostic);runtime.installValidation(diagnostic.validationPlan());
+  check(runtime.validationCounters(diagnostic.validationPlan()).equals("NAT IPv4 redirect UDP=1 TCP=2 · IPv6 redirect not installed"));
+  String detail=runtime.counters(diagnostic);
+  // Fake assigns row number as count. Assert each owner appears, and test
+  // exact sum by independently reading expected row positions.
+  for(int f:new int[]{4,6}){
+   List<String> dr=diagnostic.rules(f);long[] sums=new long[6];int[] owners={1051,1073,0,1000};
+   for(int i=0;i<dr.size();i++){
+    String rule=dr.get(i);if(!rule.contains("--dport 53 ")||!rule.endsWith("-j DROP"))continue;
+    int bucket=5;
+    if(rule.contains("-o wlan0 ")){bucket=4;for(int j=0;j<4;j++)if(rule.contains("--uid-owner "+owners[j]+" "))bucket=j;}
+    sums[bucket]+=i+1;
+   }
+   String summary=detail.split(" · ")[f==4?0:1];
+   check(summary.contains("DNS53="+Arrays.stream(sums).sum()+" "));
+   check(summary.contains("1051="+sums[0]+" 1073="+sums[1]+" root="+sums[2]+" system="+sums[3]+" other/unmatched="+sums[4]+" non-Wi-Fi="+sums[5]));
+  }
+  runtime.remove(diagnostic.validationPlan());runtime.remove(diagnostic);
+  check(fake.tables.get(14).get("OUTPUT").equals(Arrays.asList("-j AFWALL")));
+  System.out.println("Native egress guard, DNS owner counters and validation NAT exact ownership transaction PASS");
  }
 }
