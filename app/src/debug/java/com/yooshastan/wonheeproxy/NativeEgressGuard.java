@@ -38,7 +38,7 @@ final class NativeEgressGuard {
             if(!prefs(context).edit().putString(KEY,plan.encode()).commit())throw new IllegalStateException("EGRESS_JOURNAL_WRITE_FAILED");
             try{
                 runtime.install(plan);
-                status="Verified · "+runtime.counters(plan);
+                status=verifiedStatus();
                 auditor.scheduleWithFixedDelay(this::audit,5,5,TimeUnit.SECONDS);
             }catch(Exception error){
                 failed=true;status="Install unconfirmed · Stop to remove exact owned rules";
@@ -46,11 +46,16 @@ final class NativeEgressGuard {
             }
         }
     }
+    // Counter presentation is diagnostic, not the verified rule integrity check.
+    private String verifiedStatus(){
+        try{return "Verified · "+runtime.counters(plan);}
+        catch(Exception e){return "Verified · counters unavailable";}
+    }
     private void audit(){
         synchronized(LOCK){
             if(closing||plan==null||failed)return;
             try{
-                runtime.verify(plan);status="Verified · "+runtime.counters(plan);
+                runtime.verify(plan);status=verifiedStatus();
             }catch(Exception error){
                 failed=true;status="Verification failed · captured traffic held; protection unconfirmed";
             }
