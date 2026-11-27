@@ -42,10 +42,10 @@ public final class NativeEgressGuardPlanTest {
     // Removing only the new terminal drops leaves the original policy,
     // ignoring renumbered exact-ownership comments.
     List<String> unchanged=new ArrayList<>();
-    for(String rule:rules)if(!rule.contains("-o wlan0 "))unchanged.add(rule.replaceAll(" -m comment --comment WNE_[a-f0-9]+_[46]_[0-9]+",""));
+    for(String rule:rules)if(!rule.contains("-o wlan0 "))unchanged.add(rule.replaceAll("(^| )-m comment --comment WNE_[a-f0-9]+_[46]_[0-9]+ ","$1"));
     List<String> baseline=new ArrayList<>();
-    for(String rule:old.rules(f))baseline.add(rule.replaceAll(" -m comment --comment WNE_[a-f0-9]+_[46]_[0-9]+",""));
-    check(unchanged.equals(baseline));
+    for(String rule:old.rules(f))baseline.add(rule.replaceAll("(^| )-m comment --comment WNE_[a-f0-9]+_[46]_[0-9]+ ","$1"));
+    if(!unchanged.equals(baseline))throw new AssertionError("Baseline rule mismatch IPv"+f+" port="+port+"\nactual="+unchanged+"\nexpected="+baseline);
    }
   }
   System.out.println("Native egress guard plan and backward compatible diagnostics journal PASS");
