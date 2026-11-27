@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(162)' in gradle
+assert 'versionCode.set(163)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.25.0-configuration-persistence')" in gradle
+assert "versionName.set('0.25.1-dns-isolation')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -143,7 +143,7 @@ assert 'allowBypass' not in app_routing and 'Settings.Global.put' not in app_rou
 protected_dns = (root / "app/src/debug/java/com/yooshastan/wonheeproxy/NativeProtectedDnsRelay.java").read_text()
 assert 'network.bindSocket(raw)' in protected_dns and 'raw.bind(' in protected_dns
 assert 'setEndpointIdentificationAlgorithm("HTTPS")' in protected_dns and 'tls.startHandshake()' in protected_dns
-assert 'ports.putIfAbsent(port,raw)' in protected_dns and 'dnsRelay.owns(key)' in app_routing
+assert 'ports.putIfAbsent(port,raw)' in protected_dns and 'relayForSocket(key)' in app_routing
 assert 'key.remotePort==53' in app_routing and 'dnsRelay.submit(p)' in app_routing
 assert 'RootBlocklistStore.current(getFilesDir())' in app_routing
 assert 'controlled-guard-test' in app_routing and 'old.close()' in app_routing
@@ -225,14 +225,14 @@ assert 'NativeAdvancedDnsBridge.createQuic(provider,mode,alternate,quicRoots)' i
 assert 'if(k.remote!=ip||k.remotePort!=NativeDnsTransportPolicy.port(mode)' in protected_dns
 assert 'freshBackoff.begin' in protected_dns and 'freshBackoff.finish' in protected_dns
 assert 'QUIC_IDLE_LIMIT=10000' in protected_dns and 'quicFreshRetries' in protected_dns
-assert 'dnsRelay.testProvider()' in app_routing and 'DNS_TEST' in ui_activity
+assert 'r.testProvider()' in app_routing and 'DNS_TEST' in ui_activity
 assert 'dnsAlternate.getSelectedItemPosition()' in ui_activity
 assert 'DNS probe attempts=' in app_routing and 'dnsHealth' in ui_activity
 
 assert 'functionalOwns(key)' in app_routing and 'return UNKNOWN_DNS' in app_routing
 assert 'network.bindSocket(socket)' in protected_dns and 'NativeAppRoutingPolicy.DNS),53)' in protected_dns
 assert 'closeFunctional();functionalWorker.shutdownNow()' in protected_dns
-assert 'DNS_FUNCTIONAL_TEST' in ui_activity and 'dnsRelay.testFunctional()' in app_routing
+assert 'DNS_FUNCTIONAL_TEST' in ui_activity and 'r.testFunctional()' in app_routing
 
 # 0.23: strict fixed-address HTTPS bootstrap; no resolver fallback.
 assert 'InetAddress.getByAddress(resolverIp),port)' in bootstrap and 'port=option%2==0?443:853' in bootstrap
@@ -257,7 +257,7 @@ assert 'BOOTSTRAP RETRY' in bootstrap and 'stopped()' in bootstrap
 assert 'SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE' in app_routing
 assert 'SHARED_UID_REQUIRES_ALL_MEMBERS_SAME_RULE_OR_ALL_APP_MODE' in ui_activity
 assert 'r.category.getSelectedItemPosition()!=r.suggested' in ui_activity
-assert 'NativeRoutingSafety.isolationAllowed(request,count,dnsRole)' in app_routing
+assert 'NativeRoutingSafety.isolationAllowed(request,count,dnsRole,dnsStrategy!=NativeAppRoutingPolicy.DNS_GLOBAL)' in app_routing
 assert app_routing.index('NativeRoutingSafety.held(role,isolationRole,now,isolationUntil)') < app_routing.index('RootlessNativeBridge.injectPacket(handles[role],translated)')
 assert 'NativeRoutingSafety.held(i,isolationRole,now,isolationUntil)' in app_routing
 assert 'Category flows ' in app_routing and 'ISOLATION_TEST' in ui_activity
@@ -270,3 +270,16 @@ assert 'wireDraftAutosave()' in ui_activity and 'autoSave();super.onPause()' in 
 assert 'draft.getString("endpointOverride"+i,"")' in ui_activity and 'e.putString("endpointOverride"+i' in ui_activity
 assert 'EXPORT_RULES' in ui_activity and 'IMPORT_RULES' in ui_activity and 'if(routingKey(key))e.remove(key)' in ui_activity
 assert '1048576' in ui_activity and 'putRoutingValue(e,k,values.get(k))' in ui_activity
+
+# 0.25.1: strict routing for attributable DNS; explicit policy for unknown owner.
+assert 'NativeProtectedDnsRelay[] dnsRelays=new NativeProtectedDnsRelay[2]' in app_routing
+assert 'dnsRelays[role]=new NativeProtectedDnsRelay(vpn,dnsProvider,role,dnsMode,dnsAlternate,blocklist)' in app_routing
+assert 'policy.dnsExit(key,owners.get(owner),owner==UNKNOWN_DNS,dnsStrategy,dnsRole)' in app_routing
+assert 'dnsLedger.admit(key,syn,owner,route,now)' in app_routing and 'dnsLedger.reply(reply,dnsRelay.role,now)' in app_routing
+assert 'dnsLedger.entries.clear()' in app_routing
+assert 'if(held){dnsIsolationDropped++;continue;}' in app_routing
+assert 'NativeRoutingSafety.held(route,isolationRole,now,isolationUntil)' in app_routing
+assert 'owner==RELAY_UID?(dnsRelay==null?-1:dnsRelay.role)' in app_routing
+assert 'if(found!=null)return null' in app_routing
+assert 'dnsStrategy' in ui_activity and 'Strict · deny unattributed DNS' in ui_activity
+assert 'isolationUntil' in ui_activity and 'isolationUntil' in app_routing
