@@ -7,33 +7,37 @@ import java.util.Arrays;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** IPv4 loopback-only validation lab. No protected/direct socket or resolver
- * fallback of its own. Two bounded listeners, fixed names, configured Exit A. */
+/** Dual-stack loopback-only validation lab. No direct socket fallback. */
 final class NativeValidationDnsBridge implements AutoCloseable {
-    private final ServerSocket tcp;
-    private final DatagramSocket udp;
+    private final ServerSocket tcp,tcp6;
+    private final DatagramSocket udp,udp6;
     private final SecureRandom random=new SecureRandom();
-    private final Thread udpWorker,tcpWorker;
+    private final Thread udpWorker,tcpWorker,udpWorker6,tcpWorker6;
     private volatile NativeProtectedDnsRelay relay;
     private volatile boolean closed;
-    private volatile Socket currentTcp;
+    private volatile Socket currentTcp,currentTcp6;
     private final AtomicLong requests=new AtomicLong(),refused=new AtomicLong(),answered=new AtomicLong(),failed=new AtomicLong();
     NativeValidationDnsBridge()throws IOException{
         InetAddress loop=InetAddress.getByAddress(new byte[]{127,0,0,1});
-        ServerSocket t=new ServerSocket();DatagramSocket u=null;
+        InetAddress loop6=InetAddress.getByAddress(new byte[]{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1});
+        ServerSocket t=new ServerSocket(),t6=null;DatagramSocket u=null,u6=null;
         try{
             t.bind(new InetSocketAddress(loop,0),4);
             if(t.getLocalPort()<1024)throw new IOException("invalid local port");
             u=new DatagramSocket(null);u.bind(new InetSocketAddress(loop,t.getLocalPort()));
-        }catch(IOException|RuntimeException e){try{t.close();}catch(IOException ignored){}if(u!=null)u.close();throw e;}
-        tcp=t;udp=u;
-        udpWorker=new Thread(this::udpLoop,"WonheeValidationUdp");
-        tcpWorker=new Thread(this::tcpLoop,"WonheeValidationTcp");
-        udpWorker.start();tcpWorker.start();
+            t6=new ServerSocket();t6.bind(new InetSocketAddress(loop6,t.getLocalPort()),4);
+            u6=new DatagramSocket(null);u6.bind(new InetSocketAddress(loop6,t.getLocalPort()));
+        }catch(IOException|RuntimeException e){try{t.close();}catch(IOException ignored){}if(u!=null)u.close();if(t6!=null)try{t6.close();}catch(IOException ignored){}if(u6!=null)u6.close();throw e;}
+        tcp=t;udp=u;tcp6=t6;udp6=u6;
+        udpWorker=new Thread(()->udpLoop(udp),"WonheeValidationUdp4");
+        tcpWorker=new Thread(()->tcpLoop(tcp,false),"WonheeValidationTcp4");
+        udpWorker6=new Thread(()->udpLoop(udp6),"WonheeValidationUdp6");
+        tcpWorker6=new Thread(()->tcpLoop(tcp6,true),"WonheeValidationTcp6");
+        udpWorker.start();tcpWorker.start();udpWorker6.start();tcpWorker6.start();
     }
     int port(){return tcp.getLocalPort();}
     void setRelay(NativeProtectedDnsRelay next){relay=closed?null:next;}
-    String status(){return "IPv4 validation bridge · "+(closed?"closed":relay==null?"waiting/held":"Exit A")+
+    String status(){return "Dual-stack validation bridge · "+(closed?"closed":relay==null?"waiting/held":"Exit A")+
         " requests="+requests.get()+" answered="+answered.get()+" refused="+refused.get()+" failed="+failed.get();}
     private boolean local(InetAddress address){
         try{return address.isLoopbackAddress()||NetworkInterface.getByInetAddress(address)!=null;}
@@ -63,7 +67,7 @@ final class NativeValidationDnsBridge implements AutoCloseable {
             return NativeProtectedDnsMessage.error(query,2,false);
         }finally{result.cancel(false);}
     }
-    private void udpLoop(){
+    private void udpLoop(DatagramSocket udp){
         byte[] buffer=new byte[NativeProtectedDnsMessage.MAX_DNS+1];
         while(!closed){
             try{
@@ -74,10 +78,10 @@ final class NativeValidationDnsBridge implements AutoCloseable {
             }catch(IOException|RuntimeException e){if(!closed)failed.incrementAndGet();}
         }
     }
-    private void tcpLoop(){
+    private void tcpLoop(ServerSocket tcp,boolean ipv6){
         while(!closed){
             try(Socket socket=tcp.accept()){
-                currentTcp=socket;
+                if(ipv6)currentTcp6=socket;else currentTcp=socket;
                 if(closed||!local(socket.getInetAddress())){refused.incrementAndGet();continue;}
                 socket.setSoTimeout(2000);
                 DataInputStream in=new DataInputStream(socket.getInputStream());
@@ -86,15 +90,16 @@ final class NativeValidationDnsBridge implements AutoCloseable {
                 byte[] answer=exchange(query,false);
                 if(!closed){DataOutputStream out=new DataOutputStream(socket.getOutputStream());out.writeShort(answer.length);out.write(answer);out.flush();}
             }catch(IOException|RuntimeException e){if(!closed)failed.incrementAndGet();}
-            finally{currentTcp=null;}
+            finally{if(ipv6)currentTcp6=null;else currentTcp=null;}
         }
     }
     @Override public void close(){
-        closed=true;relay=null;udp.close();try{tcp.close();}catch(IOException ignored){}
-        Socket socket=currentTcp;if(socket!=null)try{socket.close();}catch(IOException ignored){}
-        udpWorker.interrupt();tcpWorker.interrupt();
+        closed=true;relay=null;udp.close();udp6.close();
+        for(ServerSocket listener:new ServerSocket[]{tcp,tcp6})try{listener.close();}catch(IOException ignored){}
+        for(Socket socket:new Socket[]{currentTcp,currentTcp6})if(socket!=null)try{socket.close();}catch(IOException ignored){}
+        for(Thread t:new Thread[]{udpWorker,tcpWorker,udpWorker6,tcpWorker6})t.interrupt();
         boolean interrupted=false;
-        for(Thread t:new Thread[]{udpWorker,tcpWorker})try{t.join(1000);}catch(InterruptedException e){interrupted=true;}
+        for(Thread t:new Thread[]{udpWorker,tcpWorker,udpWorker6,tcpWorker6})try{t.join(1000);}catch(InterruptedException e){interrupted=true;}
         if(interrupted)Thread.currentThread().interrupt();
     }
 }
