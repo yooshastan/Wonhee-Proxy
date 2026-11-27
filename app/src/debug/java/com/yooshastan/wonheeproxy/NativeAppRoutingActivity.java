@@ -52,7 +52,7 @@ public final class NativeAppRoutingActivity extends Activity {
         shell.setFitsSystemWindows(true);
         LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(18),dp(12),dp(18),dp(6));shell.addView(header);
         TextView brand=label(header,"wonhee  ✦",26);brand.setTypeface(null,android.graphics.Typeface.BOLD);
-        label(header,"PROXY  /  0.26.3 PREVIEW",12);
+        label(header,"PROXY  /  0.26.4 PREVIEW",12);
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(6),0,dp(6),0);shell.addView(nav);
         for(int i=0;i<tabs.length;i++){
             final int at=i;Button t=new Button(this);t.setAllCaps(false);t.setText(i==3?"Protect":SECTIONS[i]);t.setContentDescription(SECTIONS[i]);t.setSingleLine(true);t.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);t.setMinWidth(0);t.setMinimumWidth(0);t.setPadding(dp(2),0,dp(2),0);
@@ -114,6 +114,7 @@ public final class NativeAppRoutingActivity extends Activity {
         label(root,"Requires root and all-app capture. Installs only after VPN establishment; blocks direct port 53/853 and IPv6 data, except exact WireGuard endpoints and narrow local control. Other direct IPv4 remains allowed. IPv4 IPsec is unchanged; carrier DNS and IPv6 calls may be affected. No broad IPv4 lockdown. Stop to remove the guard. Unexpected process death can leave rules installed; use recovery below. AFWall+ is not changed. A firewall reload can remove or move the guard; periodic verification holds captured traffic on detection.",13);
         validationCompat=new CheckBox(this);validationCompat.setText("Wi-Fi validation DNS bridge (experimental)");validationCompat.setChecked(draft.getBoolean("validationCompat",false));root.addView(validationCompat);
         label(root,"Requires root guard and Strict DNS. IPv4 wlan0 DNS from NetworkStack UID 1073 only is redirected locally. Only three known validation names, A/AAAA, use encrypted Exit A. Other requests refused; Exit A held or cellular means no relay. Android still performs real HTTP/HTTPS validation; direct IPv4 probe traffic is not newly exempted. IPv6 DNS stays blocked. This trial may not match the actual socket UID or network routing.",13);
+        label(root,"DNS ownership audit: root guard counts blocked port 53 packets by IPv4/IPv6 and Wi-Fi socket UID (1051 DNS resolver, 1073 NetworkStack, root, system, other/unmatched); non-Wi-Fi drops are separate. NAT counters describe matching new connections, not DNS query counts. No new DNS exceptions. IPv6 redirect remains off.",13);
         validationStatus=label(root,"Validation bridge · off",14);
         rootGuardStatus=label(root,"Root guard · not active",14);
         rootRecoverButton=button(root,"Recover owned root guard (offline)",()->{
