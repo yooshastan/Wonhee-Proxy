@@ -70,6 +70,27 @@ final class NativeEgressGuardRuntime {
         if(p.mode!=NativeEgressGuardPlan.DNS_IPV6)throw new IllegalStateException("EGRESS_STRICT_IPV4_NOT_ENABLED");
         installOwned(p);
     }
+    // Explicit separate opt-in. Never promote a narrow session or enable
+    // discovery/validation exceptions in this strict preview.
+    void installStrict(NativeEgressGuardPlan p)throws Exception{
+        if(p.mode!=NativeEgressGuardPlan.STRICT_IP||p.localDiscovery||p.validationPort!=0)
+            throw new IllegalStateException("EGRESS_STRICT_CONFIG_REFUSED");
+        installOwned(p);
+    }
+    // Read-only, including after process death/reboot. A journal alone is not
+    // evidence that the kernel still has the exact rules and first anchors.
+    String offlineState(OwnedPlan p)throws Exception{
+        boolean any=false,complete=true;
+        for(int f:p.families()){
+            Snapshot s=inspect(p,f,false);
+            any|=s.chain||s.anchor;
+            complete&=s.chain&&s.anchor&&s.first&&s.rules.equals(p.rules(f));
+        }
+        if(!any)return "Absent";
+        if(!complete)return "Partial or moved";
+        verify(p);
+        return "Exact rules and first anchors present";
+    }
     void installValidation(NativeValidationDnsPlan p)throws Exception{installOwned(p);}
     private void installOwned(OwnedPlan p)throws Exception{
         preflight(p);
