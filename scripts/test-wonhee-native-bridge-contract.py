@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(170)' in gradle
+assert 'versionCode.set(171)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.26.6-nat-compatibility')" in gradle
+assert "versionName.set('0.26.7-validation-lifecycle')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -339,7 +339,7 @@ assert '-o wlan0 -p ' in validation_plan and '--dport 53 -m owner --uid-owner ' 
 assert '-j ACCEPT' not in validation_plan and '-j ACCEPT' not in egress_plan
 assert 'new byte[]{127,0,0,1}' in validation_bridge and 'active.resolveValidation(canonical,result::complete)' in validation_bridge
 assert 'result.get(3500,TimeUnit.MILLISECONDS)' in validation_bridge and 'relay!=active' in validation_bridge
-assert 'validationBridge.setRelay(null)' in app_routing and 'validationWifi&&!NativeRoutingSafety.held(0,isolationRole,now,isolationUntil)' in app_routing
+assert 'validationBridge.setRelay(null)' in app_routing and 'NativeRoutingSafety.held(0,isolationRole,now,isolationUntil)' in app_routing
 assert 'runtime.installValidation(plan.validationPlan())' in egress and 'runtime.verify(plan.validationPlan())' in egress and 'runtime.remove(plan.validationPlan())' in egress
 assert 'runtime.remove(p.validationPlan())' in egress
 assert 'validationPort==0?null:new NativeValidationDnsPlan' in egress_plan
@@ -369,3 +369,11 @@ assert 'validationDual=NativeEgressGuard.validationDualAvailable(this)' in app_r
 assert app_routing.index('validationBridge=new NativeValidationDnsBridge(validationDual)') < app_routing.index('tun=builder.establish()')
 assert 'report(stats(blockedReason))' in app_routing
 assert 'if(udp6!=null)udp6.close()' in validation_bridge
+
+# 0.26.7: no resolver dependency on current physical network type.
+assert 'validationWifi' not in app_routing
+assert 'validationRelayAllowed(guardedSession(),stopping,NativeRoutingSafety.held(0,isolationRole,now,isolationUntil),dnsRelays[0]!=null)' in app_routing
+assert 'validationBridge.setRelay(validationRelayReady(now)?dnsRelays[0]:null)' in app_routing
+assert 'dnsGeneration++;startupProbePending=true;\n        refreshValidationRelay(SystemClock.elapsedRealtime());' in app_routing
+assert 'migrationSettle(validationRelayReady(now),androidValidated,targetWifi,usable(candidate))' in app_routing
+assert 'noRelay=' in validation_bridge and 'upstreamError=' in validation_bridge and 'UDP received/sent=' in validation_bridge and 'workers=' in validation_bridge
