@@ -94,17 +94,33 @@ final class NativeEgressGuardRuntime {
         for(int f:new int[]{4,6}){
             List<String> out=new ArrayList<>();
             if(runner.run(out,p.prefix(f)+" -L "+p.chain(f)+" -v -n -x")!=0)throw new IllegalStateException("EGRESS_COUNTERS_UNAVAILABLE");
-            long dropped=0,returned=0;int rows=0;
+            long dropped=0,returned=0,dns53=0,dns853=0,mdns=0,ssdp=0,other=0;int rows=0;
+            List<String> expected=p.rules(f);boolean detailed=true;
             for(String l:out){
                 String[] x=l.trim().split("\\s+");
                 if(x.length<3||!x[0].matches("[0-9]+"))continue;
-                long n=Long.parseLong(x[0]);rows++;
-                if(x[2].equals("DROP"))dropped+=n;
-                else if(x[2].equals("RETURN"))returned+=n;
+                long n=Long.parseLong(x[0]);
+                if(rows>=expected.size())throw new IllegalStateException("EGRESS_COUNTER_ROWS_MISMATCH");
+                String rule=expected.get(rows),tag=p.tag(f)+"_"+rows;
+                if(!l.contains("/* "+tag+" */"))detailed=false;
+                rows++;
+                if(x[2].equals("DROP")){
+                    dropped+=n;
+                    if(rule.contains("--dport 53 "))dns53+=n;
+                    else if(rule.contains("--dport 853 "))dns853+=n;
+                    else if(rule.contains("--dport 5353 "))mdns+=n;
+                    else if(rule.contains("--dport 1900 "))ssdp+=n;
+                    else other+=n;
+                }else if(x[2].equals("RETURN"))returned+=n;
+                else throw new IllegalStateException("EGRESS_COUNTER_TARGET_MISMATCH");
+                if(!rule.endsWith("-j "+x[2]))detailed=false;
             }
             if(rows!=p.rules(f).size())throw new IllegalStateException("EGRESS_COUNTER_ROWS_MISMATCH");
             if(report.length()>0)report.append(" · ");
             report.append("IPv").append(f).append(" dropped=").append(dropped).append(" returned=").append(returned);
+            if(detailed)report.append(" [DNS53=").append(dns53).append(" DNS853=").append(dns853)
+                .append(" mDNS=").append(mdns).append(" SSDP=").append(ssdp).append(" other=").append(other).append("]");
+            else report.append(" [per-rule counters unavailable]");
         }
         return report.toString();
     }
