@@ -35,9 +35,9 @@ assert 'stats[0] != 4L || stats[1] != 0L' in service
 assert 'RootlessNativeTransportService' not in manifest
 assert manifest.count('<action android:name="android.net.VpnService" />') == 2
 assert 'tools:node="remove"' in manifest
-assert 'versionCode.set(169)' in gradle
+assert 'versionCode.set(170)' in gradle
 assert "applicationIdSuffix '.rootlab01562triple1native160'" in gradle
-assert "versionName.set('0.26.5-dual-stack-validation')" in gradle
+assert "versionName.set('0.26.6-nat-compatibility')" in gradle
 assert "mergeDebugJniLibFolders" in gradle and "buildWonheeNativeAndroidArm64" in gradle
 
 assert 'WNCreatePacketTestSession' in go and 'WNInjectPacket' in go and 'WNPacketStats' in go
@@ -348,16 +348,24 @@ assert 'validationCompat' in ui_activity and 'validationStatus' in app_routing
 # 0.26.4: partition existing terminal drops, never add a DNS bypass.
 assert 'for(int owner:new int[]{1051,1073,0,1000})' in egress_plan
 assert 'base.add("-o wlan0 -p "+proto+" --dport 53 -m owner --uid-owner "+owner+" -j DROP")' in egress_plan
-assert 'diagnostics=1' in egress_plan and 'validationPort,true,validationPort!=0)' in egress
+assert 'diagnostics=1' in egress_plan and 'validationPort,true,validationDual,validationPort!=0)' in egress
 assert 'DNS53 Wi-Fi owner 1051=' in egress_runtime and 'other/unmatched=' in egress_runtime
 assert 'append("NAT IPv").append(f).append(" redirect UDP=")' in egress_runtime and 'IPv6 redirect not installed' in egress_runtime
 assert 'runtime.validationCounters(plan.validationPlan())' in egress
 
 # 0.26.5: dual-stack opt-in loopback validation, actual observed owner.
-assert 'return dual?0:NativeValidationDnsPolicy.NETWORK_STACK_UID' in validation_plan
+assert 'return rootOwner?0:NativeValidationDnsPolicy.NETWORK_STACK_UID' in validation_plan
 assert 'dual?new int[]{4,6}:new int[]{4}' in validation_plan
 assert 'validationDual=1' in egress_plan and 'validationPlan().owner()' in egress_plan
 assert 'family==4?"127.0.0.1":"::1"' in egress_plan
 assert 'new byte[]{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}' in validation_bridge
 assert 'u6.bind(new InetSocketAddress(loop6,t.getLocalPort()))' in validation_bridge
 assert 'udpWorker6,tcpWorker6' in validation_bridge
+
+# 0.26.6: missing IPv6 NAT is not fatal to the base VPN.
+assert 'validationRoot=1' in egress_plan and 'rootOnly||dual' in egress_plan
+assert 'static boolean validationDualAvailable' in egress and 'VALIDATION_IPV4_NAT_UNAVAILABLE' in egress
+assert 'validationDual=NativeEgressGuard.validationDualAvailable(this)' in app_routing
+assert app_routing.index('validationBridge=new NativeValidationDnsBridge(validationDual)') < app_routing.index('tun=builder.establish()')
+assert 'report(stats(blockedReason))' in app_routing
+assert 'if(udp6!=null)udp6.close()' in validation_bridge
