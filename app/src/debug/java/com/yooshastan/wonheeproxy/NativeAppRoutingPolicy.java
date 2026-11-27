@@ -60,6 +60,16 @@ final class NativeAppRoutingPolicy {
         if(app.role!=INHERIT)return app.role;
         int role=categories[app.category];return role==INHERIT?fallback:role;
     }
+    // Global preserves the previous setting. Follow mode has an explicitly
+    // configured resolver for unattributed system queries; strict denies them.
+    static final int DNS_GLOBAL=0,DNS_FOLLOW=1,DNS_STRICT=2;
+    int dnsExit(Key key,App app,boolean unattributed,int strategy,int configured){
+        if(!key.fixedDns()||strategy<DNS_GLOBAL||strategy>DNS_STRICT||(configured!=A&&configured!=B))return DROP;
+        if(unattributed&&strategy==DNS_STRICT)return DROP;
+        int eligible=choose(key,app,unattributed);
+        if(eligible!=A&&eligible!=B)return DROP;
+        return strategy==DNS_GLOBAL||unattributed?configured:eligible;
+    }
     static final class Key {
         final int remote,localPort,remotePort,proto;
         Key(int remote,int localPort,int remotePort,int proto){this.remote=remote;this.localPort=localPort;this.remotePort=remotePort;this.proto=proto;}
