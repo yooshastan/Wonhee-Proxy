@@ -299,7 +299,7 @@ public final class NativeAppRoutingService extends VpnService {
             }
             stage="bootstrap";
             String[] addresses=new String[3],configs=null;
-            NativeEndpointBootstrap resolver=new NativeEndpointBootstrap(this,underlay);bootstrap=resolver;
+            NativeEndpointBootstrap resolver=new NativeEndpointBootstrap(this,underlay,intent.getIntExtra("bootstrapOption",0));bootstrap=resolver;
             try{
                 configs=NativePeerProfiles.prepare(this,home,intent.getStringArrayExtra("overrides"),addresses,resolver,false);
                 report(resolver.summary());
