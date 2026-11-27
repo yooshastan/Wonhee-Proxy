@@ -205,6 +205,12 @@ final class NativeProtectedDnsRelay implements AutoCloseable {
         if(closed)return;udpQueries.incrementAndGet();
         resolve(Arrays.copyOfRange(packet,28,packet.length),answer->enqueue(packet,answer));
     }
+    void resolveValidation(byte[] raw,java.util.function.Consumer<byte[]> callback){
+        // Defense in depth: only the fixed canonical validation question is admitted.
+        try{NativeValidationDnsPolicy.canonical(raw,NativeProtectedDnsMessage.u16(raw,0));}
+        catch(IOException|RuntimeException invalid){return;}
+        resolve(raw,callback::accept);
+    }
     private void resolve(byte[] raw,AnswerSink sink){
         if(closed)return;queries.incrementAndGet();
         final byte[] query;
