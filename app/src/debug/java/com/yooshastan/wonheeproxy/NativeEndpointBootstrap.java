@@ -5,15 +5,13 @@ import android.net.VpnService;
 import android.os.SystemClock;
 import java.io.*;
 import java.net.*;
-import java.security.SecureRandom;
 import java.util.*;
 import javax.net.ssl.*;
 
-// Explicit pre-tunnel DNS-over-TLS. Never use Android/system DNS, never retry plaintext.
+// Explicit pre-tunnel DNS-over-HTTPS (HTTP/1.1 over authenticated TLS). Never use Android/system DNS, never retry plaintext.
 final class NativeEndpointBootstrap {
     private final VpnService service;
     private final Network network;
-    private final SecureRandom random=new SecureRandom();
     private final Map<String,Cache> cache=new HashMap<>();
     private final String[] status={"numeric/override","numeric/override","numeric/override"};
     private boolean closed;
@@ -63,7 +61,7 @@ final class NativeEndpointBootstrap {
         if(a==null)a=query(host,28);
         if(a==null)throw new Failure("NO_USABLE_ANSWER");
         if(a.ttl>0)cache.put(host,new Cache(a.ip,SystemClock.elapsedRealtime()+a.ttl*1000L));
-        status[slot]="authenticated-DoT";
+        status[slot]="authenticated-DoH";
         return a.ip;
     }
     String resolveTransferTarget()throws Exception{
@@ -72,7 +70,7 @@ final class NativeEndpointBootstrap {
         return answer.ip;
     }
     private NativeEndpointDnsMessage.Answer query(String host,int type)throws Exception{
-        int id=random.nextInt(65536);
+        int id=0; // RFC 8484 recommends zero for HTTP-correlated DNS queries
         byte[] q=NativeEndpointDnsMessage.query(host,id,type);
         String stage="socket-create";
         try(Socket raw=new Socket()){
@@ -86,26 +84,25 @@ final class NativeEndpointBootstrap {
             stage="network-bind";
             network.bindSocket(raw);
             stage="connect";
-            raw.connect(new InetSocketAddress(InetAddress.getByAddress(new byte[]{1,1,1,1}),853),timeout());
+            raw.connect(new InetSocketAddress(InetAddress.getByAddress(new byte[]{1,1,1,1}),443),timeout());
             raw.setSoTimeout(timeout());
             stage="tls-setup";
             SSLSocketFactory factory=(SSLSocketFactory)SSLSocketFactory.getDefault();
-            try(SSLSocket tls=(SSLSocket)factory.createSocket(raw,"cloudflare-dns.com",853,true)){
+            try(SSLSocket tls=(SSLSocket)factory.createSocket(raw,"cloudflare-dns.com",443,true)){
                 SSLParameters params=tls.getSSLParameters();
                 params.setEndpointIdentificationAlgorithm("HTTPS");
                 params.setServerNames(Collections.singletonList(new SNIHostName("cloudflare-dns.com")));
                 tls.setSSLParameters(params);
                 stage="tls-handshake";
                 tls.setSoTimeout(timeout());tls.startHandshake();
-                stage="dns-write";
-                DataOutputStream out=new DataOutputStream(tls.getOutputStream());
-                out.writeShort(q.length);out.write(q);out.flush();
-                stage="dns-read";
-                DataInputStream in=new DataInputStream(tls.getInputStream());
-                tls.setSoTimeout(timeout());
-                int n=in.readUnsignedShort();if(n<12||n>16384)throw new IOException();
-                byte[] b=new byte[n];int read=0;
-                while(read<n){tls.setSoTimeout(timeout());int got=in.read(b,read,n-read);if(got<1)throw new IOException();read+=got;}
+                stage="doh-write";
+                NativeBootstrapHttp.request(tls.getOutputStream(),q);
+                stage="doh-read";
+                InputStream bounded=new FilterInputStream(tls.getInputStream()){
+                    @Override public int read()throws IOException{tls.setSoTimeout(timeout());return in.read();}
+                    @Override public int read(byte[] b,int off,int len)throws IOException{tls.setSoTimeout(timeout());return in.read(b,off,len);}
+                };
+                byte[] b=NativeBootstrapHttp.response(new BufferedInputStream(bounded));
                 stage="dns-validate";
                 return NativeEndpointDnsMessage.parse(b,host,id,type);
             }
