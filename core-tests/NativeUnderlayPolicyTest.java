@@ -38,6 +38,17 @@ public final class NativeUnderlayPolicyTest {
   m.clear();eq(NativeUnderlayPolicy.recoveryTarget(0,447,421,m),0);
   eq(NativeUnderlayPolicy.handshakeBudget(true),15000L);
   eq(NativeUnderlayPolicy.handshakeBudget(false),60000L);
-  System.out.println("Underlay preference, validation separation, pinned recovery target and debounce PASS");
+  eq(NativeUnderlayPolicy.migrationSettle(true,true,true,false),12000);
+  eq(NativeUnderlayPolicy.migrationSettle(true,true,true,true),2000);
+  eq(NativeUnderlayPolicy.migrationSettle(false,true,true,false),2000);
+  eq(NativeUnderlayPolicy.migrationSettle(true,false,true,false),2000);
+  eq(NativeUnderlayPolicy.migrationSettle(true,true,false,false),2000);
+  d.reset();yes(!d.due(421,447,100,12000));yes(!d.due(421,447,12099,12000));yes(d.due(421,447,12100,12000));
+  d.reset();yes(!d.due(421,447,100,12000));yes(d.due(421,447,2100,2000));
+  for(int mask=0;mask<16;mask++){
+   boolean guard=(mask&1)!=0,stop=(mask&2)!=0,hold=(mask&4)!=0,relay=(mask&8)!=0;
+   yes(NativeUnderlayPolicy.validationRelayAllowed(guard,stop,hold,relay)==(mask==9));
+  }
+  System.out.println("Underlay preference, validation grace, relay isolation and debounce PASS");
  }
 }
